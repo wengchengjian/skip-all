@@ -40,12 +40,11 @@ const (
 )
 
 var (
-	procSendInput           = user32.NewProc("SendInput")
-	procSetCursorPos        = user32.NewProc("SetCursorPos")
-	procGetCursorPos        = user32.NewProc("GetCursorPos")
-	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
-	procPostMessage         = user32.NewProc("PostMessageW")
-	procSendMessage         = user32.NewProc("SendMessageW")
+	procSendInput    = user32.NewProc("SendInput")
+	procSetCursorPos = user32.NewProc("SetCursorPos")
+	procGetCursorPos = user32.NewProc("GetCursorPos")
+	procPostMessage  = user32.NewProc("PostMessageW")
+	procSendMessage  = user32.NewProc("SendMessageW")
 )
 
 // mouseInput 对应 Win32 MOUSEINPUT。
@@ -282,24 +281,14 @@ func (i *Input) KeyTap(key string) error {
 			}
 			return errors.New("虚拟手柄未启用")
 		}
-		hwnd := i.win.Handle()
-		prevFg, _, _ := procGetForegroundWindow.Call()
-		activated := false
-		if i.background && !i.win.IsActive() {
-			if err := i.win.Activate(); err != nil {
-				return fmt.Errorf("激活游戏窗口: %w", err)
-			}
-			activated = true
-			time.Sleep(30 * time.Millisecond)
+		// 与上游 _gamepad_click 一致：只给游戏发 WM_ACTIVATE 消息，
+		// 不切换真实前台窗口；XInput 状态由 ViGEm 驱动全局提供。
+		if i.background {
+			_, _, _ = procSendMessage.Call(i.win.Handle(), wmActivate, waActive, 0)
+			time.Sleep(10 * time.Millisecond)
 		}
 		err := i.gamepad.Tap(key)
-		if activated {
-			// 给游戏留出处理 XInput 状态的时间，再恢复原来的前台窗口。
-			time.Sleep(80 * time.Millisecond)
-			if prevFg != 0 && prevFg != hwnd {
-				_, _, _ = procSetForegroundWindow.Call(prevFg)
-			}
-		}
+		time.Sleep(20 * time.Millisecond)
 		return err
 	}
 	if i.background {
