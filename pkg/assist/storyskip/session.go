@@ -35,7 +35,7 @@ const (
 	padStartKey    = "xbox_start"
 	padConfirmKey  = "xbox_a"
 	padActivateKey = "xbox_a"
-	padActionWait  = 400 * time.Millisecond
+	padActionWait  = 250 * time.Millisecond
 )
 
 // Session 是剧情跳过状态机。
