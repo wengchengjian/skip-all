@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"image/color"
 	"io"
 	"log/slog"
 	"testing"
@@ -146,14 +147,33 @@ func testFrame() assist.Frame {
 	return assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080))}
 }
 
+// frameForScript 把脚本里的 OCR 文字块画成白色矩形，供文字行检测使用。
+func frameForScript(script frameScript) assist.Frame {
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for areaName, blocks := range script.ocr {
+		if script.ocrColor != nil {
+			if colored, ok := script.ocrColor[areaName]; ok {
+				blocks = colored
+			}
+		}
+		for _, block := range blocks {
+			for y := block.Rect.Y1; y < block.Rect.Y2; y++ {
+				for x := block.Rect.X1; x < block.Rect.X2; x++ {
+					img.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+				}
+			}
+		}
+	}
+	return assist.Frame{Image: img, At: script.at}
+}
+
 func step(t *testing.T, session *Session, rt *fakeRuntime, index int) (assist.Result, []assist.Action) {
 	t.Helper()
 	if index < 0 || index >= len(rt.scripts) {
 		t.Fatalf("帧序号 %d 超出脚本范围 %d", index, len(rt.scripts))
 	}
 	rt.current = index
-	frame := testFrame()
-	frame.At = rt.scripts[index].at
+	frame := frameForScript(rt.scripts[index])
 	result, actions, err := session.Step(context.Background(), frame)
 	if err != nil {
 		t.Fatalf("第 %d 帧执行失败: %v", index, err)
@@ -358,8 +378,7 @@ func TestGraySkipIsIgnored(t *testing.T) {
 	}
 	session, rt := newTestSession(t, nil, []frameScript{script})
 	rt.current = 0
-	frame := testFrame()
-	frame.At = base
+	frame := frameForScript(script)
 	step, _, err := session.handleStoryBar(frame)
 	if err != nil {
 		t.Fatal(err)
@@ -379,8 +398,7 @@ func TestWhiteSkipClicks(t *testing.T) {
 	}
 	session, rt := newTestSession(t, nil, []frameScript{script})
 	rt.current = 0
-	frame := testFrame()
-	frame.At = base
+	frame := frameForScript(script)
 	step, _, err := session.handleStoryBar(frame)
 	if err != nil {
 		t.Fatal(err)

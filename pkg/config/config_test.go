@@ -8,7 +8,7 @@ import (
 
 func TestDefaultApp(t *testing.T) {
 	cfg := DefaultApp()
-	if cfg.SchemaVersion != 1 || cfg.Capture.Method != "auto" || cfg.Capture.TargetFPS != 10 {
+	if cfg.SchemaVersion != 1 || cfg.Capture.Method != "auto" || cfg.Capture.TargetFPS != 5 {
 		t.Fatalf("默认应用配置错误: %+v", cfg)
 	}
 	if !cfg.OCR.AutoDownload || cfg.OCR.Model != "ppocrv6" {
@@ -27,7 +27,7 @@ func TestLoadAppMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("文件不存在应返回默认配置: %v", err)
 	}
-	if cfg.Capture.TargetFPS != 10 {
+	if cfg.Capture.TargetFPS != 5 {
 		t.Errorf("默认帧率错误: %d", cfg.Capture.TargetFPS)
 	}
 }

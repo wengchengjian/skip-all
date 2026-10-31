@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/geom"
@@ -21,6 +20,9 @@ const (
 	recentDialogWait = 200 * time.Millisecond
 	chosenOptionHold = 500 * time.Millisecond
 	chosenOptionMax  = 2 * time.Second
+	// 同一区域 OCR 结果缓存时间；降低循环里的重复识别开销。
+	storyCacheTTL = 400 * time.Millisecond
+	guardCacheTTL = time.Second
 )
 
 // Session 是剧情跳过状态机。
@@ -33,14 +35,60 @@ type Session struct {
 	chosenOption   string
 	chosenOptionAt time.Time
 	chosenPoint    geom.Point
-	lastOptions    []string
+	lastOptionKey  string
 	recentClicks   int
+	ocrCache       map[string]ocrCacheEntry
+	confirmUntil   time.Time
+}
+
+type ocrCacheEntry struct {
+	at     time.Time
+	blocks []vision.TextBlock
 }
 
 var _ assist.Session = (*Session)(nil)
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg}
+	return &Session{rt: rt, spec: spec, cfg: cfg, ocrCache: make(map[string]ocrCacheEntry)}
+}
+
+func (s *Session) confirmPending(at time.Time) bool {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	return !s.confirmUntil.IsZero() && at.Before(s.confirmUntil)
+}
+
+func (s *Session) expectConfirm(at time.Time, d time.Duration) {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	s.confirmUntil = at.Add(d)
+}
+
+// ocrArea 对同一区域做短时缓存，避免每一帧都跑 OCR。
+func (s *Session) ocrArea(frame assist.Frame, area screen.Area, opts vision.OCROptions, ttl time.Duration) ([]vision.TextBlock, error) {
+	key := area.Name
+	if opts.ColorRange != nil {
+		key += "/color"
+	}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if ttl > 0 && s.ocrCache != nil {
+		if entry, ok := s.ocrCache[key]; ok && !now.Before(entry.at) && now.Sub(entry.at) < ttl {
+			return append([]vision.TextBlock(nil), entry.blocks...), nil
+		}
+	}
+	blocks, err := s.rt.OCR(frame, area, opts)
+	if err != nil {
+		return nil, err
+	}
+	if ttl > 0 && s.ocrCache != nil {
+		s.ocrCache[key] = ocrCacheEntry{at: now, blocks: append([]vision.TextBlock(nil), blocks...)}
+	}
+	return blocks, nil
 }
 
 // Close 释放会话资源。
@@ -52,26 +100,32 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 
-	// 1. 确认框：跳过按钮弹出的确认优先处理。
-	actions, handled, err := s.clickConfirm(frame)
-	if err != nil {
-		return assist.Result{}, nil, err
-	}
-	if handled {
-		s.resetAfterConfirm()
-		return assist.Result{State: "确认跳过", Wait: confirmWait}, actions, nil
-	}
-
-	// 2. 剧情右上角：跳过 / 菜单 / 自动。
-	if s.cfg.mode == ModeClick {
-		if _, err := s.storyBarVisible(frame); err != nil {
-			return assist.Result{}, nil, err
-		}
-	} else {
-		step, _, err := s.handleStoryBar(frame)
+	// 1. 确认框：只在刚点过跳过/菜单后检查，避免每帧 OCR。
+	if s.confirmPending(frame.At) {
+		actions, handled, err := s.clickConfirm(frame)
 		if err != nil {
 			return assist.Result{}, nil, err
 		}
+		if handled {
+			s.resetAfterConfirm()
+			return assist.Result{State: "确认跳过", Wait: confirmWait}, actions, nil
+		}
+	}
+
+	// 2. 剧情右上角：跳过 / 菜单 / 自动。
+	storyVisible := false
+	if s.cfg.mode == ModeClick {
+		visible, err := s.storyBarVisible(frame)
+		if err != nil {
+			return assist.Result{}, nil, err
+		}
+		storyVisible = visible
+	} else {
+		step, visible, err := s.handleStoryBar(frame)
+		if err != nil {
+			return assist.Result{}, nil, err
+		}
+		storyVisible = visible
 		if step != nil {
 			result, stepActions := step.unpack()
 			return result, stepActions, nil
@@ -92,7 +146,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	}
 
 	// 5. 对话流程：先选项，再黑屏推进，最后对话框正文。
-	step, err := s.doDialogClick(frame)
+	step, err := s.doDialogClick(frame, storyVisible)
 	if err != nil {
 		return assist.Result{}, nil, err
 	}
@@ -121,15 +175,13 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 	if err != nil {
 		return nil, false, err
 	}
-	blocks, err := s.rt.OCR(frame, *area, vision.OCROptions{})
-	if err != nil {
-		return nil, false, fmt.Errorf("识别确认框: %w", err)
+	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})
+	for _, band := range bands {
+		if band.X2-band.X1 >= 30 {
+			return []assist.Action{{Kind: assist.ActionClick, Point: band.Center()}}, true, nil
+		}
 	}
-	block, ok := findBlock(blocks, s.spec.ConfirmText)
-	if !ok {
-		return nil, false, nil
-	}
-	return []assist.Action{clickBlock(block)}, true, nil
+	return nil, false, nil
 }
 
 func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
@@ -137,11 +189,7 @@ func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	blocks, err := s.rt.OCR(frame, *area, vision.OCROptions{})
-	if err != nil {
-		return false, fmt.Errorf("识别剧情右上角: %w", err)
-	}
-	return hasKeyword(blocks, s.spec.Keywords), nil
+	return len(vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})) > 0, nil
 }
 
 func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) {
@@ -149,65 +197,52 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 	if err != nil {
 		return nil, false, err
 	}
-	blocks, err := s.rt.OCR(frame, *area, vision.OCROptions{})
+	if s.cfg.mode == ModeSkip {
+		// 只认白色高亮按钮；灰色“跳过”没有文字行，直接忽略。
+		bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})
+		if len(bands) == 0 {
+			return nil, false, nil
+		}
+		s.menuClickedAt = frame.At
+		s.expectConfirm(frame.At, 2*time.Second)
+		return &actionStep{state: "点击剧情按钮", wait: s.spec.SkipClickWait, actions: []assist.Action{{Kind: assist.ActionClick, Point: bands[0].Center()}}}, true, nil
+	}
+
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, storyCacheTTL)
 	if err != nil {
 		return nil, false, fmt.Errorf("识别剧情右上角: %w", err)
 	}
 	visible := hasKeyword(blocks, s.spec.Keywords)
-	actionBlocks := blocks
-	if s.cfg.mode == ModeSkip {
-		// 灰色“跳过”是禁用态；只对白色高亮按钮做点击判断。
-		actionBlocks, err = s.rt.OCR(frame, *area, vision.OCROptions{ColorRange: &s.spec.ButtonColorRange})
-		if err != nil {
-			return nil, visible, fmt.Errorf("识别剧情按钮颜色: %w", err)
-		}
-	}
-
-	if s.cfg.mode == ModeAuto {
-		if s.spec.MiddleOptionArea != "" {
-			match, ok, err := s.matchFirst(frame, s.spec.Screen, s.spec.MiddleOptionArea)
-			if err != nil {
-				return nil, visible, err
-			}
-			if ok {
-				return &actionStep{state: "点击中间选项", wait: s.cfg.optionClickInterval, actions: []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}}, visible, nil
-			}
-		}
-		if _, ok := findBlock(blocks, s.spec.AutoKeyword); ok {
-			return &actionStep{state: "剧情自动播放中", wait: autoPlayingWait}, visible, nil
-		}
-		if block, ok := findBlock(blocks, s.spec.MenuKeyword); ok {
-			return &actionStep{state: "展开剧情菜单", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, visible, nil
-		}
-		if s.spec.AutoButtonArea != "" {
-			autoArea, err := s.area(s.spec.Screen, s.spec.AutoButtonArea)
-			if err != nil {
-				return nil, visible, err
-			}
-			autoBlocks, err := s.rt.OCR(frame, *autoArea, vision.OCROptions{})
-			if err != nil {
-				return nil, visible, fmt.Errorf("识别自动按钮: %w", err)
-			}
-			if block, ok := findBlock(autoBlocks, s.spec.AutoKeyword); ok {
-				return &actionStep{state: "切换自动模式", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, visible, nil
-			}
-		}
+	if s.cfg.mode != ModeAuto {
 		return nil, visible, nil
 	}
-
-	// 跳过模式：优先点白色“跳过”；灰色跳过不点，只处理菜单/自动或后续对话。
-	if block, ok := findBlock(actionBlocks, s.spec.SkipKeyword); ok {
-		return &actionStep{state: "点击跳过", wait: s.spec.SkipClickWait, actions: []assist.Action{clickBlock(block)}}, visible, nil
+	if s.spec.MiddleOptionArea != "" {
+		match, ok, err := s.matchFirst(frame, s.spec.Screen, s.spec.MiddleOptionArea)
+		if err != nil {
+			return nil, visible, err
+		}
+		if ok {
+			return &actionStep{state: "点击中间选项", wait: s.cfg.optionClickInterval, actions: []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}}, visible, nil
+		}
 	}
-	if block, ok := findBlock(actionBlocks, s.spec.MenuKeyword); ok {
-		s.menuClickedAt = frame.At
-		s.clearChosenOption()
+	if _, ok := findBlock(blocks, s.spec.AutoKeyword); ok {
+		return &actionStep{state: "剧情自动播放中", wait: autoPlayingWait}, visible, nil
+	}
+	if block, ok := findBlock(blocks, s.spec.MenuKeyword); ok {
 		return &actionStep{state: "展开剧情菜单", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, visible, nil
 	}
-	if block, ok := findBlock(actionBlocks, s.spec.AutoKeyword); ok {
-		s.menuClickedAt = frame.At
-		s.clearChosenOption()
-		return &actionStep{state: "点击自动", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, visible, nil
+	if s.spec.AutoButtonArea != "" {
+		autoArea, err := s.area(s.spec.Screen, s.spec.AutoButtonArea)
+		if err != nil {
+			return nil, visible, err
+		}
+		autoBlocks, err := s.ocrArea(frame, *autoArea, vision.OCROptions{}, storyCacheTTL)
+		if err != nil {
+			return nil, visible, fmt.Errorf("识别自动按钮: %w", err)
+		}
+		if block, ok := findBlock(autoBlocks, s.spec.AutoKeyword); ok {
+			return &actionStep{state: "切换自动模式", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, visible, nil
+		}
 	}
 	return nil, visible, nil
 }
@@ -236,11 +271,13 @@ func (s *Session) hitGuard(frame assist.Frame) (string, time.Duration, bool, err
 		matched := false
 		switch guard.Kind {
 		case GuardText:
-			blocks, err := s.rt.OCR(frame, *area, vision.OCROptions{})
+			blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, guardCacheTTL)
 			if err != nil {
 				return "", 0, false, fmt.Errorf("识别守卫区域 %s: %w", area.Name, err)
 			}
 			matched = guard.Text == "" || hasBlock(blocks, guard.Text)
+		case GuardBand:
+			matched = len(vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})) > 0
 		default:
 			if area.TemplateID == "" {
 				continue
@@ -282,21 +319,31 @@ func (s *Session) inDialog(frame assist.Frame) (bool, error) {
 	if stats.GrayMaskPercent <= s.spec.GrayMaskThreshold {
 		return false, nil
 	}
-	blocks, err := s.rt.OCR(frame, *area, vision.OCROptions{ColorRange: area.ColorRange})
-	if err != nil {
-		return false, fmt.Errorf("识别对话框内容: %w", err)
+	// 跳过模式只要 gray mask 成立就点，兼容“……”这种没有文字行的对话框。
+	if s.cfg.mode == ModeSkip {
+		return true, nil
 	}
-	for _, block := range blocks {
-		if containsChinese(block.Text) {
+	// 点击/自动模式再用白色文字行确认，避免把其他灰底面板当对话。
+	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{
+		ColorRange: &[2][3]uint8{{170, 170, 170}, {255, 255, 255}},
+		MinHeight:  8,
+	})
+	for _, band := range bands {
+		if band.X2-band.X1 >= 20 {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-// doDialogClick 对应上游 _do_dialog_click：右侧选项 -> 中间选项/黑屏 -> 对话框正文。
-func (s *Session) doDialogClick(frame assist.Frame) (*actionStep, error) {
+// doDialogClick 对应上游 _do_dialog_click：对话框/剧情可见时先选项，再黑屏/正文。
+func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionStep, error) {
 	now := frame.At
+	inDialog, err := s.inDialog(frame)
+	if err != nil {
+		return nil, err
+	}
+
 	if actions, ok, err := s.clickOptionArea(frame, s.spec.RightOptionArea, now); err != nil {
 		return nil, err
 	} else if ok {
@@ -322,19 +369,7 @@ func (s *Session) doDialogClick(frame assist.Frame) (*actionStep, error) {
 		return &actionStep{state: "点击中间选项", wait: s.cfg.optionClickInterval, actions: actions}, nil
 	}
 
-	inDialog, err := s.inDialog(frame)
-	if err != nil {
-		return nil, err
-	}
-	// 自动/点击模式下，只要仍在剧情界面（右上角有菜单/跳过/自动）也继续点。
-	storyVisible := false
-	if s.cfg.mode != ModeSkip {
-		storyVisible, err = s.storyBarVisible(frame)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if inDialog || storyVisible {
+	if inDialog || (s.cfg.mode != ModeSkip && storyVisible) {
 		s.recentClicks = s.spec.RecentClickLimit
 		return &actionStep{state: "对话中点击", wait: s.cfg.dialogClickInterval, actions: clickCurrent()}, nil
 	}
@@ -346,7 +381,7 @@ func (s *Session) doDialogClick(frame assist.Frame) (*actionStep, error) {
 	return nil, nil
 }
 
-// clickOptionArea 识别并点击一个选项区域；灰色文字会被高亮颜色过滤掉。
+// clickOptionArea 用白色文字行定位选项，不跑 OCR；灰色选项不会被选中。
 func (s *Session) clickOptionArea(frame assist.Frame, areaName string, now time.Time) ([]assist.Action, bool, error) {
 	if areaName == "" {
 		return nil, false, nil
@@ -355,53 +390,40 @@ func (s *Session) clickOptionArea(frame assist.Frame, areaName string, now time.
 	if err != nil {
 		return nil, false, err
 	}
-	blocks, err := s.rt.OCR(frame, *area, vision.OCROptions{ColorRange: &s.spec.ButtonColorRange})
-	if err != nil {
-		return nil, false, fmt.Errorf("识别对话选项: %w", err)
-	}
-	if len(blocks) == 0 {
+	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})
+	if len(bands) == 0 {
 		return nil, false, nil
 	}
 
-	// 点击后的保护时间：按钮可能变透明且 OCR 识别不到，继续点上一次的位置。
+	// 点击后的保护时间：按钮可能变透明且识别不到，继续点上一次的位置。
 	if !s.chosenOptionAt.IsZero() && now.Sub(s.chosenOptionAt) < chosenOptionHold {
 		return []assist.Action{{Kind: assist.ActionClick, Point: s.chosenPoint}}, true, nil
 	}
 
-	texts := make([]string, 0, len(blocks))
-	for _, block := range blocks {
-		texts = append(texts, block.Text)
-	}
-	same := sameOptions(s.lastOptions, texts)
-	s.lastOptions = texts
-
-	var chosen *vision.TextBlock
-	for i := range blocks {
-		block := &blocks[i]
-		// 同一选项持续超过 2s 且选项集合没变，大概率是误识别，跳过。
-		if s.chosenOption != "" && !s.chosenOptionAt.IsZero() &&
-			now.Sub(s.chosenOptionAt) > chosenOptionMax && block.Text == s.chosenOption && same {
-			continue
-		}
-		if chosen == nil {
-			chosen = block
-			continue
-		}
-		if s.cfg.dialogOption == OptionFirst {
-			if block.Rect.Center().Y < chosen.Rect.Center().Y {
-				chosen = block
-			}
-		} else if block.Rect.Center().Y > chosen.Rect.Center().Y {
-			chosen = block
-		}
-	}
-	if chosen == nil {
+	key := bandKey(bands)
+	same := key == s.lastOptionKey
+	s.lastOptionKey = key
+	if s.chosenOption != "" && !s.chosenOptionAt.IsZero() &&
+		now.Sub(s.chosenOptionAt) > chosenOptionMax && key == s.chosenOption && same {
 		return nil, false, nil
 	}
-	s.chosenOption = chosen.Text
+
+	chosen := bands[0]
+	if s.cfg.dialogOption != OptionFirst {
+		chosen = bands[len(bands)-1]
+	}
+	s.chosenOption = key
 	s.chosenOptionAt = now
-	s.chosenPoint = chosen.Rect.Center()
+	s.chosenPoint = chosen.Center()
 	return []assist.Action{{Kind: assist.ActionClick, Point: s.chosenPoint}}, true, nil
+}
+
+func bandKey(bands []geom.Rect) string {
+	var b strings.Builder
+	for _, band := range bands {
+		fmt.Fprintf(&b, "%d-%d;", band.Y1, band.Y2)
+	}
+	return b.String()
 }
 
 func (s *Session) matchFirst(frame assist.Frame, screenName, areaName string) (vision.Match, bool, error) {
@@ -439,6 +461,7 @@ func (s *Session) area(screenName, areaName string) (*screen.Area, error) {
 
 func (s *Session) resetAfterConfirm() {
 	s.menuClickedAt = time.Time{}
+	s.confirmUntil = time.Time{}
 	s.clearChosenOption()
 	s.recentClicks = 0
 }
@@ -447,7 +470,7 @@ func (s *Session) clearChosenOption() {
 	s.chosenOption = ""
 	s.chosenOptionAt = time.Time{}
 	s.chosenPoint = geom.Point{}
-	s.lastOptions = nil
+	s.lastOptionKey = ""
 }
 
 func clickBlock(block vision.TextBlock) assist.Action {
@@ -479,30 +502,4 @@ func hasKeyword(blocks []vision.TextBlock, keywords []string) bool {
 		}
 	}
 	return false
-}
-
-func containsChinese(text string) bool {
-	for _, r := range text {
-		if unicode.Is(unicode.Han, r) {
-			return true
-		}
-	}
-	return false
-}
-
-func sameOptions(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	counts := make(map[string]int, len(a))
-	for _, text := range a {
-		counts[text]++
-	}
-	for _, text := range b {
-		if counts[text] == 0 {
-			return false
-		}
-		counts[text]--
-	}
-	return true
 }

@@ -81,7 +81,7 @@ type Engine struct {
 // New 创建 engine。
 func New(device Device, input Input, screens *screen.Set, matcher vision.Matcher, logger *slog.Logger, feature assist.Feature, settings assist.Settings, cfg Config, onEvent func(Event)) *Engine {
 	if cfg.TargetFPS <= 0 {
-		cfg.TargetFPS = 10
+		cfg.TargetFPS = 5
 	}
 	if logger == nil {
 		logger = slog.Default()

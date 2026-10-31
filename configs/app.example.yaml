@@ -4,7 +4,7 @@ language: zh-CN
 log_level: info
 capture:
   method: auto # auto / printwindow / bitblt（PrintWindow 可后台截图）
-  target_fps: 10
+  target_fps: 5
 input:
   mode: background # background：PostMessage，不抢焦点；foreground：SendInput
   cursor_mode: auto # auto：用户空闲时短暂移动并归位（默认）；never：绝不移动鼠标（仅推进对话）；always：总是移动

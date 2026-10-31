@@ -33,6 +33,8 @@ const (
 	GuardTemplate GuardKind = iota
 	// GuardText 通过 OCR 关键词识别守卫区域。
 	GuardText
+	// GuardBand 通过白色文字行识别守卫区域，不跑 OCR。
+	GuardBand
 )
 
 // Guard 是命中后只等待、不点击的守卫区域。
@@ -89,7 +91,7 @@ func (s Spec) withDefaults() Spec {
 		s.Keywords = []string{s.MenuKeyword, s.SkipKeyword, s.AutoKeyword}
 	}
 	if s.ButtonColorRange == [2][3]uint8{} {
-		s.ButtonColorRange = [2][3]uint8{{240, 240, 240}, {255, 255, 255}}
+		s.ButtonColorRange = [2][3]uint8{{220, 220, 220}, {255, 255, 255}}
 	}
 	if s.MenuQuiet <= 0 {
 		s.MenuQuiet = 5 * time.Second

@@ -60,7 +60,7 @@ func DefaultApp() AppConfig {
 		SchemaVersion: SchemaVersion,
 		Language:      "zh-CN",
 		LogLevel:      "info",
-		Capture:       CaptureConfig{Method: "auto", TargetFPS: 10},
+		Capture:       CaptureConfig{Method: "auto", TargetFPS: 5},
 		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "auto", Gamepad: false},
 		Hotkeys:       HotkeysConfig{Toggle: "F9", Panic: "F10"},
 		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true},
