@@ -133,6 +133,17 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 	if s.cfg.gamepad && s.cfg.mode == ModeSkip {
+		if s.padPhase != padPhaseNone {
+			inStory, err := s.storyContext(frame)
+			if err != nil {
+				return assist.Result{}, nil, err
+			}
+			if !inStory {
+				s.padPhase = padPhaseNone
+				s.padAt = time.Time{}
+				s.confirmUntil = time.Time{}
+			}
+		}
 		result, actions, handled, err := s.handlePadPhase(frame)
 		if err != nil {
 			return assist.Result{}, nil, err
@@ -212,6 +223,29 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 
 	// 6. 没有匹配到剧情画面，等待后重新识别。
 	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+}
+
+// storyContext 判断当前是否仍处于剧情/CG 上下文，用于及时清掉手柄阶段。
+func (s *Session) storyContext(frame assist.Frame) (bool, error) {
+	if s.inLetterbox(frame) {
+		return true, nil
+	}
+	inDialog, err := s.inDialog(frame)
+	if err != nil {
+		return false, err
+	}
+	if inDialog {
+		return true, nil
+	}
+	area, err := s.area(s.spec.Screen, s.spec.StoryArea)
+	if err != nil {
+		return false, err
+	}
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, gamepadStoryCacheTTL)
+	if err != nil {
+		return false, err
+	}
+	return hasKeyword(blocks, s.spec.Keywords), nil
 }
 
 // gamepadActivate 只在确认进入剧情后才触发，避免在普通大世界按 A 或 +。
