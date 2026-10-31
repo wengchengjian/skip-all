@@ -40,12 +40,11 @@ const (
 )
 
 var (
-	procSendInput           = user32.NewProc("SendInput")
-	procSetCursorPos        = user32.NewProc("SetCursorPos")
-	procGetCursorPos        = user32.NewProc("GetCursorPos")
-	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
-	procPostMessage         = user32.NewProc("PostMessageW")
-	procSendMessage         = user32.NewProc("SendMessageW")
+	procSendInput    = user32.NewProc("SendInput")
+	procSetCursorPos = user32.NewProc("SetCursorPos")
+	procGetCursorPos = user32.NewProc("GetCursorPos")
+	procPostMessage  = user32.NewProc("PostMessageW")
+	procSendMessage  = user32.NewProc("SendMessageW")
 )
 
 // mouseInput 对应 Win32 MOUSEINPUT。
@@ -428,20 +427,8 @@ func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
 	if err != nil {
 		return err
 	}
-	// 上游后台点击会先让游戏短暂成为前台，再点击并切回原窗口。
-	// 绝区零只处理前台窗口的鼠标输入，单纯 PostMessage 不会生效。
-	prevFg, _, _ := procGetForegroundWindow.Call()
-	if !i.win.IsActive() {
-		if err := i.win.Activate(); err != nil {
-			return fmt.Errorf("激活游戏窗口: %w", err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	defer func() {
-		if prevFg != 0 && prevFg != hwnd {
-			_, _, _ = procSetForegroundWindow.Call(prevFg)
-		}
-	}()
+	// 不把游戏窗口切到前台：只把光标移到目标，再给游戏窗口发
+	// WM_ACTIVATE + 鼠标消息。这样用户当前的前台窗口不会被抢走。
 	targetX, targetY := rect.X1+p.X, rect.Y1+p.Y
 	saved, hasSaved := cursorPos()
 	if r, _, _ := procSetCursorPos.Call(uintptr(targetX), uintptr(targetY)); r == 0 {

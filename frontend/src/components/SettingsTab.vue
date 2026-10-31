@@ -142,9 +142,9 @@ function save() {
           <label class="field">
             <span>精确点击 / CURSOR</span>
             <select v-model="form.cursorMode">
-              <option value="auto">auto · 真实光标点击（默认，后台消息不保证生效）</option>
-              <option value="never">never · 纯消息点击，不移动光标（可能点不中）</option>
-              <option value="always">always · 真实光标点击</option>
+              <option value="auto">auto · 不切前台：移光标 + 窗口消息（默认）</option>
+              <option value="never">never · 纯消息，不移动光标（可能点不中）</option>
+              <option value="always">always · 不切前台：移光标 + 窗口消息</option>
             </select>
           </label>
         </div>
