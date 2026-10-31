@@ -56,11 +56,22 @@ func newTextSession(t *testing.T, scripts []frameScript) (*Session, *fakeRuntime
 	return session.(*Session), rt
 }
 
+func newTextClickSession(t *testing.T, scripts []frameScript) (*Session, *fakeRuntime) {
+	t.Helper()
+	rt := &fakeRuntime{screens: textScreens(), scripts: scripts}
+	session, err := NewFeature(textSpec()).NewSession(rt, assist.Settings{"mode": "click"})
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	return session.(*Session), rt
+}
+
 func TestTextDialogClicksDialogArea(t *testing.T) {
 	subtitle := block("你总算来啦。", geom.Rect{X1: 860, Y1: 800, X2: 1040, Y2: 822})
-	session, rt := newTextSession(t, []frameScript{{
-		at:  time.Now(),
-		ocr: map[string][]vision.TextBlock{"对话内容": {subtitle}},
+	session, rt := newTextClickSession(t, []frameScript{{
+		at:      time.Now(),
+		ocr:     map[string][]vision.TextBlock{"对话内容": {subtitle}},
+		matches: map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 69, Y1: 176, X2: 89, Y2: 194}, Confidence: 0.9}}},
 	}})
 	result, actions := step(t, session, rt, 0)
 	if result.State != "对话中点击" {
@@ -231,4 +242,31 @@ func TestConfirmDialogFallbackThrottled(t *testing.T) {
 	if result, _ := step(t, session, rt, 2); result.State != "确认弹窗" {
 		t.Fatalf("超过间隔后应再次点确认, state = %q", result.State)
 	}
+}
+
+func TestSubtitleWithoutStoryUIStaysIdle(t *testing.T) {
+	// 大世界底部也有白字（交互提示、任务提示），没有剧情跳过图标时不能点。
+	subtitle := block("前往目标地点", geom.Rect{X1: 860, Y1: 800, X2: 1040, Y2: 822})
+	session, rt := newTextSession(t, []frameScript{{
+		at:  time.Now(),
+		ocr: map[string][]vision.TextBlock{"对话内容": {subtitle}},
+	}})
+	result, actions := step(t, session, rt, 0)
+	if result.State != "等待剧情画面" || len(actions) != 0 {
+		t.Fatalf("没有剧情 UI 时不应点击: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestSubtitleWithStoryUIClicks(t *testing.T) {
+	subtitle := block("前往目标地点", geom.Rect{X1: 860, Y1: 800, X2: 1040, Y2: 822})
+	session, rt := newTextClickSession(t, []frameScript{{
+		at:      time.Now(),
+		ocr:     map[string][]vision.TextBlock{"对话内容": {subtitle}},
+		matches: map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 69, Y1: 176, X2: 89, Y2: 194}, Confidence: 0.9}}},
+	}})
+	result, actions := step(t, session, rt, 0)
+	if result.State != "对话中点击" {
+		t.Fatalf("state = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 960, Y: 857}}})
 }

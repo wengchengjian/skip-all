@@ -67,12 +67,15 @@ type Session struct {
 	lastSkipAt     time.Time
 	confirmPollAt  time.Time
 	skipRetries    int
-	padReady       bool
-	padPhase       int
-	padAt          time.Time
-	padFast        int
-	padFastAt      time.Time
-	padFastUntil   time.Time
+	entryVisible   bool
+	// entrySet 只在一次 Step 内有效：每帧开始时清掉，避免跨帧复用旧结论。
+	entrySet     bool
+	padReady     bool
+	padPhase     int
+	padAt        time.Time
+	padFast      int
+	padFastAt    time.Time
+	padFastUntil time.Time
 }
 
 type ocrCacheEntry struct {
@@ -142,6 +145,7 @@ func (s *Session) Close() error { return nil }
 
 // Step 处理一帧画面，返回本帧应执行的动作。
 func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []assist.Action, error) {
+	s.entrySet = false
 	if frame.Image == nil {
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
@@ -324,9 +328,27 @@ func (s *Session) storySkipVisible(frame assist.Frame) bool {
 	return false
 }
 
-// storyEntryVisible 表示右上角有剧情菜单或跳过按钮。
+// storyEntryVisible 表示画面里真的有剧情 UI：跳过按钮，或已配置的菜单按钮。
+// 没配置菜单区域时不能当成"可见"，否则字幕式对话会退化成"看到白字就点"，
+// 大世界的任务提示、交互提示都会被误判成对话。
+// 同一帧会多次调用，这里按帧记忆，避免重复模板匹配。
 func (s *Session) storyEntryVisible(frame assist.Frame) bool {
-	return s.storyMenuVisible(frame) || s.storySkipVisible(frame)
+	if s.entrySet {
+		return s.entryVisible
+	}
+	s.entryVisible = s.storyMenuVisible(frame) || s.storySkipVisible(frame)
+	s.entrySet = true
+	return s.entryVisible
+}
+
+// dialogUIEvidence 是严格版：要求模板真的命中剧情 UI。
+// storyMenuVisible 在"没配置菜单区域"时恒为真，那是给绝区零这类有菜单按钮的
+// 画面留的默认值；字幕式对话不能用它，否则大世界的白字会被当成剧情。
+func (s *Session) dialogUIEvidence(frame assist.Frame) bool {
+	if len(s.spec.StoryMenuAreas) > 0 && s.storyMenuVisible(frame) {
+		return true
+	}
+	return s.storySkipVisible(frame)
 }
 
 // fastStory 用便宜的灰底 + 白色文字行判断剧情，不跑 OCR，用于快速触发。
@@ -345,7 +367,9 @@ func (s *Session) fastDialog(frame assist.Frame) (bool, error) {
 		return false, err
 	}
 	if s.spec.DialogStyle == DialogText {
-		return s.subtitleVisible(frame, *area), nil
+		// 大世界底部也有白字（交互提示、任务提示），光看字幕会误判；
+		// 必须同时存在剧情 UI（跳过图标）才算在剧情对话里。
+		return s.subtitleVisible(frame, *area) && s.dialogUIEvidence(frame), nil
 	}
 	stats, err := s.rt.ColorStats(frame, *area)
 	if err != nil {
@@ -910,6 +934,11 @@ func (s *Session) storeDialogResult(at time.Time, hash uint64, in bool) {
 // doDialogClick 对应上游 _do_dialog_click：对话框/剧情可见时先选项，再黑屏/正文。
 func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionStep, error) {
 	now := frame.At
+	// 字幕式对话（鸣潮）没有灰底可判，只要画面里没有剧情 UI 就什么都不点，
+	// 否则大世界的任务提示、交互提示都会被当成对话。
+	if s.spec.DialogStyle == DialogText && !s.dialogUIEvidence(frame) {
+		return nil, nil
+	}
 	inDialog, err := s.inDialog(frame)
 	if err != nil {
 		return nil, err
