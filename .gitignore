@@ -29,3 +29,4 @@ logs/
 coverage.out
 dist/
 .env
+.tmp/
