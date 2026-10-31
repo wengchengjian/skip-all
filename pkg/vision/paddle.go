@@ -30,6 +30,8 @@ type PaddleOptions struct {
 	RecModelNumClasses int64
 	// ThreadCount 是识别 session 并发数。
 	ThreadCount int
+	// NumThreads 是 ONNX 单 session 的 CPU 线程数。
+	NumThreads int
 	// UseDirectML 启用 DirectML execution provider。
 	UseDirectML bool
 	// UseCUDA 启用 CUDA execution provider。
@@ -46,6 +48,7 @@ func DefaultPaddleOptions() PaddleOptions {
 		RecHeight:           48,
 		RecModelNumClasses:  18709,
 		ThreadCount:         1,
+		NumThreads:          1,
 	}
 }
 
@@ -87,6 +90,9 @@ func NewPaddleOCRWithOptions(modelDir string, opts PaddleOptions) (OCR, error) {
 	if opts.ThreadCount <= 0 {
 		opts.ThreadCount = 1
 	}
+	if opts.NumThreads <= 0 {
+		opts.NumThreads = 1
+	}
 	engine, err := paddle.NewEngine(paddle.Config{
 		OnnxRuntimeLibPath:  files.onnxRuntime,
 		DetModelPath:        files.det,
@@ -97,6 +103,7 @@ func NewPaddleOCRWithOptions(modelDir string, opts PaddleOptions) (OCR, error) {
 		RecHeight:           opts.RecHeight,
 		RecModelNumClasses:  opts.RecModelNumClasses,
 		ThreadCount:         opts.ThreadCount,
+		NumThreads:          opts.NumThreads,
 		UseDirectML:         opts.UseDirectML,
 		UseCuda:             opts.UseCUDA,
 	})
