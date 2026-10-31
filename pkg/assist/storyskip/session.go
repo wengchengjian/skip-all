@@ -114,7 +114,13 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 	if s.cfg.gamepad && s.cfg.mode == ModeSkip {
-		return s.stepGamepad(frame)
+		result, actions, handled, err := s.handlePadPhase(frame)
+		if err != nil {
+			return assist.Result{}, nil, err
+		}
+		if handled {
+			return result, actions, nil
+		}
 	}
 
 	// 1. 确认框：只在刚点过跳过/菜单后检查，避免每帧 OCR。
@@ -179,98 +185,51 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
 
-// stepGamepad 是纯手柄剧情跳过流程：+ 打开菜单/跳过，A 选择，A 确认。
-// 它不产生任何鼠标动作，适合游戏未聚焦时使用。
-func (s *Session) stepGamepad(frame assist.Frame) (assist.Result, []assist.Action, error) {
+// handlePadPhase 只处理手柄模式的“激活/菜单动画/A 选择”时序。
+// 剧情、确认、对话的识别由统一的 Step 流程负责，鼠标/手柄不再各写一版。
+func (s *Session) handlePadPhase(frame assist.Frame) (assist.Result, []assist.Action, bool, error) {
 	if !s.padReady {
-		// 游戏当前可能还是键鼠模式，先发一个手柄输入激活手柄模式。
-		// 用右摇杆而不是 A，避免激活时误触 UI。
+		// 上游 _gamepad_click 会先做一次手柄输入，让游戏从键鼠模式切到手柄模式。
 		s.padReady = true
 		s.padAt = frame.At
-		return assist.Result{State: "激活手柄模式", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}}, nil
+		return assist.Result{State: "激活手柄模式", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}}, true, nil
 	}
-	if s.padPhase != padPhaseNone {
-		if frame.At.Sub(s.padAt) < padActionWait {
-			return assist.Result{State: "等待手柄操作", Wait: padActionWait}, nil, nil
+	if s.padPhase == padPhaseNone {
+		return assist.Result{}, nil, false, nil
+	}
+	if frame.At.Sub(s.padAt) < padActionWait {
+		return assist.Result{State: "等待手柄操作", Wait: padActionWait}, nil, true, nil
+	}
+	if s.confirmPending(frame.At) {
+		ok, err := s.confirmVisible(frame)
+		if err != nil {
+			return assist.Result{}, nil, true, err
 		}
-		if s.confirmPending(frame.At) {
-			ok, err := s.confirmVisible(frame)
-			if err != nil {
-				return assist.Result{}, nil, err
-			}
-			if ok {
-				s.resetAfterConfirm()
-				return assist.Result{State: "确认跳过", Wait: confirmWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
-			}
-		}
-		switch s.padPhase {
-		case padPhaseMenu:
-			s.padPhase = padPhaseChosen
-			s.padAt = frame.At
-			s.expectConfirm(frame.At, 5*time.Second)
-			return assist.Result{State: "手柄选择跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
-		case padPhaseChosen:
-			if frame.At.Sub(s.padAt) > time.Second {
-				s.expectConfirm(frame.At, time.Second)
-				s.padAt = frame.At
-				return assist.Result{State: "手柄选择跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
-			}
-			return assist.Result{State: "等待手柄确认", Wait: confirmWait}, nil, nil
-		default:
-			if frame.At.Sub(s.padAt) > 2*time.Second {
-				s.padPhase = padPhaseNone
-				s.confirmUntil = time.Time{}
-			}
-			return assist.Result{State: "等待手柄确认", Wait: confirmWait}, nil, nil
+		if ok {
+			s.resetAfterConfirm()
+			return assist.Result{State: "确认跳过", Wait: confirmWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
 		}
 	}
-
-	if s.inMenuQuiet(frame.At) {
-		return assist.Result{State: "等待手柄菜单", Wait: storyButtonWait}, nil, nil
-	}
-
-	area, err := s.area(s.spec.Screen, s.spec.StoryArea)
-	if err != nil {
-		return assist.Result{}, nil, err
-	}
-	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, gamepadStoryCacheTTL)
-	if err != nil {
-		return assist.Result{}, nil, fmt.Errorf("识别剧情按钮: %w", err)
-	}
-	if _, ok := findBlock(blocks, s.spec.SkipKeyword); ok {
-		s.padPhase = padPhaseSkip
+	switch s.padPhase {
+	case padPhaseMenu:
+		s.padPhase = padPhaseChosen
 		s.padAt = frame.At
-		s.menuClickedAt = frame.At
 		s.expectConfirm(frame.At, 5*time.Second)
-		return assist.Result{State: "手柄跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}, nil
+		return assist.Result{State: "手柄选择跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
+	case padPhaseChosen:
+		if frame.At.Sub(s.padAt) > time.Second {
+			s.expectConfirm(frame.At, time.Second)
+			s.padAt = frame.At
+			return assist.Result{State: "手柄选择跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
+		}
+		return assist.Result{State: "等待手柄确认", Wait: confirmWait}, nil, true, nil
+	default:
+		if frame.At.Sub(s.padAt) > 2*time.Second {
+			s.padPhase = padPhaseNone
+			s.confirmUntil = time.Time{}
+		}
+		return assist.Result{State: "等待手柄确认", Wait: confirmWait}, nil, true, nil
 	}
-	if _, ok := findBlock(blocks, s.spec.MenuKeyword); ok {
-		s.padPhase = padPhaseMenu
-		s.padAt = frame.At
-		s.menuClickedAt = frame.At
-		return assist.Result{State: "手柄菜单", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}, nil
-	}
-
-	if name, wait, ok, err := s.hitGuard(frame); err != nil {
-		return assist.Result{}, nil, err
-	} else if ok {
-		s.recentClicks = 0
-		return assist.Result{State: "等待:" + name, Wait: wait}, nil, nil
-	}
-
-	inDialog, err := s.inDialog(frame)
-	if err != nil {
-		return assist.Result{}, nil, err
-	}
-	if inDialog {
-		// 剧情栏 OCR 可能漏掉菜单图标，但对话框仍在：先按“+”打开剧情菜单，
-		// 再走 A 选第一项 / A 确认，避免退化成一句一句按 A。
-		s.padPhase = padPhaseMenu
-		s.padAt = frame.At
-		s.menuClickedAt = frame.At
-		return assist.Result{State: "手柄菜单", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}, nil
-	}
-	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
 
 // actionStep 是一次已命中的状态转换。
@@ -314,6 +273,9 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 	if err != nil || !ok {
 		return nil, false, err
 	}
+	if s.cfg.gamepad {
+		return []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
+	}
 	// 确认按钮区域是固定按钮框，点区域中心比点 OCR 文字框中心更稳，
 	// 避免 OCR 框只覆盖“确”或“认”导致点击位置偏移。
 	return []assist.Action{{Kind: assist.ActionClick, Point: area.Rect.Center()}}, true, nil
@@ -339,7 +301,11 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 	if s.cfg.mode == ModeSkip {
 		// 先按原始画面 OCR 找“菜单/跳过/自动”，不能只看白色文字行：
 		// 菜单和灰色跳过在原始画面里仍然有字，只靠白色行会漏掉整条菜单路径。
-		blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, storyButtonCacheTTL)
+		ttl := storyButtonCacheTTL
+		if s.cfg.gamepad {
+			ttl = gamepadStoryCacheTTL
+		}
+		blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, ttl)
 		if err != nil {
 			return nil, false, fmt.Errorf("识别剧情按钮文字: %w", err)
 		}
@@ -358,6 +324,11 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 			if white {
 				s.menuClickedAt = frame.At
 				s.expectConfirm(frame.At, 5*time.Second)
+				if s.cfg.gamepad {
+					s.padPhase = padPhaseSkip
+					s.padAt = frame.At
+					return &actionStep{state: "手柄跳过", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, true, nil
+				}
 				return &actionStep{state: "点击跳过", wait: s.spec.SkipClickWait, actions: []assist.Action{clickBlock(block)}}, true, nil
 			}
 		}
@@ -366,10 +337,20 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 		}
 		if block, ok := findBlock(blocks, s.spec.MenuKeyword); ok {
 			s.menuClickedAt = frame.At
+			if s.cfg.gamepad {
+				s.padPhase = padPhaseMenu
+				s.padAt = frame.At
+				return &actionStep{state: "手柄菜单", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, true, nil
+			}
 			return &actionStep{state: "展开剧情菜单", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, true, nil
 		}
 		if block, ok := findBlock(blocks, s.spec.AutoKeyword); ok {
 			s.menuClickedAt = frame.At
+			if s.cfg.gamepad {
+				s.padPhase = padPhaseMenu
+				s.padAt = frame.At
+				return &actionStep{state: "手柄菜单", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, true, nil
+			}
 			return &actionStep{state: "点击自动", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, true, nil
 		}
 		return nil, false, nil
@@ -509,6 +490,17 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 	inDialog, err := s.inDialog(frame)
 	if err != nil {
 		return nil, err
+	}
+	if s.cfg.gamepad && s.cfg.mode == ModeSkip {
+		// 对话框本身也是剧情栏 OCR 容易漏掉的状态；手柄模式直接从“+”开始，
+		// 后续 A 选择/A 确认由 handlePadPhase 统一处理。
+		if inDialog {
+			s.padPhase = padPhaseMenu
+			s.padAt = now
+			s.menuClickedAt = now
+			return &actionStep{state: "手柄菜单", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, nil
+		}
+		return &actionStep{state: "手柄推进", wait: s.cfg.dialogClickInterval, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}}, nil
 	}
 
 	if actions, ok, err := s.clickOptionArea(frame, s.spec.RightOptionArea, now); err != nil {
