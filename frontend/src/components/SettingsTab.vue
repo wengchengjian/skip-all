@@ -20,6 +20,7 @@ const form = reactive({
   pauseWhenBackground: true,
   captureMethod: "auto",
   inputMode: "background",
+  cursorMode: "never",
   gamepad: false,
   hotkeyToggle: "F9",
   hotkeyPanic: "F10",
@@ -44,6 +45,7 @@ watch(
     form.pauseWhenBackground = config.app.Input.PauseWhenBackground;
     form.captureMethod = config.app.Capture.Method || "auto";
     form.inputMode = config.app.Input.Mode || "background";
+    form.cursorMode = config.app.Input.CursorMode || "never";
     form.gamepad = config.app.Input.Gamepad;
     form.hotkeyToggle = config.app.Hotkeys.Toggle || "F9";
     form.hotkeyPanic = config.app.Hotkeys.Panic || "F10";
@@ -56,6 +58,7 @@ function save() {
   const view: ConfigView = JSON.parse(JSON.stringify(props.config));
   view.app.Capture.Method = form.captureMethod;
   view.app.Input.Mode = form.inputMode;
+  view.app.Input.CursorMode = form.cursorMode;
   view.app.Input.Gamepad = form.gamepad;
   view.app.Input.PauseWhenBackground = form.pauseWhenBackground;
   view.app.Hotkeys.Toggle = form.hotkeyToggle.trim() || "F9";
@@ -120,6 +123,14 @@ function save() {
           <label class="field">
             <span>空画面等待 / IDLE WAIT</span>
             <input v-model.number="form.sleepAfterEmpty" type="number" min="0" step="0.05" />
+          </label>
+          <label class="field">
+            <span>精确点击 / CURSOR</span>
+            <select v-model="form.cursorMode">
+              <option value="never">never · 不移动前台鼠标（默认）</option>
+              <option value="auto">auto · 后台空闲时短暂移光标并归位</option>
+              <option value="always">always · 总是移光标</option>
+            </select>
           </label>
         </div>
       </section>

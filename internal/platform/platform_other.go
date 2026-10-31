@@ -18,6 +18,7 @@ type InputOptions struct {
 	Background bool
 	Gamepad    bool
 	GamepadDLL string
+	CursorMode string
 }
 
 // Window 是游戏窗口的最小接口。

@@ -89,6 +89,20 @@ func TestInputEventLayout(t *testing.T) {
 	}
 }
 
+func TestCursorMode(t *testing.T) {
+	in := NewInputWithOptions(nil, InputOptions{})
+	if in.cursorMode != CursorNever {
+		t.Fatalf("默认 cursorMode = %q, want %q", in.cursorMode, CursorNever)
+	}
+	if in.shouldMoveCursor() {
+		t.Fatal("never 模式不应移动光标")
+	}
+	in = &Input{cursorMode: CursorAlways}
+	if !in.shouldMoveCursor() {
+		t.Fatal("always 模式应移动光标")
+	}
+}
+
 func TestInputNilWindow(t *testing.T) {
 	in := NewInput(nil)
 	if err := in.Click(geom.Point{}); err != ErrWindowNotFound {

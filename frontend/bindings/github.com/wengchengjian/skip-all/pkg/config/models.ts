@@ -40,6 +40,11 @@ export interface InputConfig {
      * background | foreground
      */
     "Mode": string;
+
+    /**
+     * auto | always | never
+     */
+    "CursorMode": string;
     "Gamepad": boolean;
 }
 

@@ -14,7 +14,7 @@ func TestDefaultApp(t *testing.T) {
 	if !cfg.OCR.AutoDownload || cfg.OCR.Model != "ppocrv6" {
 		t.Fatalf("默认 OCR 配置错误: %+v", cfg.OCR)
 	}
-	if cfg.Input.Mode != "background" || cfg.Input.PauseWhenBackground {
+	if cfg.Input.Mode != "background" || cfg.Input.PauseWhenBackground || cfg.Input.CursorMode != "never" {
 		t.Fatalf("默认输入配置错误: %+v", cfg.Input)
 	}
 }

@@ -10,7 +10,8 @@
 - 普通对话自动推进，按配置选择第一个或最后一个选项
 - 支持 skip、auto、click 三种剧情模式
 - 进入战斗、勘域、二级菜单、玩法引导时自动避让，不误点
-- 默认后台运行：PrintWindow 截图 + PostMessage 点击，不抢焦点、不移动物理鼠标
+- 默认后台运行：PrintWindow 截图 + PostMessage 点击，不抢焦点、绝不移动前台鼠标
+- 精确跳过开关：`input.cursor_mode` 默认 `never`；ZZZ 的跳过/选项依赖真实光标，需要时改为 `auto`（仅后台且空闲时短暂移动并归位）或 `always`
 - 可选前台模式（SendInput），兼容个别忽略后台消息的游戏
 - 支持 ViGEm 虚拟 Xbox 手柄（需 ViGEmBus 驱动），用于手柄按键
 - F10 急停；停止时释放所有键鼠状态

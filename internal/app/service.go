@@ -273,7 +273,7 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	}
 	capturer := platform.NewCapturer(win)
 	background := strings.ToLower(appCfg.Input.Mode) != "foreground"
-	input := platform.NewInputWithOptions(win, platform.InputOptions{Background: background, Gamepad: appCfg.Input.Gamepad, GamepadDLL: s.gamepadDLL()})
+	input := platform.NewInputWithOptions(win, platform.InputOptions{Background: background, Gamepad: appCfg.Input.Gamepad, GamepadDLL: s.gamepadDLL(), CursorMode: appCfg.Input.CursorMode})
 	if appCfg.Input.Gamepad && !input.GamepadAvailable() {
 		s.appendLog("warn", "虚拟手柄不可用: "+fmt.Sprint(input.GamepadError()))
 	}

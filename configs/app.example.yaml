@@ -6,7 +6,8 @@ capture:
   method: auto # auto / printwindow / bitblt（PrintWindow 可后台截图）
   target_fps: 10
 input:
-  mode: background # background：PostMessage，不抢焦点、不移动物理鼠标；foreground：SendInput
+  mode: background # background：PostMessage，不抢焦点；foreground：SendInput
+  cursor_mode: never # never：绝不移动前台鼠标（默认，精确点击可能不生效）；auto：仅后台且空闲时短暂移动并归位；always：总是移动
   pause_when_background: false # 后台模式下保持运行；需要前台才暂停时改为 true
   gamepad: false # 需要虚拟手柄时改为 true（需 ViGEmBus 驱动 + ViGEmClient.dll）
 hotkeys:

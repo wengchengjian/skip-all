@@ -19,6 +19,7 @@ type InputOptions struct {
 	Background bool
 	Gamepad    bool
 	GamepadDLL string
+	CursorMode string
 }
 
 // Window 是游戏窗口的最小接口。
@@ -71,6 +72,7 @@ func NewInputWithOptions(w Window, opts InputOptions) Input {
 		Background: opts.Background,
 		Gamepad:    opts.Gamepad,
 		GamepadDLL: opts.GamepadDLL,
+		CursorMode: opts.CursorMode,
 	})
 }
 

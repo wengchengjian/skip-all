@@ -34,7 +34,8 @@ type CaptureConfig struct {
 // InputConfig 是输入参数。
 type InputConfig struct {
 	PauseWhenBackground bool   `yaml:"pause_when_background"`
-	Mode                string `yaml:"mode"` // background | foreground
+	Mode                string `yaml:"mode"`        // background | foreground
+	CursorMode          string `yaml:"cursor_mode"` // auto | always | never
 	Gamepad             bool   `yaml:"gamepad"`
 }
 
@@ -58,7 +59,7 @@ func DefaultApp() AppConfig {
 		Language:      "zh-CN",
 		LogLevel:      "info",
 		Capture:       CaptureConfig{Method: "auto", TargetFPS: 10},
-		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", Gamepad: false},
+		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "never", Gamepad: false},
 		Hotkeys:       HotkeysConfig{Toggle: "F9", Panic: "F10"},
 		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true},
 	}
@@ -134,6 +135,15 @@ func (c *AppConfig) normalizeAndValidate() error {
 		c.Input.Mode = strings.ToLower(c.Input.Mode)
 	default:
 		return fmt.Errorf("未知 input.mode: %s", c.Input.Mode)
+	}
+	if c.Input.CursorMode == "" {
+		c.Input.CursorMode = "never"
+	}
+	switch strings.ToLower(c.Input.CursorMode) {
+	case "auto", "always", "never":
+		c.Input.CursorMode = strings.ToLower(c.Input.CursorMode)
+	default:
+		return fmt.Errorf("未知 input.cursor_mode: %s", c.Input.CursorMode)
 	}
 	if c.Hotkeys.Toggle == "" {
 		c.Hotkeys.Toggle = "F9"

@@ -11,6 +11,8 @@ import (
 	"time"
 	"unsafe"
 
+	winapi "golang.org/x/sys/windows"
+
 	"github.com/wengchengjian/skip-all/pkg/geom"
 )
 
@@ -45,6 +47,9 @@ var (
 	procGetCursorPos = user32.NewProc("GetCursorPos")
 	procPostMessage  = user32.NewProc("PostMessageW")
 	procSendMessage  = user32.NewProc("SendMessageW")
+
+	procGetLastInputInfo = user32.NewProc("GetLastInputInfo")
+	procGetTickCount     = winapi.NewLazySystemDLL("kernel32.dll").NewProc("GetTickCount")
 )
 
 // mouseInput 对应 Win32 MOUSEINPUT。
@@ -122,14 +127,23 @@ var keySpecs = func() map[string]keySpec {
 	return m
 }()
 
+// 精确点击时的光标策略。
+const (
+	CursorAuto   = "auto"   // 用户空闲时短暂移动光标，点击后尽量归位
+	CursorAlways = "always" // 总是移动光标
+	CursorNever  = "never"  // 只发 PostMessage，不移动光标
+)
+
 // InputOptions 控制输入方式。
 type InputOptions struct {
-	// Background 为 true 时使用 PostMessage 向窗口后台发送输入，不激活窗口、不移动物理光标。
+	// Background 为 true 时使用 PostMessage 向窗口后台发送输入，不激活窗口。
 	Background bool
 	// Gamepad 为 true 时尝试创建 ViGEm 虚拟 Xbox 手柄。
 	Gamepad bool
 	// GamepadDLL 是 ViGEmClient.dll 的路径；为空时使用 assets/runtime/ViGEmClient.dll。
 	GamepadDLL string
+	// CursorMode 控制精确点击是否短暂移动物理光标；空值等同 auto。
+	CursorMode string
 }
 
 // Input 通过前台 SendInput 或后台 PostMessage 向游戏窗口发送输入。
@@ -139,6 +153,7 @@ type Input struct {
 	activate   func() error
 	pressed    map[uint16]bool // 记录按下未释放的键，值为是否扩展键
 	background bool
+	cursorMode string
 	gamepad    *XboxGamepad
 	gamepadErr error
 }
@@ -158,7 +173,13 @@ func NewInput(w *Window) *Input {
 
 // NewInputWithOptions 创建输入控制器。默认构造为前台模式；后台模式请传 Background=true。
 func NewInputWithOptions(w *Window, opts InputOptions) *Input {
-	in := &Input{win: w, pressed: make(map[uint16]bool), background: opts.Background}
+	mode := strings.ToLower(opts.CursorMode)
+	switch mode {
+	case CursorAuto, CursorAlways, CursorNever:
+	default:
+		mode = CursorNever
+	}
+	in := &Input{win: w, pressed: make(map[uint16]bool), background: opts.Background, cursorMode: mode}
 	if w != nil {
 		in.activate = w.Activate
 	}
@@ -216,7 +237,7 @@ func (i *Input) Click(p geom.Point) error {
 		return err
 	}
 	if i.background {
-		return i.backgroundClickLocked(pt)
+		return i.backgroundClickAtLocked(pt, i.shouldMoveCursor())
 	}
 	if err := i.ensureActiveLocked(); err != nil {
 		return err
@@ -236,7 +257,7 @@ func (i *Input) ClickCurrent() error {
 		if err != nil {
 			return err
 		}
-		return i.backgroundClickLocked(geom.Point{X: rect.Width() / 2, Y: rect.Height() / 2})
+		return i.backgroundClickAtLocked(geom.Point{X: rect.Width() / 2, Y: rect.Height() / 2}, false)
 	}
 	if err := i.ensureActiveLocked(); err != nil {
 		return err
@@ -368,8 +389,8 @@ func (i *Input) clickLocked(x, y int) error {
 	return nil
 }
 
-// backgroundClickLocked 通过 PostMessage 向客户区 (x,y) 发送点击，不移动物理光标。
-func (i *Input) backgroundClickLocked(p geom.Point) error {
+// backgroundClickAtLocked 在后台点击客户区 (x,y)；moveCursor 为 true 时短暂移动并归位光标。
+func (i *Input) backgroundClickAtLocked(p geom.Point, moveCursor bool) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
@@ -377,6 +398,14 @@ func (i *Input) backgroundClickLocked(p geom.Point) error {
 	if hwnd == 0 {
 		return ErrWindowNotFound
 	}
+	if moveCursor {
+		return i.cursorClickLocked(hwnd, p)
+	}
+	return i.postClickLocked(hwnd, p)
+}
+
+// postClickLocked 只发窗口消息；部分游戏会忽略 lParam，改用当前光标位置。
+func (i *Input) postClickLocked(hwnd uintptr, p geom.Point) error {
 	lparam := uintptr(uint16(p.X)) | uintptr(uint16(p.Y))<<16
 	if err := postMessage(hwnd, wmActivate, waActive, 0); err != nil {
 		return err
@@ -392,6 +421,88 @@ func (i *Input) backgroundClickLocked(p geom.Point) error {
 		return err
 	}
 	return nil
+}
+
+// cursorClickLocked 把光标移到目标、点击、再尽量归位；ZZZ 的后台点击依赖真实光标位置。
+func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
+	rect, err := i.win.ClientRect()
+	if err != nil {
+		return err
+	}
+	targetX, targetY := rect.X1+p.X, rect.Y1+p.Y
+	saved, hasSaved := cursorPos()
+	if r, _, _ := procSetCursorPos.Call(uintptr(targetX), uintptr(targetY)); r == 0 {
+		return fmt.Errorf("移动鼠标失败: %w", lastErr("SetCursorPos"))
+	}
+	// SetCursorPos 在混合 DPI 下可能被系统微调，归位判断用实际落点。
+	actual, hasActual := cursorPos()
+	if !hasActual {
+		actual = winPoint{X: int32(targetX), Y: int32(targetY)}
+	}
+	defer func() {
+		if !hasSaved {
+			return
+		}
+		if cur, ok := cursorPos(); ok && absInt(int(cur.X)-int(actual.X)) <= 2 && absInt(int(cur.Y)-int(actual.Y)) <= 2 {
+			_, _, _ = procSetCursorPos.Call(uintptr(saved.X), uintptr(saved.Y))
+		}
+	}()
+	time.Sleep(8 * time.Millisecond)
+	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
+	time.Sleep(4 * time.Millisecond)
+	if err := postMessage(hwnd, wmLButtonDown, mkLButton, 0); err != nil {
+		return err
+	}
+	time.Sleep(clickHoldTime)
+	if err := postMessage(hwnd, wmLButtonUp, 0, 0); err != nil {
+		return err
+	}
+	time.Sleep(25 * time.Millisecond)
+	return nil
+}
+
+func (i *Input) shouldMoveCursor() bool {
+	if i == nil {
+		return false
+	}
+	switch i.cursorMode {
+	case CursorNever:
+		return false
+	case CursorAlways:
+		return true
+	default:
+		// auto 只在游戏不在前台、且用户空闲时移动光标，避免抢前台鼠标。
+		return !i.win.IsActive() && idleFor(250*time.Millisecond)
+	}
+}
+
+func cursorPos() (winPoint, bool) {
+	var pt winPoint
+	if r, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); r == 0 {
+		return winPoint{}, false
+	}
+	return pt, true
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// idleFor 报告距离上一次物理键鼠输入是否已超过 d。
+func idleFor(d time.Duration) bool {
+	var info struct {
+		CbSize uint32
+		DwTime uint32
+	}
+	info.CbSize = uint32(unsafe.Sizeof(info))
+	if r, _, _ := procGetLastInputInfo.Call(uintptr(unsafe.Pointer(&info))); r == 0 {
+		return false
+	}
+	tick, _, _ := procGetTickCount.Call()
+	return uint32(tick)-info.DwTime >= uint32(d/time.Millisecond)
 }
 
 func (i *Input) backgroundKeyTapLocked(vk uint16) error {
