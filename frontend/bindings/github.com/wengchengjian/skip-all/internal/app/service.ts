@@ -78,7 +78,7 @@ export function Resume(): $CancellablePromise<void> {
 }
 
 /**
- * SaveConfig 保存配置并更新内存快照（下一次启动生效）。
+ * SaveConfig 保存配置并更新内存快照；运行中的会话会用新配置自动重启。
  */
 export function SaveConfig(view: $models.ConfigView): $CancellablePromise<void> {
     return $Call.ByID(4088376018, view);

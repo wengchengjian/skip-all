@@ -127,7 +127,7 @@ function save() {
           <label class="field">
             <span>精确点击 / CURSOR</span>
             <select v-model="form.cursorMode">
-              <option value="auto">auto · 后台空闲时短暂移光标并归位（默认）</option>
+              <option value="auto">auto · 空闲时短暂移光标并归位（默认）</option>
               <option value="never">never · 不移动鼠标（仅推进对话）</option>
               <option value="always">always · 总是移光标</option>
             </select>
@@ -178,7 +178,7 @@ function save() {
         {{ saving ? "保存中…" : "保存配置" }}
       </button>
       <span v-if="!config" class="muted">配置加载中…</span>
-      <span v-else class="form-hint">修改将在下一次启动会话时生效</span>
+      <span v-else class="form-hint">保存后立即生效；运行中的会话会自动重启</span>
     </div>
   </section>
 </template>

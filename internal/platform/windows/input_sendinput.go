@@ -471,8 +471,8 @@ func (i *Input) shouldMoveCursor() bool {
 	case CursorAlways:
 		return true
 	default:
-		// auto 只在游戏不在前台、且用户空闲时移动光标，避免抢前台鼠标。
-		return !i.win.IsActive() && idleFor(250*time.Millisecond)
+		// auto 只在用户空闲时移动光标；用户正在操作时不抢鼠标。
+		return idleFor(250 * time.Millisecond)
 	}
 }
 

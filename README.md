@@ -11,11 +11,12 @@
 - 支持 skip、auto、click 三种剧情模式
 - 进入战斗、勘域、二级菜单、玩法引导时自动避让，不误点
 - 默认后台运行：PrintWindow 截图 + PostMessage 点击，不抢焦点、绝不移动前台鼠标
-- 精确跳过开关：`input.cursor_mode` 默认 `auto`（仅后台且用户空闲时短暂移动并归位）；`never` 绝不动鼠标但只能推进对话，`always` 总是移动
+- 精确跳过开关：`input.cursor_mode` 默认 `auto`（用户空闲时短暂移动并归位）；`never` 绝不动鼠标但只能推进对话，`always` 总是移动
 - 可选前台模式（SendInput），兼容个别忽略后台消息的游戏
 - 支持 ViGEm 虚拟 Xbox 手柄（需 ViGEmBus 驱动），用于手柄按键
 - F10 急停；停止时释放所有键鼠状态
 - 内置 OCR 模型检查与下载，不依赖 Python、OpenCV 或游戏内存
+- 设置保存后立即生效；运行中的会话会用新配置自动重启
 
 v0.1 不包含钓鱼、短信、空洞事件、自动战斗和日常任务。这些会作为后续 Feature 逐步加入。
 

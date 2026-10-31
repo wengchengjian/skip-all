@@ -208,7 +208,7 @@ func (s *Service) GetConfig() ConfigView {
 	return ConfigView{App: s.appCfg, ZZZ: s.zzzCfg}
 }
 
-// SaveConfig 保存配置并更新内存快照（下一次启动生效）。
+// SaveConfig 保存配置并更新内存快照；运行中的会话会用新配置自动重启。
 func (s *Service) SaveConfig(view ConfigView) error {
 	if err := config.SaveApp(filepath.Join(s.dataDir, "config.yaml"), view.App); err != nil {
 		return err
@@ -220,7 +220,29 @@ func (s *Service) SaveConfig(view ConfigView) error {
 	s.appCfg = view.App
 	s.zzzCfg = view.ZZZ
 	s.mu.Unlock()
+	s.restartRunning()
 	return nil
+}
+
+// restartRunning 在配置保存后让运行中的会话立即使用新配置。
+func (s *Service) restartRunning() {
+	st := s.GetStatus()
+	if !st.Running && !st.Paused {
+		return
+	}
+	gameID, featureID := st.GameID, st.FeatureID
+	s.Stop()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		cur := s.GetStatus()
+		if !cur.Running && !cur.Paused {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if res := s.Start(gameID, featureID); !res.OK {
+		s.appendLog("warn", "应用新配置后重启失败: "+res.Error)
+	}
 }
 
 // Start 启动指定游戏的功能。
