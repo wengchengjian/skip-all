@@ -48,13 +48,16 @@ type Guard struct {
 
 // Spec 描述一个游戏的剧情跳过界面。
 type Spec struct {
-	Screen           string // 主画面名
-	StoryArea        string // 剧情右上角菜单区域
-	ConfirmArea      string // 跳过/确认弹窗的按钮区域
-	DialogArea       string // 对话框内容区域
-	RightOptionArea  string // 右侧对话选项区域
-	MiddleOptionArea string // 中间对话选项区域
-	AutoButtonArea   string // 展开菜单后的自动按钮区域，可留空
+	Screen              string   // 主画面名
+	StoryArea           string   // 剧情右上角菜单区域
+	ConfirmArea         string   // 跳过/确认弹窗的按钮区域
+	DialogArea          string   // 对话框内容区域
+	RightOptionArea     string   // 右侧对话选项区域
+	MiddleOptionArea    string   // 中间对话选项区域
+	AutoButtonArea      string   // 展开菜单后的自动按钮区域，可留空
+	StoryMenuAreas      []string // 剧情菜单按钮模板区域（键盘/手柄可多个）
+	StorySkipAreas      []string // 剧情跳过按钮模板区域
+	ConfirmTemplateArea string   // 确认按钮模板区域，可留空
 
 	Keywords    []string // 剧情右上角可见关键词，默认“菜单/跳过/自动”
 	ConfirmText string   // 确认按钮关键词，默认“确认”

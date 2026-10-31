@@ -411,6 +411,16 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 	if err != nil {
 		return nil, false, err
 	}
+	if s.spec.ConfirmTemplateArea != "" {
+		if match, ok, err := s.matchFirst(frame, s.spec.Screen, s.spec.ConfirmTemplateArea); err != nil {
+			return nil, false, err
+		} else if ok {
+			if s.cfg.gamepad {
+				return []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
+			}
+			return []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}, true, nil
+		}
+	}
 	ok, err := s.confirmVisible(frame)
 	if err != nil || !ok {
 		return nil, false, err
@@ -441,6 +451,26 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 		return nil, false, err
 	}
 	if s.cfg.mode == ModeSkip {
+		// 鼠标路径优先走固定按钮模板，避免为了几个固定按钮加载 OCR 模型。
+		if !s.cfg.gamepad {
+			for _, name := range s.spec.StorySkipAreas {
+				if match, ok, err := s.matchFirst(frame, s.spec.Screen, name); err != nil {
+					return nil, false, err
+				} else if ok {
+					s.menuClickedAt = frame.At
+					s.expectConfirm(frame.At, 5*time.Second)
+					return &actionStep{state: "模板跳过", wait: s.spec.SkipClickWait, actions: []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}}, true, nil
+				}
+			}
+			for _, name := range s.spec.StoryMenuAreas {
+				if match, ok, err := s.matchFirst(frame, s.spec.Screen, name); err != nil {
+					return nil, false, err
+				} else if ok {
+					s.menuClickedAt = frame.At
+					return &actionStep{state: "模板菜单", wait: storyButtonWait, actions: []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}}, true, nil
+				}
+			}
+		}
 		// 先按原始画面 OCR 找“菜单/跳过/自动”，不能只看白色文字行：
 		// 菜单和灰色跳过在原始画面里仍然有字，只靠白色行会漏掉整条菜单路径。
 		ttl := storyButtonCacheTTL

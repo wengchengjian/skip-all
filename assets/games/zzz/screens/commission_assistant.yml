@@ -85,3 +85,43 @@ area_list:
   - 213
   - 565
   - 285
+- area_name: 剧情菜单-键盘
+  id_mark: false
+  pc_rect:
+  - 1620
+  - 85
+  - 1850
+  - 155
+  template_sub_dir: commission_assistant
+  template_id: menu_kb
+  template_match_threshold: 0.7
+- area_name: 剧情菜单-手柄
+  id_mark: false
+  pc_rect:
+  - 1620
+  - 85
+  - 1850
+  - 155
+  template_sub_dir: commission_assistant
+  template_id: menu_pad
+  template_match_threshold: 0.7
+- area_name: 剧情跳过-手柄
+  id_mark: false
+  pc_rect:
+  - 1620
+  - 90
+  - 1860
+  - 165
+  template_sub_dir: commission_assistant
+  template_id: skip_pad
+  template_match_threshold: 0.7
+- area_name: 剧情确认-模板
+  id_mark: false
+  pc_rect:
+  - 950
+  - 590
+  - 1200
+  - 720
+  template_sub_dir: commission_assistant
+  template_id: confirm
+  template_match_threshold: 0.7
