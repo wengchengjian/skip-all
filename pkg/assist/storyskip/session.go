@@ -190,7 +190,17 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待:" + name, Wait: wait}, nil, nil
 	}
 
-	// 5. 对话流程：先选项，再黑屏推进，最后对话框正文。
+	// 5. 剧情模式门控：不在剧情/对话/CG 黑边内时，不按 A、不按 +，
+	// 避免在大世界、战斗、普通菜单里误操作。
+	inDialog, err := s.inDialog(frame)
+	if err != nil {
+		return assist.Result{}, nil, err
+	}
+	if !storyVisible && !inDialog && !s.inLetterbox(frame) {
+		return assist.Result{State: "等待剧情模式", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+	}
+
+	// 6. 对话流程：先选项，再黑屏推进，最后对话框正文。
 	step, err := s.doDialogClick(frame, storyVisible)
 	if err != nil {
 		return assist.Result{}, nil, err
@@ -204,15 +214,56 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
 
-// handlePadPhase 只处理手柄模式的“激活/菜单动画/A 选择”时序。
+// gamepadActivate 只在确认进入剧情后才触发，避免在普通大世界按 A 或 +。
+func (s *Session) gamepadActivate(frame assist.Frame) (*actionStep, bool) {
+	if !s.cfg.gamepad || s.padReady {
+		return nil, false
+	}
+	s.padReady = true
+	s.padAt = frame.At
+	// 激活不是菜单点击，不能触发 5s 菜单静默/确认等待。
+	s.menuClickedAt = time.Time{}
+	s.confirmUntil = time.Time{}
+	return &actionStep{state: "激活手柄模式", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}}}, true
+}
+
+// inLetterbox 用上下黑边判断过场/CG；剧情对话和 CG 都有明显黑边。
+func (s *Session) inLetterbox(frame assist.Frame) bool {
+	img := frame.Image
+	if img == nil {
+		return false
+	}
+	b := img.Bounds()
+	h := b.Dy()
+	if h < 200 {
+		return false
+	}
+	top := 0
+	bottom := 0
+	step := 4
+	for y := b.Min.Y; y < b.Min.Y+h/10; y += step {
+		for x := b.Min.X; x < b.Max.X; x += step {
+			r, g, bb, _ := img.RGBAAt(x, y).RGBA()
+			if r>>8 < 20 && g>>8 < 20 && bb>>8 < 20 {
+				top++
+			}
+		}
+	}
+	for y := b.Max.Y - h/10; y < b.Max.Y; y += step {
+		for x := b.Min.X; x < b.Max.X; x += step {
+			r, g, bb, _ := img.RGBAAt(x, y).RGBA()
+			if r>>8 < 20 && g>>8 < 20 && bb>>8 < 20 {
+				bottom++
+			}
+		}
+	}
+	total := (h/10/step + 1) * (b.Dx()/step + 1)
+	return total > 0 && top*100/total >= 90 && bottom*100/total >= 90
+}
+
+// handlePadPhase 只处理手柄模式的“菜单动画/A 选择”时序。
 // 剧情、确认、对话的识别由统一的 Step 流程负责，鼠标/手柄不再各写一版。
 func (s *Session) handlePadPhase(frame assist.Frame) (assist.Result, []assist.Action, bool, error) {
-	if !s.padReady {
-		// 上游 _gamepad_click 会先做一次手柄输入，让游戏从键鼠模式切到手柄模式。
-		s.padReady = true
-		s.padAt = frame.At
-		return assist.Result{State: "激活手柄模式", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}}, true, nil
-	}
 	if s.padPhase == padPhaseNone {
 		return assist.Result{}, nil, false, nil
 	}
@@ -344,6 +395,9 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 				s.menuClickedAt = frame.At
 				s.expectConfirm(frame.At, 5*time.Second)
 				if s.cfg.gamepad {
+					if activation, ok := s.gamepadActivate(frame); ok {
+						return activation, true, nil
+					}
 					s.padPhase = padPhaseSkip
 					s.padAt = frame.At
 					return &actionStep{state: "手柄跳过", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, true, nil
@@ -357,6 +411,9 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 		if block, ok := findBlock(blocks, s.spec.MenuKeyword); ok {
 			s.menuClickedAt = frame.At
 			if s.cfg.gamepad {
+				if activation, ok := s.gamepadActivate(frame); ok {
+					return activation, true, nil
+				}
 				s.padPhase = padPhaseMenu
 				s.padAt = frame.At
 				return &actionStep{state: "手柄菜单", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, true, nil
@@ -366,6 +423,9 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 		if block, ok := findBlock(blocks, s.spec.AutoKeyword); ok {
 			s.menuClickedAt = frame.At
 			if s.cfg.gamepad {
+				if activation, ok := s.gamepadActivate(frame); ok {
+					return activation, true, nil
+				}
 				s.padPhase = padPhaseMenu
 				s.padAt = frame.At
 				return &actionStep{state: "手柄菜单", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, true, nil
@@ -375,6 +435,16 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 		// 手柄模式下按钮图标可能只有“+”，OCR 认不出“菜单”两个字；
 		// 剧情栏只要有文字/图标块，就按菜单处理，直接按“+”再 A 选择。
 		if s.cfg.gamepad && len(blocks) > 0 {
+			inStory, err := s.inDialog(frame)
+			if err != nil {
+				return nil, false, err
+			}
+			if !inStory && !s.inLetterbox(frame) {
+				return nil, false, nil
+			}
+			if activation, ok := s.gamepadActivate(frame); ok {
+				return activation, true, nil
+			}
 			s.padPhase = padPhaseMenu
 			s.padAt = frame.At
 			s.menuClickedAt = frame.At
@@ -554,6 +624,9 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 		return nil, err
 	}
 	if s.cfg.gamepad && s.cfg.mode == ModeSkip {
+		if activation, ok := s.gamepadActivate(frame); ok {
+			return activation, nil
+		}
 		// 对话框本身也是剧情栏 OCR 容易漏掉的状态；手柄模式直接从“+”开始，
 		// 后续 A 选择/A 确认由 handlePadPhase 统一处理。
 		if inDialog {
