@@ -43,7 +43,9 @@ const {
 
 const pageTitle = computed(() => ({ home: "任务总览", settings: "协议配置", logs: "运行日志" }[tab.value]));
 const pageCode = computed(() => ({ home: "DASHBOARD", settings: "CONFIGURATION", logs: "EVENT STREAM" }[tab.value]));
-const fpsLabel = computed(() => (status.value.running ? `${status.value.fps.toFixed(1)} FPS` : "— FPS"));
+const fpsLabel = computed(() =>
+  status.value.running ? `${status.value.fps.toFixed(1)} / ${status.value.targetFps} FPS` : "— FPS",
+);
 </script>
 
 <template>

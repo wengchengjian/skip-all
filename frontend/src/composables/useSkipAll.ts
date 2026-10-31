@@ -21,6 +21,7 @@ export function useSkipAll() {
     error: "",
     startedAt: "",
     fps: 0,
+    targetFps: 0,
     ocrBackend: "",
   });
   const logs = ref<LogEntry[]>([]);

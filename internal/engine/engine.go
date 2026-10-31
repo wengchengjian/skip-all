@@ -113,6 +113,7 @@ func (e *Engine) Status() Status {
 		LastMessage: e.lastMessage,
 		LastError:   e.lastError,
 		FPS:         e.fps,
+		TargetFPS:   e.cfg.TargetFPS,
 	}
 }
 
@@ -125,6 +126,7 @@ type Status struct {
 	LastMessage string
 	LastError   string
 	FPS         float64
+	TargetFPS   int
 }
 
 // Pause 暂停会话。
@@ -153,6 +155,21 @@ func (e *Engine) Resume() {
 func (e *Engine) setFPS(fps float64) {
 	e.mu.Lock()
 	e.fps = fps
+	e.mu.Unlock()
+}
+
+// markFrame 用帧间隔的指数滑动平均更新实时帧率，避免只看第一秒的瞬间值。
+func (e *Engine) markFrame(dt time.Duration) {
+	if dt <= 0 {
+		return
+	}
+	instant := 1 / dt.Seconds()
+	e.mu.Lock()
+	if e.fps <= 0 {
+		e.fps = instant
+	} else {
+		e.fps = e.fps*0.8 + instant*0.2
+	}
 	e.mu.Unlock()
 }
 
@@ -213,8 +230,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	failures := 0
 	lastState := ""
 	lastAction := ""
-	fpsFrames := 0
-	fpsStarted := time.Now()
+	lastFrameAt := time.Time{}
 	for {
 		if runCtx.Err() != nil {
 			e.emit("info", "会话已停止")
@@ -268,12 +284,11 @@ func (e *Engine) Run(ctx context.Context) error {
 		if err := e.executeActions(runCtx, actions); err != nil {
 			return e.fail(err)
 		}
-		fpsFrames++
-		if elapsed := time.Since(fpsStarted); elapsed >= time.Second {
-			e.setFPS(float64(fpsFrames) / elapsed.Seconds())
-			fpsFrames = 0
-			fpsStarted = time.Now()
+		now := time.Now()
+		if !lastFrameAt.IsZero() {
+			e.markFrame(now.Sub(lastFrameAt))
 		}
+		lastFrameAt = now
 		wait := result.Wait
 		if wait <= 0 {
 			wait = interval

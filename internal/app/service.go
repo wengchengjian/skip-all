@@ -104,6 +104,7 @@ type StatusView struct {
 	Error       string    `json:"error"`
 	StartedAt   time.Time `json:"startedAt"`
 	FPS         float64   `json:"fps"`
+	TargetFPS   int       `json:"targetFps"`
 	OCRBackend  string    `json:"ocrBackend"`
 }
 
@@ -481,6 +482,7 @@ func (s *Service) GetStatus() StatusView {
 		status.GameID = strings.Join(ids, ",")
 		status.FeatureID = st.FeatureID
 		status.FeatureName = st.FeatureName
+		status.TargetFPS = st.TargetFPS
 		if st.LastMessage != "" {
 			status.Message = st.LastMessage
 		}

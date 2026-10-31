@@ -78,5 +78,6 @@ export interface StatusView {
     "error": string;
     "startedAt": string;
     "fps": number;
+    "targetFps": number;
     "ocrBackend": string;
 }
