@@ -21,8 +21,9 @@ const (
 	chosenOptionHold = 500 * time.Millisecond
 	chosenOptionMax  = 2 * time.Second
 	// 同一区域 OCR 结果缓存时间；降低循环里的重复识别开销。
-	storyCacheTTL = 400 * time.Millisecond
-	guardCacheTTL = time.Second
+	storyCacheTTL       = 400 * time.Millisecond
+	storyButtonCacheTTL = 3 * time.Second
+	guardCacheTTL       = time.Second
 )
 
 // Session 是剧情跳过状态机。
@@ -36,6 +37,7 @@ type Session struct {
 	chosenOptionAt time.Time
 	chosenPoint    geom.Point
 	lastOptionKey  string
+	lastButtonKey  string
 	recentClicks   int
 	ocrCache       map[string]ocrCacheEntry
 	confirmUntil   time.Time
@@ -110,6 +112,9 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 			s.resetAfterConfirm()
 			return assist.Result{State: "确认跳过", Wait: confirmWait}, actions, nil
 		}
+		// 确认框还没出现：先不要继续点剧情栏/菜单，否则会把下一次跳过按钮
+		// 当成确认点击，导致整个跳过流程失败。
+		return assist.Result{State: "等待确认框", Wait: confirmWait}, nil, nil
 	}
 
 	// 2. 剧情右上角：跳过 / 菜单 / 自动。
@@ -132,7 +137,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		}
 	}
 
-	// 3. 点击菜单后的 5s 静默：等跳过键和确认框，不处理对话框。
+	// 3. 点击菜单后的 5s 静默：等跳过键和确认框，不重复点菜单。
 	if s.inMenuQuiet(frame.At) {
 		return assist.Result{State: "等待剧情菜单动画", Wait: storyButtonWait}, nil, nil
 	}
@@ -175,13 +180,17 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 	if err != nil {
 		return nil, false, err
 	}
-	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})
-	for _, band := range bands {
-		if band.X2-band.X1 >= 30 {
-			return []assist.Action{{Kind: assist.ActionClick, Point: band.Center()}}, true, nil
-		}
+	// 确认按钮必须先确认文字是“确认”，不能只凭白色像素就点：
+	// 菜单/跳过动画期间确认区域可能短暂出现其他白字，过早点击会导致跳过流程失败。
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{ColorRange: &s.spec.ButtonColorRange}, 100*time.Millisecond)
+	if err != nil {
+		return nil, false, fmt.Errorf("识别确认框: %w", err)
 	}
-	return nil, false, nil
+	block, ok := findBlock(blocks, s.spec.ConfirmText)
+	if !ok {
+		return nil, false, nil
+	}
+	return []assist.Action{clickBlock(block)}, true, nil
 }
 
 func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
@@ -203,8 +212,41 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 		if len(bands) == 0 {
 			return nil, false, nil
 		}
-		s.menuClickedAt = frame.At
-		s.expectConfirm(frame.At, 2*time.Second)
+		// 白色按钮可能是“跳过/菜单/自动”，只 OCR 当前这一个小区域来区分，
+		// 避免把菜单当成跳过，也避免在确认框出现前反复点跳过。
+		key := bandKey(bands)
+		if s.inMenuQuiet(frame.At) && key == s.lastButtonKey {
+			return nil, false, nil
+		}
+		if key != s.lastButtonKey {
+			// 按钮几何位置变了，必须丢弃旧按钮文字的 OCR 缓存。
+			delete(s.ocrCache, area.Name+"/color")
+		}
+		s.lastButtonKey = key
+		blocks, err := s.ocrArea(frame, *area, vision.OCROptions{ColorRange: &s.spec.ButtonColorRange}, storyButtonCacheTTL)
+		if err != nil {
+			return nil, false, fmt.Errorf("识别剧情按钮文字: %w", err)
+		}
+		if s.inMenuQuiet(frame.At) {
+			// 菜单动画期间只允许点“跳过”，不要重复点“菜单”。
+			if _, ok := findBlock(blocks, s.spec.SkipKeyword); !ok {
+				return nil, false, nil
+			}
+		}
+		if block, ok := findBlock(blocks, s.spec.SkipKeyword); ok {
+			s.menuClickedAt = frame.At
+			s.expectConfirm(frame.At, 3*time.Second)
+			return &actionStep{state: "点击跳过", wait: s.spec.SkipClickWait, actions: []assist.Action{clickBlock(block)}}, true, nil
+		}
+		if block, ok := findBlock(blocks, s.spec.MenuKeyword); ok {
+			s.menuClickedAt = frame.At
+			return &actionStep{state: "展开剧情菜单", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, true, nil
+		}
+		if block, ok := findBlock(blocks, s.spec.AutoKeyword); ok {
+			s.menuClickedAt = frame.At
+			return &actionStep{state: "点击自动", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, true, nil
+		}
+		// 文字识别失败时保留白色按钮兜底，但不要把它当成确认框。
 		return &actionStep{state: "点击剧情按钮", wait: s.spec.SkipClickWait, actions: []assist.Action{{Kind: assist.ActionClick, Point: bands[0].Center()}}}, true, nil
 	}
 
@@ -421,7 +463,7 @@ func (s *Session) clickOptionArea(frame assist.Frame, areaName string, now time.
 func bandKey(bands []geom.Rect) string {
 	var b strings.Builder
 	for _, band := range bands {
-		fmt.Fprintf(&b, "%d-%d;", band.Y1, band.Y2)
+		fmt.Fprintf(&b, "%d-%d-%d-%d;", band.X1, band.Y1, band.X2, band.Y2)
 	}
 	return b.String()
 }
@@ -461,6 +503,7 @@ func (s *Session) area(screenName, areaName string) (*screen.Area, error) {
 
 func (s *Session) resetAfterConfirm() {
 	s.menuClickedAt = time.Time{}
+	s.lastButtonKey = ""
 	s.confirmUntil = time.Time{}
 	s.clearChosenOption()
 	s.recentClicks = 0

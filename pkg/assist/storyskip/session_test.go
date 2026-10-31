@@ -259,6 +259,88 @@ func TestSkipAndConfirm(t *testing.T) {
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1130, Y: 647}}})
 }
 
+func TestConfirmWaitsForRealButton(t *testing.T) {
+	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
+	scripts := []frameScript{
+		{
+			at: base,
+			ocr: map[string][]vision.TextBlock{
+				"文本-剧情右上角": {block("跳过", geom.Rect{X1: 1680, Y1: 50, X2: 1760, Y2: 100})},
+			},
+		},
+		{
+			at: base.Add(time.Second),
+			ocr: map[string][]vision.TextBlock{
+				"对话框确认": {block("取消", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
+			},
+		},
+		{
+			at: base.Add(2 * time.Second),
+			ocr: map[string][]vision.TextBlock{
+				"对话框确认": {block("确认", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
+			},
+		},
+	}
+	session, rt := newTestSession(t, nil, scripts)
+
+	_, actions := step(t, session, rt, 0)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1720, Y: 75}}})
+
+	result, actions := step(t, session, rt, 1)
+	if result.State != "等待确认框" || len(actions) != 0 {
+		t.Fatalf("确认框未出现时不应点击: state=%q actions=%+v", result.State, actions)
+	}
+
+	result, actions = step(t, session, rt, 2)
+	if result.State != "确认跳过" {
+		t.Fatalf("状态 = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1130, Y: 647}}})
+}
+
+func TestMenuThenSkipThenConfirm(t *testing.T) {
+	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
+	scripts := []frameScript{
+		{
+			at: base,
+			ocr: map[string][]vision.TextBlock{
+				"文本-剧情右上角": {block("菜单", geom.Rect{X1: 1700, Y1: 40, X2: 1760, Y2: 80})},
+			},
+		},
+		{
+			at: base.Add(time.Second),
+			ocr: map[string][]vision.TextBlock{
+				"文本-剧情右上角": {block("跳过", geom.Rect{X1: 1700, Y1: 120, X2: 1800, Y2: 160})},
+			},
+		},
+		{
+			at: base.Add(2 * time.Second),
+			ocr: map[string][]vision.TextBlock{
+				"对话框确认": {block("确认", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
+			},
+		},
+	}
+	session, rt := newTestSession(t, nil, scripts)
+
+	result, actions := step(t, session, rt, 0)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1730, Y: 60}}})
+	if result.State != "展开剧情菜单" {
+		t.Fatalf("菜单状态 = %q", result.State)
+	}
+
+	result, actions = step(t, session, rt, 1)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1750, Y: 140}}})
+	if result.State != "点击跳过" {
+		t.Fatalf("跳过状态 = %q", result.State)
+	}
+
+	result, actions = step(t, session, rt, 2)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1130, Y: 647}}})
+	if result.State != "确认跳过" {
+		t.Fatalf("确认状态 = %q", result.State)
+	}
+}
+
 func TestMenuQuiet(t *testing.T) {
 	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
 	dialog := frameScript{
