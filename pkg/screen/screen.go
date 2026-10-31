@@ -46,9 +46,12 @@ type Area struct {
 	TemplateSubDir         string       `yaml:"template_sub_dir"`
 	TemplateID             string       `yaml:"template_id"`
 	TemplateMatchThreshold float64      `yaml:"template_match_threshold"`
-	IDMark                 bool         `yaml:"id_mark"`
-	GamepadKey             string       `yaml:"gamepad_key"`
-	GotoList               []string     `yaml:"goto_list"`
+	// TemplateWhiteMask 为真时，模板匹配前把区域和模板都做白色掩膜
+	// （RGB 全在 210-255 内为白，否则为黑），等价于上游的 convert_dialog_icon。
+	TemplateWhiteMask bool     `yaml:"template_white_mask"`
+	IDMark            bool     `yaml:"id_mark"`
+	GamepadKey        string   `yaml:"gamepad_key"`
+	GotoList          []string `yaml:"goto_list"`
 }
 
 // IsText 报告区域是否是文本匹配区域。

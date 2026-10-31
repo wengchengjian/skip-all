@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	_ "image/png"
 	"io/fs"
 	"math"
@@ -83,6 +85,49 @@ func decodeImageFS(fsys fs.FS, name string) (image.Image, error) {
 		return nil, err
 	}
 	return img, nil
+}
+
+// WhiteMaskRange 是白色掩膜的 RGB 范围，与上游 convert_dialog_icon 一致。
+var WhiteMaskRange = [2][3]uint8{{210, 210, 210}, {255, 255, 255}}
+
+// WhiteMask 把图像二值化成白掩膜：RGB 都落在 WhiteMaskRange 内为白，否则为黑。
+// 上游用它把"发亮图标 vs 任意背景"压成同一张剪影，抗蓝/灰染色。
+func WhiteMask(img image.Image) *image.RGBA {
+	if img == nil {
+		return nil
+	}
+	b := img.Bounds()
+	out := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	for y := 0; y < b.Dy(); y++ {
+		for x := 0; x < b.Dx(); x++ {
+			r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			rr, gg, bb := uint8(r>>8), uint8(g>>8), uint8(bl>>8)
+			if rr >= WhiteMaskRange[0][0] && rr <= WhiteMaskRange[1][0] &&
+				gg >= WhiteMaskRange[0][1] && gg <= WhiteMaskRange[1][1] &&
+				bb >= WhiteMaskRange[0][2] && bb <= WhiteMaskRange[1][2] {
+				out.SetRGBA(x, y, colorRGBA(255))
+			} else {
+				out.SetRGBA(x, y, colorRGBA(0))
+			}
+		}
+	}
+	return out
+}
+
+func colorRGBA(v uint8) color.RGBA { return color.RGBA{v, v, v, 255} }
+
+// MatchTemplateWhiteMask 先把源区域和模板都做白色掩膜再匹配。
+func MatchTemplateWhiteMask(source image.Image, search geom.Rect, raw image.Image, threshold float64) ([]Match, error) {
+	if source == nil || raw == nil {
+		return nil, errors.New("模板匹配缺少图像")
+	}
+	r := image.Rect(search.X1, search.Y1, search.X2, search.Y2).Intersect(source.Bounds())
+	if r.Empty() {
+		return nil, nil
+	}
+	crop := image.NewRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))
+	draw.Draw(crop, crop.Bounds(), source, r.Min, draw.Src)
+	return MatchTemplate(WhiteMask(crop), geom.Rect{X1: 0, Y1: 0, X2: r.Dx(), Y2: r.Dy()}, WhiteMask(raw), nil, threshold)
 }
 
 // MatchTemplate 在 source 的 search 区域内做带 mask 的 TM_CCOEFF_NORMED 等价匹配。

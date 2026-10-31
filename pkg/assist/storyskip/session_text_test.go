@@ -136,3 +136,44 @@ func TestIgnoreGamepadDisablesPadKeys(t *testing.T) {
 		t.Fatal("IgnoreGamepad 为真时不应启用手柄按键")
 	}
 }
+
+func TestRetrySkipUntilConfirmShows(t *testing.T) {
+	base := time.Date(2026, 11, 1, 6, 0, 0, 0, time.Local)
+	skipMatch := map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 58, Y1: 165, X2: 100, Y2: 205}, Confidence: 0.95}}}
+	scripts := []frameScript{
+		{at: base, matches: skipMatch},
+		{at: base.Add(600 * time.Millisecond), matches: skipMatch},
+		{at: base.Add(1200 * time.Millisecond), matches: skipMatch},
+		{at: base.Add(1800 * time.Millisecond), matches: skipMatch},
+		{at: base.Add(2400 * time.Millisecond), matches: skipMatch},
+	}
+	session, rt := newTextSession(t, scripts)
+	if result, _ := step(t, session, rt, 0); result.State != "模板跳过" {
+		t.Fatalf("第 0 帧 state = %q", result.State)
+	}
+	for i := 1; i <= 3; i++ {
+		result, actions := step(t, session, rt, i)
+		if result.State != "重试跳过" {
+			t.Fatalf("第 %d 帧 state = %q, want 重试跳过", i, result.State)
+		}
+		checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 79, Y: 185}}})
+	}
+	// 重试次数用完后只等待，不再点。
+	if result, actions := step(t, session, rt, 4); result.State != "等待确认框" || len(actions) != 0 {
+		t.Fatalf("第 4 帧 state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestRetrySkipThrottled(t *testing.T) {
+	base := time.Date(2026, 11, 1, 6, 0, 0, 0, time.Local)
+	skipMatch := map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 58, Y1: 165, X2: 100, Y2: 205}, Confidence: 0.95}}}
+	scripts := []frameScript{
+		{at: base, matches: skipMatch},
+		{at: base.Add(100 * time.Millisecond), matches: skipMatch},
+	}
+	session, rt := newTextSession(t, scripts)
+	step(t, session, rt, 0)
+	if result, actions := step(t, session, rt, 1); result.State != "等待确认框" || len(actions) != 0 {
+		t.Fatalf("间隔不足 500ms 不应补点: state = %q actions = %+v", result.State, actions)
+	}
+}

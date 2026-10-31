@@ -45,6 +45,13 @@
 
 行为对照：
 
+从本机安装的 ok-ww（`F:\Program Files\ok-ww\data\apps\ok-ww\repo`）反向到的代码事实，已按行为对齐：
+
+- `convert_dialog_icon`（BaseWWTask.py:1309）=`cv2.inRange(img,[210,210,210],[255,255,255])`，同时作用于帧和模板，把"发亮图标 vs 任意背景"压成同一张剪影。本项目对应 `pkg/vision.WhiteMask` + `template_white_mask`，用于鸣潮两个跳过图标区域：误命中从 0.72/0.67 降到 0.28/0.49，阈值因此对齐上游的 0.75（新图标）/0.85（对话栏图标）。
+- `try_click_skip`（SkipBaseTask.py:43-49）是 `while find_skip(): click`，点完立刻在 3s 内等确认框。本项目在确认等待窗口里加了"补点跳过"，节流 500ms、每轮最多 3 次，避免点击被吞掉时干等满窗口。
+- `check_skip`（:51-55）在没点过跳过时也调一次 `skip_confirm` 兜底；本项目没有实现（启动时已经开着的确认框不处理），因为缺少上游"按钮+勾选框"双证模板，无条件找"确认"会误点其它弹窗。
+- `skip_confirm`（:21-35）的顺序：`click_skip_dialog_confirm`（勾选框 + 确认按钮双证）→ `skip_quest_confirm` → `skip_quest_confirm_new` → 已在队伍即视为完成。本项目用 OCR 精确匹配确认文案覆盖后两种按钮，不勾选"本次登入不再提示"。
+
 | 上游行为 | 本项目实现 | 说明 |
 | --- | --- | --- |
 | while find_skip(): 点击左上角跳过图标 | StorySkipAreas 模板 + “模板跳过” | 图标模板从游戏画面自行裁剪，带白像素掩码 |

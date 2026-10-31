@@ -28,6 +28,10 @@ const (
 	guardCacheTTL        = time.Second
 	gamepadGuardCacheTTL = 3 * time.Second
 
+	// 点过跳过但确认框还没出现时，按上游 while find_skip() 的做法重试点跳过。
+	skipRetryInterval = 500 * time.Millisecond
+	skipRetryLimit    = 3
+
 	padPhaseNone   = 0
 	padPhaseSkip   = 1 // 已按“+”触发普通跳过
 	padPhaseMenu   = 2 // 已按“+”打开菜单
@@ -58,6 +62,8 @@ type Session struct {
 	dialogCached   bool
 	dialogIn       bool
 	confirmUntil   time.Time
+	lastSkipAt     time.Time
+	skipRetries    int
 	padReady       bool
 	padPhase       int
 	padAt          time.Time
@@ -196,8 +202,13 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 			s.resetAfterConfirm()
 			return assist.Result{State: "确认跳过", Wait: confirmWait}, actions, nil
 		}
-		// 确认框还没出现：先不要继续点剧情栏/菜单，否则会把下一次跳过按钮
-		// 当成确认点击，导致整个跳过流程失败。
+		// 确认框还没出现：上游是 while find_skip() 反复点跳过，这里同样补点，
+		// 否则点击被游戏吞掉时要干等满整个确认窗口才重试。
+		if actions, ok, err := s.retrySkip(frame); err != nil {
+			return assist.Result{}, nil, err
+		} else if ok {
+			return assist.Result{State: "重试跳过", Wait: s.spec.SkipClickWait}, actions, nil
+		}
 		return assist.Result{State: "等待确认框", Wait: confirmWait}, nil, nil
 	}
 
@@ -510,6 +521,29 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 	return []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}, true, nil
 }
 
+// retrySkip 在确认框还没出现时补点一次跳过图标，节流到 skipRetryInterval。
+func (s *Session) retrySkip(frame assist.Frame) ([]assist.Action, bool, error) {
+	if s.cfg.gamepad || s.lastSkipAt.IsZero() || s.skipRetries >= skipRetryLimit {
+		return nil, false, nil
+	}
+	if frame.At.Sub(s.lastSkipAt) < skipRetryInterval {
+		return nil, false, nil
+	}
+	for _, name := range s.spec.StorySkipAreas {
+		match, ok, err := s.matchFirst(frame, s.spec.Screen, name)
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok {
+			continue
+		}
+		s.skipRetries++
+		s.lastSkipAt = frame.At
+		return []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}, true, nil
+	}
+	return nil, false, nil
+}
+
 func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
 	area, err := s.area(s.spec.Screen, s.spec.StoryArea)
 	if err != nil {
@@ -535,6 +569,8 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 					return nil, false, err
 				} else if ok {
 					s.menuClickedAt = frame.At
+					s.lastSkipAt = frame.At
+					s.skipRetries = 0
 					s.expectConfirm(frame.At, 5*time.Second)
 					return &actionStep{state: "模板跳过", wait: s.spec.SkipClickWait, actions: []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}}, true, nil
 				}
@@ -575,6 +611,8 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 			}
 			if white {
 				s.menuClickedAt = frame.At
+				s.lastSkipAt = frame.At
+				s.skipRetries = 0
 				s.expectConfirm(frame.At, 5*time.Second)
 				if s.cfg.gamepad {
 					if activation, ok := s.gamepadActivate(frame); ok {
@@ -1023,6 +1061,8 @@ func (s *Session) area(screenName, areaName string) (*screen.Area, error) {
 
 func (s *Session) resetAfterConfirm() {
 	s.menuClickedAt = time.Time{}
+	s.lastSkipAt = time.Time{}
+	s.skipRetries = 0
 	s.confirmUntil = time.Time{}
 	s.padPhase = padPhaseNone
 	s.padAt = time.Time{}

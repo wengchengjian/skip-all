@@ -118,6 +118,13 @@ func (s *Service) Template(frame *image.RGBA, area screen.Area, ref TemplateRef,
 		return nil, err
 	}
 	search := resolveRect(area.Rect, frame.Bounds())
+	if area.TemplateWhiteMask {
+		matches, err := MatchTemplateWhiteMask(frame, geom.Rect{X1: search.Min.X, Y1: search.Min.Y, X2: search.Max.X, Y2: search.Max.Y}, raw, threshold)
+		for i := range matches {
+			matches[i].Rect = offsetRect(matches[i].Rect, search.Min.X, search.Min.Y)
+		}
+		return matches, err
+	}
 	return MatchTemplate(frame, geom.Rect{X1: search.Min.X, Y1: search.Min.Y, X2: search.Max.X, Y2: search.Max.Y}, raw, mask, threshold)
 }
 
