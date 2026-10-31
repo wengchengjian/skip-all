@@ -36,14 +36,16 @@ func TestAssetsLoadStoryScreen(t *testing.T) {
 	if !ok {
 		t.Fatal("缺少 鸣潮剧情 画面")
 	}
-	for _, area := range []string{"剧情跳过", "对话框确认", "对话内容", "右侧选项区域", "中间选项区域"} {
+	for _, area := range []string{"剧情跳过", "剧情跳过-对话", "对话框确认", "对话内容", "右侧选项区域", "中间选项区域"} {
 		if _, ok := story.Area(area); !ok {
 			t.Fatalf("鸣潮剧情 缺少区域 %s", area)
 		}
 	}
-	skip, ok := story.Area("剧情跳过")
-	if !ok || skip.TemplateID == "" || skip.TemplateSubDir != "story" {
-		t.Fatalf("剧情跳过 应是模板区域: %+v", skip)
+	for name, id := range map[string]string{"剧情跳过": "skip", "剧情跳过-对话": "skip_dialog"} {
+		area, ok := story.Area(name)
+		if !ok || area.TemplateID != id || area.TemplateSubDir != "story" {
+			t.Fatalf("%s 应是模板区域 %s: %+v", name, id, area)
+		}
 	}
 }
 

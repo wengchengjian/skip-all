@@ -21,9 +21,9 @@ func storySkipSpec() storyskip.Spec {
 		DialogArea:       "对话内容",
 		RightOptionArea:  "右侧选项区域",
 		MiddleOptionArea: "中间选项区域",
-		// 鸣潮的“跳过”是左上角的图标，没有文字，只能靠模板；
-		// 顶部的“跳过”图标是老版剧情界面，位置不同，一并尝试。
-		StorySkipAreas:  []string{"剧情跳过", "剧情跳过-顶部"},
+		// 鸣潮的“跳过”是左上角的图标，没有文字，只能靠模板：
+		// 过场剧情在左侧偏下，普通剧情对话在左上角、图标更小。
+		StorySkipAreas:  []string{"剧情跳过", "剧情跳过-对话"},
 		DialogStyle:     storyskip.DialogText,
 		DialogClickArea: "对话内容",
 		// 纯模板判定，不为了剧情栏加载 OCR；只有确认框出现时才用 OCR。
