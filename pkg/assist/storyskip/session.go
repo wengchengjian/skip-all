@@ -140,6 +140,11 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		if s.padFast != 0 {
 			return s.stepFastPad(frame)
 		}
+		if s.padPhase != padPhaseNone && !s.storyMenuVisible(frame) {
+			s.padPhase = padPhaseNone
+			s.padAt = time.Time{}
+			s.confirmUntil = time.Time{}
+		}
 		if s.padPhase == padPhaseNone && !frame.At.Before(s.padFastUntil) {
 			ok, err := s.fastStory(frame)
 			if err != nil {
@@ -176,6 +181,11 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		// 确认框还没出现：先不要继续点剧情栏/菜单，否则会把下一次跳过按钮
 		// 当成确认点击，导致整个跳过流程失败。
 		return assist.Result{State: "等待确认框", Wait: confirmWait}, nil, nil
+	}
+
+	// 鼠标路径也先用固定菜单模板门控，任务列表/日程等画面不跑 OCR。
+	if !s.cfg.gamepad && len(s.spec.StoryMenuAreas) > 0 && !s.storyMenuVisible(frame) {
+		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 
 	// 2. 剧情右上角：跳过 / 菜单 / 自动。
@@ -217,6 +227,9 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	if err != nil {
 		return assist.Result{}, nil, err
 	}
+	if len(s.spec.StoryMenuAreas) > 0 && !s.storyMenuVisible(frame) {
+		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+	}
 	if !storyVisible && !inDialog && !s.hasOptionBands(frame) && s.recentClicks <= 0 {
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
@@ -253,8 +266,25 @@ func (s *Session) hasOptionBands(frame assist.Frame) bool {
 	return false
 }
 
+// storyMenuVisible 用固定模板确认右上角有剧情菜单按钮。
+// 任务列表、日程、CG 等画面没有这个按钮，不能只看“灰底+白字”就触发。
+func (s *Session) storyMenuVisible(frame assist.Frame) bool {
+	if len(s.spec.StoryMenuAreas) == 0 {
+		return true
+	}
+	for _, name := range s.spec.StoryMenuAreas {
+		if _, ok, err := s.matchFirst(frame, s.spec.Screen, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
 // fastStory 用便宜的灰底 + 白色文字行判断剧情，不跑 OCR，用于快速触发。
 func (s *Session) fastStory(frame assist.Frame) (bool, error) {
+	if !s.storyMenuVisible(frame) {
+		return false, nil
+	}
 	area, err := s.area(s.spec.Screen, s.spec.DialogArea)
 	if err != nil {
 		return false, err
