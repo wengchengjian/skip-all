@@ -70,12 +70,6 @@ func (cfg *Config) New() error {
 			return fmt.Errorf("启用 DirectML 失败: %w", err)
 		}
 	}
-	// 启用 DirectML
-	if cfg.UseDirectML {
-		if err := options.EnableDirectML(); err != nil {
-			return fmt.Errorf("启用 DirectML 失败: %w", err)
-		}
-	}
 	cfg.SessionOptions = options
 	cfg.OnnxEngine = onnxEngine
 

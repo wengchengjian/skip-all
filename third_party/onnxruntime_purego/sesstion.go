@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unsafe"
+
+	"github.com/ebitengine/purego"
 )
 
 type Session struct {
@@ -45,9 +47,11 @@ func (o *SessionOptions) SetCpuMemArena(useArena bool) error {
 
 // EnableDirectML 启用 DirectML（Windows 上兼容 Intel/NVIDIA/AMD GPU）。
 func (o *SessionOptions) EnableDirectML() error {
-	// onnxruntime-directml 在创建 session 时会自动注册 DML；
-	// 再调用 SessionOptionsAppendExecutionProvider 会报重复注册。
-	return nil
+	// onnxruntime-directml 不会仅因为加载了 DML 版 DLL 就自动使用 GPU，
+	// 仍需要显式 Append 执行提供者；否则实际跑 CPU，CPU 占用会很高。
+	var appendDML func(SessionOptionsHandle, int32) StatusHandle
+	purego.RegisterLibFunc(&appendDML, o.engine.handle, "OrtSessionOptionsAppendExecutionProvider_DML")
+	return o.engine.checkStatus(appendDML(o.handle, 0))
 }
 
 // EnableCUDA 启用 CUDA
