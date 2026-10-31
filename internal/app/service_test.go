@@ -35,6 +35,12 @@ func TestServiceExcludedGames(t *testing.T) {
 	if svc.isExcluded("other") {
 		t.Fatal("other 不应被排除")
 	}
+	if res := svc.StartAll(); !res.OK {
+		t.Fatalf("全部排除时 StartAll 不应失败: %+v", res)
+	}
+	if st := svc.GetStatus(); st.Running || st.Paused {
+		t.Fatalf("全部排除时不应有会话: %+v", st)
+	}
 }
 
 func TestServiceConfigRoundTrip(t *testing.T) {
