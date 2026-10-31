@@ -350,21 +350,21 @@ func TestGamepadMenuSkipConfirm(t *testing.T) {
 				"文本-剧情右上角": {block("菜单", geom.Rect{X1: 1700, Y1: 40, X2: 1760, Y2: 80})},
 			},
 		},
-		{at: base.Add(500 * time.Millisecond)},
+		{at: base.Add(800 * time.Millisecond)},
 		{
-			at: base.Add(time.Second),
+			at: base.Add(1700 * time.Millisecond),
 			ocr: map[string][]vision.TextBlock{
 				"对话框确认": {block("确认", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
 			},
 		},
 		{
-			at: base.Add(1500 * time.Millisecond),
+			at: base.Add(2400 * time.Millisecond),
 			ocr: map[string][]vision.TextBlock{
 				"文本-剧情右上角": {block("跳过", geom.Rect{X1: 1720, Y1: 40, X2: 1800, Y2: 80})},
 			},
 		},
 		{
-			at: base.Add(2 * time.Second),
+			at: base.Add(3200 * time.Millisecond),
 			ocr: map[string][]vision.TextBlock{
 				"对话框确认": {block("确认", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
 			},

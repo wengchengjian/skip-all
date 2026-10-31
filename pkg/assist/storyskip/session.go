@@ -36,6 +36,7 @@ const (
 	padConfirmKey  = "xbox_a"
 	padActivateKey = "xbox_a"
 	padActionWait  = 250 * time.Millisecond
+	padMenuWait    = 700 * time.Millisecond
 )
 
 // Session 是剧情跳过状态机。
@@ -257,8 +258,12 @@ func (s *Session) handlePadPhase(frame assist.Frame) (assist.Result, []assist.Ac
 		s.confirmUntil = time.Time{}
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, true, nil
 	}
-	if frame.At.Sub(s.padAt) < padActionWait {
-		return assist.Result{State: "等待手柄操作", Wait: padActionWait}, nil, true, nil
+	wait := padActionWait
+	if s.padPhase == padPhaseMenu {
+		wait = padMenuWait
+	}
+	if frame.At.Sub(s.padAt) < wait {
+		return assist.Result{State: "等待手柄操作", Wait: wait}, nil, true, nil
 	}
 	if s.confirmPending(frame.At) {
 		ok, err := s.confirmVisible(frame)
