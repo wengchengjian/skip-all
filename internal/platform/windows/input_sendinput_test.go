@@ -102,6 +102,10 @@ func TestCursorMode(t *testing.T) {
 	if !in.shouldMoveCursor() {
 		t.Fatal("always 模式应移动光标")
 	}
+	in = &Input{cursorMode: CursorAuto}
+	if !in.shouldMoveCursor() {
+		t.Fatal("auto 模式也必须移动光标，绝区零后台点击依赖真实光标位置")
+	}
 }
 
 func TestInputNilWindow(t *testing.T) {

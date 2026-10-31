@@ -11,8 +11,6 @@ import (
 	"time"
 	"unsafe"
 
-	winapi "golang.org/x/sys/windows"
-
 	"github.com/wengchengjian/skip-all/pkg/geom"
 )
 
@@ -47,9 +45,6 @@ var (
 	procGetCursorPos = user32.NewProc("GetCursorPos")
 	procPostMessage  = user32.NewProc("PostMessageW")
 	procSendMessage  = user32.NewProc("SendMessageW")
-
-	procGetLastInputInfo = user32.NewProc("GetLastInputInfo")
-	procGetTickCount     = winapi.NewLazySystemDLL("kernel32.dll").NewProc("GetTickCount")
 )
 
 // mouseInput 对应 Win32 MOUSEINPUT。
@@ -257,7 +252,8 @@ func (i *Input) ClickCurrent() error {
 		if err != nil {
 			return err
 		}
-		return i.backgroundClickAtLocked(geom.Point{X: rect.Width() / 2, Y: rect.Height() / 2}, false)
+		// 对话点击也走真实光标：绝区零忽略 lParam，只有光标在窗口内才生效。
+		return i.backgroundClickAtLocked(geom.Point{X: rect.Width() / 2, Y: rect.Height() / 2}, i.shouldMoveCursor())
 	}
 	if err := i.ensureActiveLocked(); err != nil {
 		return err
@@ -447,10 +443,11 @@ func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
 			_, _, _ = procSetCursorPos.Call(uintptr(saved.X), uintptr(saved.Y))
 		}
 	}()
-	time.Sleep(8 * time.Millisecond)
-	// 用 PostMessage 激活，避免 SendMessage 同步等待游戏 UI 线程拖慢整个循环。
-	_ = postMessage(hwnd, wmActivate, waActive, 0)
-	time.Sleep(4 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	// 与上游一致：先同步激活窗口，再 PostMessage 鼠标事件；
+	// 绝区零后台点击会忽略 lParam 坐标，依赖上面 SetCursorPos 的真实位置。
+	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
+	time.Sleep(10 * time.Millisecond)
 	if err := postMessage(hwnd, wmLButtonDown, mkLButton, 0); err != nil {
 		return err
 	}
@@ -472,8 +469,9 @@ func (i *Input) shouldMoveCursor() bool {
 	case CursorAlways:
 		return true
 	default:
-		// auto 只在用户空闲时移动光标；用户正在操作时不抢鼠标。
-		return idleFor(250 * time.Millisecond)
+		// 绝区零的后台点击依赖真实光标位置，lParam 会被忽略。
+		// auto 也必须每次短暂移光标再归位，否则用户一动鼠标跳过就失效。
+		return true
 	}
 }
 
@@ -490,20 +488,6 @@ func absInt(v int) int {
 		return -v
 	}
 	return v
-}
-
-// idleFor 报告距离上一次物理键鼠输入是否已超过 d。
-func idleFor(d time.Duration) bool {
-	var info struct {
-		CbSize uint32
-		DwTime uint32
-	}
-	info.CbSize = uint32(unsafe.Sizeof(info))
-	if r, _, _ := procGetLastInputInfo.Call(uintptr(unsafe.Pointer(&info))); r == 0 {
-		return false
-	}
-	tick, _, _ := procGetTickCount.Call()
-	return uint32(tick)-info.DwTime >= uint32(d/time.Millisecond)
 }
 
 func (i *Input) backgroundKeyTapLocked(vk uint16) error {

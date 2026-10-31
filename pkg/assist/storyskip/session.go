@@ -182,15 +182,18 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 	}
 	// 确认按钮必须先确认文字是“确认”，不能只凭白色像素就点：
 	// 菜单/跳过动画期间确认区域可能短暂出现其他白字，过早点击会导致跳过流程失败。
-	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{ColorRange: &s.spec.ButtonColorRange}, 100*time.Millisecond)
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, 100*time.Millisecond)
 	if err != nil {
 		return nil, false, fmt.Errorf("识别确认框: %w", err)
 	}
-	block, ok := findBlock(blocks, s.spec.ConfirmText)
-	if !ok {
-		return nil, false, nil
+	for _, block := range blocks {
+		// 上游的 lcs_percent=1.0 是精确匹配；这里也要求整段文字等于“确认”，
+		// 避免把“确认跳过”等菜单文字当成确认按钮。
+		if strings.TrimSpace(block.Text) == strings.TrimSpace(s.spec.ConfirmText) {
+			return []assist.Action{clickBlock(block)}, true, nil
+		}
 	}
-	return []assist.Action{clickBlock(block)}, true, nil
+	return nil, false, nil
 }
 
 func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
@@ -235,7 +238,7 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 		}
 		if block, ok := findBlock(blocks, s.spec.SkipKeyword); ok {
 			s.menuClickedAt = frame.At
-			s.expectConfirm(frame.At, 3*time.Second)
+			s.expectConfirm(frame.At, 5*time.Second)
 			return &actionStep{state: "点击跳过", wait: s.spec.SkipClickWait, actions: []assist.Action{clickBlock(block)}}, true, nil
 		}
 		if block, ok := findBlock(blocks, s.spec.MenuKeyword); ok {
