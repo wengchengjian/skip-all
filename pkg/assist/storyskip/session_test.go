@@ -371,14 +371,21 @@ func TestGamepadMenuSkipConfirm(t *testing.T) {
 		},
 	}
 	session, rt := newTestSession(t, assist.Settings{SettingMode: "skip", SettingGamepad: true}, scripts)
+	// 单独测激活流程，避免首帧 A 打乱菜单时序。
+	result, actions := step(t, session, rt, 0)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}})
+	if result.State != "激活手柄模式" {
+		t.Fatalf("激活状态 = %q", result.State)
+	}
+	session.padReady = true
 
-	_, actions := step(t, session, rt, 0)
+	_, actions = step(t, session, rt, 0)
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}})
 
 	_, actions = step(t, session, rt, 1)
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}})
 
-	result, actions := step(t, session, rt, 2)
+	result, actions = step(t, session, rt, 2)
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}})
 	if result.State != "确认跳过" {
 		t.Fatalf("菜单确认状态 = %q", result.State)

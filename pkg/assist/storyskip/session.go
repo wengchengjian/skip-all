@@ -31,6 +31,7 @@ const (
 	padPhaseChosen = 3 // 已在菜单里按 A 选择“跳过”
 	padStartKey    = "xbox_start"
 	padConfirmKey  = "xbox_a"
+	padActivateKey = "xbox_a"
 	padActionWait  = 400 * time.Millisecond
 )
 
@@ -48,6 +49,7 @@ type Session struct {
 	recentClicks   int
 	ocrCache       map[string]ocrCacheEntry
 	confirmUntil   time.Time
+	padReady       bool
 	padPhase       int
 	padAt          time.Time
 }
@@ -179,6 +181,13 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 // stepGamepad 是纯手柄剧情跳过流程：+ 打开菜单/跳过，A 选择，A 确认。
 // 它不产生任何鼠标动作，适合游戏未聚焦时使用。
 func (s *Session) stepGamepad(frame assist.Frame) (assist.Result, []assist.Action, error) {
+	if !s.padReady {
+		// 游戏当前可能还是键鼠模式，先发一个手柄输入激活手柄模式。
+		// 用右摇杆而不是 A，避免激活时误触 UI。
+		s.padReady = true
+		s.padAt = frame.At
+		return assist.Result{State: "激活手柄模式", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}}, nil
+	}
 	if s.padPhase != padPhaseNone {
 		if frame.At.Sub(s.padAt) < padActionWait {
 			return assist.Result{State: "等待手柄操作", Wait: padActionWait}, nil, nil
