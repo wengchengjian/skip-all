@@ -207,8 +207,8 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	if err != nil {
 		return assist.Result{}, nil, err
 	}
-	if !storyVisible && !inDialog && !s.inLetterbox(frame) {
-		return assist.Result{State: "等待剧情模式", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+	if !storyVisible && !inDialog && !s.hasOptionBands(frame) && s.recentClicks <= 0 {
+		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 
 	// 6. 对话流程：先选项，再黑屏推进，最后对话框正文。
@@ -227,14 +227,11 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 
 // storyContext 判断当前是否仍处于剧情/CG 上下文，用于及时清掉手柄阶段。
 func (s *Session) storyContext(frame assist.Frame) (bool, error) {
-	if s.inLetterbox(frame) {
-		return true, nil
-	}
 	inDialog, err := s.inDialog(frame)
 	if err != nil {
 		return false, err
 	}
-	if inDialog {
+	if inDialog || s.hasOptionBands(frame) || s.recentClicks > 0 {
 		return true, nil
 	}
 	area, err := s.area(s.spec.Screen, s.spec.StoryArea)
@@ -248,6 +245,24 @@ func (s *Session) storyContext(frame assist.Frame) (bool, error) {
 	return hasKeyword(blocks, s.spec.Keywords), nil
 }
 
+// hasOptionBands 判断当前是否有剧情选项；选项画面可能没有对话框正文。
+func (s *Session) hasOptionBands(frame assist.Frame) bool {
+	for _, name := range []string{s.spec.RightOptionArea, s.spec.MiddleOptionArea} {
+		if name == "" {
+			continue
+		}
+		area, err := s.area(s.spec.Screen, name)
+		if err != nil {
+			continue
+		}
+		bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})
+		if len(bands) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // gamepadActivate 只在确认进入剧情后才触发，避免在普通大世界按 A 或 +。
 func (s *Session) gamepadActivate(frame assist.Frame) (*actionStep, bool) {
 	if !s.cfg.gamepad || s.padReady {
@@ -259,40 +274,6 @@ func (s *Session) gamepadActivate(frame assist.Frame) (*actionStep, bool) {
 	s.menuClickedAt = time.Time{}
 	s.confirmUntil = time.Time{}
 	return &actionStep{state: "激活手柄模式", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}}}, true
-}
-
-// inLetterbox 用上下黑边判断过场/CG；剧情对话和 CG 都有明显黑边。
-func (s *Session) inLetterbox(frame assist.Frame) bool {
-	img := frame.Image
-	if img == nil {
-		return false
-	}
-	b := img.Bounds()
-	h := b.Dy()
-	if h < 200 {
-		return false
-	}
-	top := 0
-	bottom := 0
-	step := 4
-	for y := b.Min.Y; y < b.Min.Y+h/10; y += step {
-		for x := b.Min.X; x < b.Max.X; x += step {
-			r, g, bb, _ := img.RGBAAt(x, y).RGBA()
-			if r>>8 < 20 && g>>8 < 20 && bb>>8 < 20 {
-				top++
-			}
-		}
-	}
-	for y := b.Max.Y - h/10; y < b.Max.Y; y += step {
-		for x := b.Min.X; x < b.Max.X; x += step {
-			r, g, bb, _ := img.RGBAAt(x, y).RGBA()
-			if r>>8 < 20 && g>>8 < 20 && bb>>8 < 20 {
-				bottom++
-			}
-		}
-	}
-	total := (h/10/step + 1) * (b.Dx()/step + 1)
-	return total > 0 && top*100/total >= 90 && bottom*100/total >= 90
 }
 
 // handlePadPhase 只处理手柄模式的“菜单动画/A 选择”时序。
@@ -473,7 +454,7 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 			if err != nil {
 				return nil, false, err
 			}
-			if !inStory && !s.inLetterbox(frame) {
+			if !inStory {
 				return nil, false, nil
 			}
 			if activation, ok := s.gamepadActivate(frame); ok {
@@ -620,24 +601,29 @@ func (s *Session) inDialog(frame assist.Frame) (bool, error) {
 		s.storeDialogResult(frame.At, hash, false)
 		return false, nil
 	}
-	// 跳过模式只要 gray mask 成立就点，兼容“……”这种没有文字行的对话框。
-	if s.cfg.mode == ModeSkip {
-		s.storeDialogResult(frame.At, hash, true)
-		return true, nil
+	// 上游 _check_dialog：灰底遮罩后还必须有中文正文。
+	// 只靠遮罩会把 CG/过场/动画里的深色区域误判成对话框。
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, 300*time.Millisecond)
+	if err != nil {
+		return false, fmt.Errorf("识别对话内容: %w", err)
 	}
-	// 点击/自动模式再用白色文字行确认，避免把其他灰底面板当对话。
-	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{
-		ColorRange: &[2][3]uint8{{170, 170, 170}, {255, 255, 255}},
-		MinHeight:  8,
-	})
-	for _, band := range bands {
-		if band.X2-band.X1 >= 20 {
+	for _, block := range blocks {
+		if containsChinese(block.Text) {
 			s.storeDialogResult(frame.At, hash, true)
 			return true, nil
 		}
 	}
 	s.storeDialogResult(frame.At, hash, false)
 	return false, nil
+}
+
+func containsChinese(s string) bool {
+	for _, r := range s {
+		if r >= 0x4e00 && r <= 0x9fff {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Session) storeDialogResult(at time.Time, hash uint64, in bool) {
