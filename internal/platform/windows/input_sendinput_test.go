@@ -91,9 +91,10 @@ func TestInputEventLayout(t *testing.T) {
 
 func TestCursorMode(t *testing.T) {
 	in := NewInputWithOptions(nil, InputOptions{})
-	if in.cursorMode != CursorNever {
-		t.Fatalf("默认 cursorMode = %q, want %q", in.cursorMode, CursorNever)
+	if in.cursorMode != CursorAuto {
+		t.Fatalf("默认 cursorMode = %q, want %q", in.cursorMode, CursorAuto)
 	}
+	in = &Input{cursorMode: CursorNever}
 	if in.shouldMoveCursor() {
 		t.Fatal("never 模式不应移动光标")
 	}

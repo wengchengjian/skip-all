@@ -59,7 +59,7 @@ func DefaultApp() AppConfig {
 		Language:      "zh-CN",
 		LogLevel:      "info",
 		Capture:       CaptureConfig{Method: "auto", TargetFPS: 10},
-		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "never", Gamepad: false},
+		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "auto", Gamepad: false},
 		Hotkeys:       HotkeysConfig{Toggle: "F9", Panic: "F10"},
 		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true},
 	}
@@ -137,7 +137,7 @@ func (c *AppConfig) normalizeAndValidate() error {
 		return fmt.Errorf("未知 input.mode: %s", c.Input.Mode)
 	}
 	if c.Input.CursorMode == "" {
-		c.Input.CursorMode = "never"
+		c.Input.CursorMode = "auto"
 	}
 	switch strings.ToLower(c.Input.CursorMode) {
 	case "auto", "always", "never":

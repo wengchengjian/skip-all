@@ -177,7 +177,7 @@ func NewInputWithOptions(w *Window, opts InputOptions) *Input {
 	switch mode {
 	case CursorAuto, CursorAlways, CursorNever:
 	default:
-		mode = CursorNever
+		mode = CursorAuto
 	}
 	in := &Input{win: w, pressed: make(map[uint16]bool), background: opts.Background, cursorMode: mode}
 	if w != nil {

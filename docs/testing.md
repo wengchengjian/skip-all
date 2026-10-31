@@ -17,7 +17,7 @@ go vet ./...
 
 ## 后台输入与手柄
 
-- 后台模式：游戏窗口失焦时仍能截图；默认 `cursor_mode=never` 下点击不改变物理鼠标位置、不抢占前台。
+- 后台模式：游戏窗口失焦时仍能截图；`cursor_mode=never` 下点击不改变物理鼠标位置、不抢占前台。
 - 精确点击：`cursor_mode=auto/always` 时用独立测试窗口验证目标命中；归位只在用户空闲时验证，避免测试脚本抢前台输入。
 - 前台回退：设置 `input.mode=foreground` 后，点击前会激活游戏窗口。
 - 手柄：确认 `ViGEmBus` 服务运行、`ViGEmClient.dll` 可加载；虚拟手柄能创建/移除，`xbox_a` 等按键可发送。

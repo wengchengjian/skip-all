@@ -20,7 +20,7 @@ const form = reactive({
   pauseWhenBackground: true,
   captureMethod: "auto",
   inputMode: "background",
-  cursorMode: "never",
+  cursorMode: "auto",
   gamepad: false,
   hotkeyToggle: "F9",
   hotkeyPanic: "F10",
@@ -45,7 +45,7 @@ watch(
     form.pauseWhenBackground = config.app.Input.PauseWhenBackground;
     form.captureMethod = config.app.Capture.Method || "auto";
     form.inputMode = config.app.Input.Mode || "background";
-    form.cursorMode = config.app.Input.CursorMode || "never";
+    form.cursorMode = config.app.Input.CursorMode || "auto";
     form.gamepad = config.app.Input.Gamepad;
     form.hotkeyToggle = config.app.Hotkeys.Toggle || "F9";
     form.hotkeyPanic = config.app.Hotkeys.Panic || "F10";
@@ -127,8 +127,8 @@ function save() {
           <label class="field">
             <span>精确点击 / CURSOR</span>
             <select v-model="form.cursorMode">
-              <option value="never">never · 不移动前台鼠标（默认）</option>
-              <option value="auto">auto · 后台空闲时短暂移光标并归位</option>
+              <option value="auto">auto · 后台空闲时短暂移光标并归位（默认）</option>
+              <option value="never">never · 不移动鼠标（仅推进对话）</option>
               <option value="always">always · 总是移光标</option>
             </select>
           </label>
