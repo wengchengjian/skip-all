@@ -24,13 +24,7 @@ func storySkipSpec() storyskip.Spec {
 		MiddleOptionArea: "中间选项区域",
 		// 鸣潮的“跳过”是左上角的图标，没有文字，只能靠模板：
 		// 过场剧情在左侧偏下，普通剧情对话在左上角、图标更小。
-		StorySkipAreas: []string{"剧情跳过", "剧情跳过-对话"},
-		// 鸣潮点图标没用：检测到剧情后按 ESC 叫出"剧情梗概"，
-		// 再点里面的"跳过剧情"，最后点确认。
-		OpenMenuKey:     "esc",
-		MenuSkipArea:    "剧情菜单-跳过剧情",
-		MenuSkipKeyword: "跳过",
-		MenuWait:        800 * time.Millisecond,
+		StorySkipAreas:  []string{"剧情跳过", "剧情跳过-对话"},
 		DialogStyle:     storyskip.DialogText,
 		DialogClickArea: "对话内容",
 		// 纯模板判定，不为了剧情栏加载 OCR；只有确认框出现时才用 OCR。

@@ -5,10 +5,10 @@ area_list:
 - area_name: 剧情跳过
   id_mark: false
   pc_rect:
-  - 24
-  - 132
-  - 150
-  - 236
+  - 58
+  - 165
+  - 99
+  - 203
   template_sub_dir: story
   template_id: skip
   template_match_threshold: 0.75
@@ -16,10 +16,10 @@ area_list:
 - area_name: 剧情跳过-对话
   id_mark: false
   pc_rect:
-  - 40
-  - 25
-  - 200
-  - 110
+  - 79
+  - 42
+  - 118
+  - 88
   template_sub_dir: story
   template_id: skip_dialog
   template_match_threshold: 0.85
@@ -33,13 +33,6 @@ area_list:
   - 730
   text: 确认
   lcs_percent: 1.0
-- area_name: 剧情菜单-跳过剧情
-  id_mark: false
-  pc_rect:
-  - 1140
-  - 725
-  - 1610
-  - 845
 - area_name: 确认框勾选框
   id_mark: false
   pc_rect:
