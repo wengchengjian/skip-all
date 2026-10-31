@@ -150,6 +150,9 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 				s.padFastAt = frame.At
 				return s.stepFastPad(frame)
 			}
+			// 手柄快速路径只认灰色对话框 + 白色正文；
+			// 没有这个信号时直接等待，不再跑剧情栏 OCR，也不在大世界按任何键。
+			return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 		}
 		result, actions, handled, err := s.handlePadPhase(frame)
 		if err != nil {

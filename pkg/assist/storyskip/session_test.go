@@ -347,57 +347,38 @@ func TestGamepadMenuSkipConfirm(t *testing.T) {
 		{
 			at: base,
 			ocr: map[string][]vision.TextBlock{
-				"文本-剧情右上角": {block("菜单", geom.Rect{X1: 1700, Y1: 40, X2: 1760, Y2: 80})},
+				"对话框内容": {block("你好", geom.Rect{X1: 500, Y1: 850, X2: 600, Y2: 900})},
 			},
+			gray: map[string]float64{"对话框内容": 0.95},
 		},
 		{at: base.Add(800 * time.Millisecond)},
-		{
-			at: base.Add(1700 * time.Millisecond),
-			ocr: map[string][]vision.TextBlock{
-				"对话框确认": {block("确认", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
-			},
-		},
-		{
-			at: base.Add(2400 * time.Millisecond),
-			ocr: map[string][]vision.TextBlock{
-				"文本-剧情右上角": {block("跳过", geom.Rect{X1: 1720, Y1: 40, X2: 1800, Y2: 80})},
-			},
-		},
-		{
-			at: base.Add(3200 * time.Millisecond),
-			ocr: map[string][]vision.TextBlock{
-				"对话框确认": {block("确认", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
-			},
-		},
+		{at: base.Add(1600 * time.Millisecond)},
+		{at: base.Add(2000 * time.Millisecond)},
 	}
 	session, rt := newTestSession(t, assist.Settings{SettingMode: "skip", SettingGamepad: true}, scripts)
-	// 单独测激活流程，避免首帧 A 打乱菜单时序。
+
 	result, actions := step(t, session, rt, 0)
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}})
-	if result.State != "激活手柄模式" {
+	if result.State != "快速激活手柄" {
 		t.Fatalf("激活状态 = %q", result.State)
 	}
-	session.padReady = true
 
-	_, actions = step(t, session, rt, 0)
+	result, actions = step(t, session, rt, 1)
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}})
-
-	_, actions = step(t, session, rt, 1)
-	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}})
+	if result.State != "快速打开菜单" {
+		t.Fatalf("菜单状态 = %q", result.State)
+	}
 
 	result, actions = step(t, session, rt, 2)
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}})
-	if result.State != "确认跳过" {
-		t.Fatalf("菜单确认状态 = %q", result.State)
+	if result.State != "快速选择跳过" {
+		t.Fatalf("选择状态 = %q", result.State)
 	}
 
-	_, actions = step(t, session, rt, 3)
-	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}})
-
-	result, actions = step(t, session, rt, 4)
+	result, actions = step(t, session, rt, 3)
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}})
-	if result.State != "确认跳过" {
-		t.Fatalf("普通跳过确认状态 = %q", result.State)
+	if result.State != "快速确认跳过" {
+		t.Fatalf("确认状态 = %q", result.State)
 	}
 }
 

@@ -735,25 +735,32 @@ func (s *Service) ensureOCR() (vision.OCR, error) {
 		cpuRuntime = candidates[0].runtime
 	}
 	candidates = append(candidates, ocrCandidate{name: "CPU", runtime: cpuRuntime})
-	var lastErr error
-	for _, candidate := range candidates {
-		ocr, err := vision.NewPaddleOCRWithOptions(dir, vision.PaddleOptions{
-			UseDirectML: candidate.directML,
-			UseCUDA:     candidate.cuda,
-			RuntimeLib:  candidate.runtime,
-		})
-		if err == nil {
-			s.mu.Lock()
-			s.ocr = ocr
-			s.ocrBackend = candidate.name
-			s.mu.Unlock()
-			s.appendLog("info", "OCR 后端: "+candidate.name+" ("+candidate.runtime+")")
-			return ocr, nil
+	lazy := vision.NewLazyOCR(func() (vision.OCR, error) {
+		var lastErr error
+		for _, candidate := range candidates {
+			ocr, err := vision.NewPaddleOCRWithOptions(dir, vision.PaddleOptions{
+				UseDirectML: candidate.directML,
+				UseCUDA:     candidate.cuda,
+				RuntimeLib:  candidate.runtime,
+			})
+			if err == nil {
+				s.mu.Lock()
+				s.ocrBackend = candidate.name
+				s.mu.Unlock()
+				s.appendLog("info", "OCR 后端: "+candidate.name+" ("+candidate.runtime+")")
+				return ocr, nil
+			}
+			lastErr = err
+			s.appendLog("warn", "OCR "+candidate.name+" 初始化失败，尝试下一个后端: "+err.Error())
 		}
-		lastErr = err
-		s.appendLog("warn", "OCR "+candidate.name+" 初始化失败，尝试下一个后端: "+err.Error())
-	}
-	return nil, fmt.Errorf("OCR 初始化失败: %w", lastErr)
+		return nil, fmt.Errorf("OCR 初始化失败: %w", lastErr)
+	})
+	s.mu.Lock()
+	s.ocr = lazy
+	s.ocrBackend = "未加载"
+	s.mu.Unlock()
+	s.appendLog("info", "OCR 延迟加载：首次需要 OCR 时再初始化模型")
+	return lazy, nil
 }
 
 type ocrCandidate struct {
