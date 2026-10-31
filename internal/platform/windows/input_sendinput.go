@@ -448,7 +448,8 @@ func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
 		}
 	}()
 	time.Sleep(8 * time.Millisecond)
-	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
+	// 用 PostMessage 激活，避免 SendMessage 同步等待游戏 UI 线程拖慢整个循环。
+	_ = postMessage(hwnd, wmActivate, waActive, 0)
 	time.Sleep(4 * time.Millisecond)
 	if err := postMessage(hwnd, wmLButtonDown, mkLButton, 0); err != nil {
 		return err
