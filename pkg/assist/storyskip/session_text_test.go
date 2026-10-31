@@ -123,3 +123,16 @@ func TestMaskStyleStillUsesGrayMask(t *testing.T) {
 		t.Fatalf("默认 DialogStyle = %q", got)
 	}
 }
+
+func TestIgnoreGamepadDisablesPadKeys(t *testing.T) {
+	spec := textSpec()
+	spec.IgnoreGamepad = true
+	rt := &fakeRuntime{screens: textScreens(), scripts: []frameScript{{at: time.Now()}}}
+	session, err := NewFeature(spec).NewSession(rt, assist.Settings{"mode": "skip", "gamepad": true})
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	if session.(*Session).cfg.gamepad {
+		t.Fatal("IgnoreGamepad 为真时不应启用手柄按键")
+	}
+}

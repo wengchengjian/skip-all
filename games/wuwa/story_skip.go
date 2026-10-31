@@ -27,7 +27,11 @@ func storySkipSpec() storyskip.Spec {
 		DialogStyle:     storyskip.DialogText,
 		DialogClickArea: "对话内容",
 		// 纯模板判定，不为了剧情栏加载 OCR；只有确认框出现时才用 OCR。
-		DisableStoryOCR:  true,
+		DisableStoryOCR: true,
+		// 鸣潮的手柄跳过按键没有实测过，先固定用鼠标/后台点击。
+		IgnoreGamepad: true,
+		// 字幕是带描边的白字，亮度到不了纯白，白色文字行要放宽下限。
+		ButtonColorRange: [2][3]uint8{{170, 170, 170}, {255, 255, 255}},
 		ConfirmText:      "确认",
 		ConfirmTexts:     []string{"确认", "確認", "Confirm"},
 		SkipClickWait:    300 * time.Millisecond,

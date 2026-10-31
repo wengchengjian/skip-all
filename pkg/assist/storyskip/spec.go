@@ -71,6 +71,7 @@ type Spec struct {
 	DialogStyle         DialogStyle // 对话框识别方式，默认 DialogMask
 	DialogClickArea     string      // 点击推进对话的区域，留空时点击当前光标
 	DisableStoryOCR     bool        // 只靠模板判断剧情栏，不为剧情栏加载 OCR
+	IgnoreGamepad       bool        // 该游戏的跳过只能用鼠标，忽略全局手柄设置
 
 	Keywords     []string // 剧情右上角可见关键词，默认“菜单/跳过/自动”
 	ConfirmText  string   // 确认按钮关键词，默认“确认”

@@ -76,6 +76,11 @@ func (f *Feature) NewSession(rt assist.Runtime, settings assist.Settings) (assis
 	if err != nil {
 		return nil, err
 	}
+	// 手柄的按键时序是按每个游戏的实际按钮排布写的；没有验证过手柄排布的游戏
+	// 只用鼠标，避免按出暂停菜单之类的误操作。
+	if f.spec.IgnoreGamepad {
+		cfg.gamepad = false
+	}
 	return newSession(rt, f.spec, cfg), nil
 }
 
