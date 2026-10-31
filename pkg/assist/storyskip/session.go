@@ -190,7 +190,9 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 		// 上游的 lcs_percent=1.0 是精确匹配；这里也要求整段文字等于“确认”，
 		// 避免把“确认跳过”等菜单文字当成确认按钮。
 		if strings.TrimSpace(block.Text) == strings.TrimSpace(s.spec.ConfirmText) {
-			return []assist.Action{clickBlock(block)}, true, nil
+			// 确认按钮区域是固定按钮框，点区域中心比点 OCR 文字框中心更稳，
+			// 避免 OCR 框只覆盖“确”或“认”导致点击位置偏移。
+			return []assist.Action{{Kind: assist.ActionClick, Point: area.Rect.Center()}}, true, nil
 		}
 	}
 	return nil, false, nil

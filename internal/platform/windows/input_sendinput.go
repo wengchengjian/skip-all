@@ -221,6 +221,10 @@ func (i *Input) Click(p geom.Point) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
+	if i.background && !i.win.IsActive() {
+		// 游戏不在前台时不做任何光标/点击动作，避免把点击发到覆盖它的其他应用。
+		return nil
+	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	rect, err := i.win.ClientRect()
@@ -244,6 +248,9 @@ func (i *Input) Click(p geom.Point) error {
 func (i *Input) ClickCurrent() error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
+	}
+	if i.background && !i.win.IsActive() {
+		return nil
 	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -269,6 +276,9 @@ func (i *Input) ClickCurrent() error {
 func (i *Input) KeyTap(key string) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
+	}
+	if i.background && !i.win.IsActive() {
+		return nil
 	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
