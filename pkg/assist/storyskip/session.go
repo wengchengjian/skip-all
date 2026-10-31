@@ -21,9 +21,10 @@ const (
 	chosenOptionHold = 500 * time.Millisecond
 	chosenOptionMax  = 2 * time.Second
 	// 同一区域 OCR 结果缓存时间；降低循环里的重复识别开销。
-	storyCacheTTL       = 400 * time.Millisecond
-	storyButtonCacheTTL = time.Second
-	guardCacheTTL       = time.Second
+	storyCacheTTL        = 400 * time.Millisecond
+	storyButtonCacheTTL  = time.Second
+	gamepadStoryCacheTTL = 3 * time.Second
+	guardCacheTTL        = time.Second
 
 	padPhaseNone   = 0
 	padPhaseSkip   = 1 // 已按“+”触发普通跳过
@@ -232,7 +233,7 @@ func (s *Session) stepGamepad(frame assist.Frame) (assist.Result, []assist.Actio
 	if err != nil {
 		return assist.Result{}, nil, err
 	}
-	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, storyButtonCacheTTL)
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, gamepadStoryCacheTTL)
 	if err != nil {
 		return assist.Result{}, nil, fmt.Errorf("识别剧情按钮: %w", err)
 	}
@@ -636,6 +637,7 @@ func (s *Session) resetAfterConfirm() {
 	s.padAt = time.Time{}
 	s.clearChosenOption()
 	s.recentClicks = 0
+	delete(s.ocrCache, s.spec.StoryArea)
 }
 
 func (s *Session) clearChosenOption() {
