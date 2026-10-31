@@ -3,6 +3,7 @@ package storyskip
 import (
 	"context"
 	"fmt"
+	"image"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ const (
 	storyButtonCacheTTL  = time.Second
 	gamepadStoryCacheTTL = 3 * time.Second
 	guardCacheTTL        = time.Second
+	gamepadGuardCacheTTL = 3 * time.Second
 
 	padPhaseNone   = 0
 	padPhaseSkip   = 1 // 已按“+”触发普通跳过
@@ -49,6 +51,7 @@ type Session struct {
 	lastOptionKey  string
 	recentClicks   int
 	ocrCache       map[string]ocrCacheEntry
+	guardCache     map[string]guardCacheEntry
 	confirmUntil   time.Time
 	padReady       bool
 	padPhase       int
@@ -57,13 +60,22 @@ type Session struct {
 
 type ocrCacheEntry struct {
 	at     time.Time
+	hash   uint64
 	blocks []vision.TextBlock
+}
+
+type guardCacheEntry struct {
+	at      time.Time
+	hash    uint64
+	name    string
+	wait    time.Duration
+	matched bool
 }
 
 var _ assist.Session = (*Session)(nil)
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg, ocrCache: make(map[string]ocrCacheEntry)}
+	return &Session{rt: rt, spec: spec, cfg: cfg, ocrCache: make(map[string]ocrCacheEntry), guardCache: make(map[string]guardCacheEntry)}
 }
 
 func (s *Session) confirmPending(at time.Time) bool {
@@ -90,8 +102,11 @@ func (s *Session) ocrArea(frame assist.Frame, area screen.Area, opts vision.OCRO
 	if now.IsZero() {
 		now = time.Now()
 	}
+	hash := areaHash(frame.Image, area.Rect)
+	useHash := ttl >= storyButtonCacheTTL
 	if ttl > 0 && s.ocrCache != nil {
-		if entry, ok := s.ocrCache[key]; ok && !now.Before(entry.at) && now.Sub(entry.at) < ttl {
+		if entry, ok := s.ocrCache[key]; ok && !now.Before(entry.at) &&
+			((useHash && entry.hash == hash) || now.Sub(entry.at) < ttl) {
 			return append([]vision.TextBlock(nil), entry.blocks...), nil
 		}
 	}
@@ -100,7 +115,7 @@ func (s *Session) ocrArea(frame assist.Frame, area screen.Area, opts vision.OCRO
 		return nil, err
 	}
 	if ttl > 0 && s.ocrCache != nil {
-		s.ocrCache[key] = ocrCacheEntry{at: now, blocks: append([]vision.TextBlock(nil), blocks...)}
+		s.ocrCache[key] = ocrCacheEntry{at: now, hash: hash, blocks: append([]vision.TextBlock(nil), blocks...)}
 	}
 	return blocks, nil
 }
@@ -407,14 +422,31 @@ func (s *Session) inMenuQuiet(at time.Time) bool {
 }
 
 func (s *Session) hitGuard(frame assist.Frame) (string, time.Duration, bool, error) {
-	for _, guard := range s.spec.Guards {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	ttl := guardCacheTTL
+	if s.cfg.gamepad {
+		ttl = gamepadGuardCacheTTL
+	}
+	for i, guard := range s.spec.Guards {
 		screenName := guard.Screen
 		if screenName == "" {
 			screenName = s.spec.Screen
 		}
+		key := fmt.Sprintf("%d/%s/%s", i, screenName, guard.Area)
 		area, err := s.area(screenName, guard.Area)
 		if err != nil {
 			return "", 0, false, err
+		}
+		hash := areaHash(frame.Image, area.Rect)
+		if entry, ok := s.guardCache[key]; ok && !now.Before(entry.at) &&
+			(entry.hash == hash || now.Sub(entry.at) < ttl) {
+			if entry.matched {
+				return entry.name, entry.wait, true, nil
+			}
+			continue
 		}
 		matched := false
 		switch guard.Kind {
@@ -439,9 +471,6 @@ func (s *Session) hitGuard(frame assist.Frame) (string, time.Duration, bool, err
 			}
 			matched = len(matches) > 0
 		}
-		if !matched {
-			continue
-		}
 		wait := guard.Wait
 		if wait <= 0 {
 			wait = s.spec.GuardWait
@@ -450,7 +479,10 @@ func (s *Session) hitGuard(frame assist.Frame) (string, time.Duration, bool, err
 		if guard.Screen != "" {
 			name = guard.Screen + "/" + area.Name
 		}
-		return name, wait, true, nil
+		s.guardCache[key] = guardCacheEntry{at: now, hash: hash, name: name, wait: wait, matched: matched}
+		if matched {
+			return name, wait, true, nil
+		}
 	}
 	return "", 0, false, nil
 }
@@ -575,6 +607,43 @@ func (s *Session) clickOptionArea(frame assist.Frame, areaName string, now time.
 	s.chosenOptionAt = now
 	s.chosenPoint = chosen.Center()
 	return []assist.Action{{Kind: assist.ActionClick, Point: s.chosenPoint}}, true, nil
+}
+
+// areaHash 对区域做稀疏像素哈希，用于判断画面是否真的变化。
+// 静态剧情栏/守卫区域可以直接复用上一次识别结果，不必反复 OCR/模板匹配。
+func areaHash(img *image.RGBA, rect geom.Rect) uint64 {
+	if img == nil {
+		return 0
+	}
+	b := img.Bounds()
+	x1, y1 := rect.X1, rect.Y1
+	x2, y2 := rect.X2, rect.Y2
+	if x1 < b.Min.X {
+		x1 = b.Min.X
+	}
+	if y1 < b.Min.Y {
+		y1 = b.Min.Y
+	}
+	if x2 > b.Max.X {
+		x2 = b.Max.X
+	}
+	if y2 > b.Max.Y {
+		y2 = b.Max.Y
+	}
+	if x2 <= x1 || y2 <= y1 {
+		return 0
+	}
+	const offset64 = 14695981039346656037
+	const prime64 = 1099511628211
+	h := uint64(offset64)
+	for y := y1; y < y2; y += 4 {
+		for x := x1; x < x2; x += 4 {
+			r, g, b, _ := img.RGBAAt(x, y).RGBA()
+			h ^= uint64(r>>8)<<16 | uint64(g>>8)<<8 | uint64(b>>8)
+			h *= prime64
+		}
+	}
+	return h
 }
 
 func rectsIntersect(a, b geom.Rect) bool {
