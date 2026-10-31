@@ -333,8 +333,12 @@ func (s *Session) stepFastPad(frame assist.Frame) (assist.Result, []assist.Actio
 	case 3:
 		s.padFast = 4
 		s.padFastAt = frame.At
-		return assist.Result{State: "快速选择跳过", Wait: 350 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+		return assist.Result{State: "快速选择跳过", Wait: 800 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
 	case 4:
+		s.padFast = 5
+		s.padFastAt = frame.At
+		return assist.Result{State: "快速确认跳过", Wait: 500 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+	case 5:
 		s.padFast = 0
 		s.padFastAt = time.Time{}
 		s.padFastUntil = frame.At.Add(1500 * time.Millisecond)
