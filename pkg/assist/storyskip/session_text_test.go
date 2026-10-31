@@ -20,6 +20,7 @@ func textSpec() Spec {
 		RightOptionArea:  "右侧选项区域",
 		MiddleOptionArea: "中间选项区域",
 		StorySkipAreas:   []string{"剧情跳过"},
+		ConfirmCheckArea: "确认框勾选框",
 		DialogStyle:      DialogText,
 		DialogClickArea:  "对话内容",
 		DisableStoryOCR:  true,
@@ -36,6 +37,7 @@ func textScreens() *screen.Set {
 		AreaList: []*screen.Area{
 			{Name: "剧情跳过", RectValues: []int{24, 132, 150, 236}, TemplateSubDir: "story", TemplateID: "skip"},
 			{Name: "对话框确认", RectValues: []int{980, 595, 1420, 700}, Text: "确认"},
+			{Name: "确认框勾选框", RectValues: []int{818, 542, 1012, 628}, TemplateSubDir: "story", TemplateID: "confirm_check"},
 			{Name: "对话内容", RectValues: []int{480, 780, 1440, 935}},
 			{Name: "右侧选项区域", RectValues: []int{1150, 300, 1900, 760}, ColorRange: &[2][3]uint8{{240, 240, 240}, {255, 255, 255}}},
 			{Name: "中间选项区域", RectValues: []int{520, 250, 1400, 780}},
@@ -99,7 +101,7 @@ func TestTextDialogClicksSkipTemplateThenConfirm(t *testing.T) {
 		{
 			at: time.Now(),
 			ocr: map[string][]vision.TextBlock{
-				"对话框确认": {block("確認", geom.Rect{X1: 1130, Y1: 620, X2: 1230, Y2: 660})},
+				"对话框确认": {block("確認", geom.Rect{X1: 990, Y1: 610, X2: 1090, Y2: 650})},
 			},
 		},
 	})
@@ -110,7 +112,7 @@ func TestTextDialogClicksSkipTemplateThenConfirm(t *testing.T) {
 	if result.State != "确认跳过" {
 		t.Fatalf("第二帧 state = %q", result.State)
 	}
-	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1180, Y: 640}}})
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1040, Y: 630}}})
 }
 
 func TestMaskStyleStillUsesGrayMask(t *testing.T) {
@@ -175,5 +177,58 @@ func TestRetrySkipThrottled(t *testing.T) {
 	step(t, session, rt, 0)
 	if result, actions := step(t, session, rt, 1); result.State != "等待确认框" || len(actions) != 0 {
 		t.Fatalf("间隔不足 500ms 不应补点: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestConfirmDialogFallbackNeedsCheckbox(t *testing.T) {
+	// 只有「确认」没有勾选框时不能点：那是别的弹窗（设置、退出确认等）。
+	confirmText := block("确认", geom.Rect{X1: 990, Y1: 610, X2: 1090, Y2: 650})
+	session, rt := newTextSession(t, []frameScript{{
+		at:  time.Now(),
+		ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}},
+	}})
+	result, actions := step(t, session, rt, 0)
+	if result.State != "等待剧情画面" || len(actions) != 0 {
+		t.Fatalf("缺勾选框时不应点确认: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestConfirmDialogFallbackClicksWithCheckbox(t *testing.T) {
+	confirmText := block("確認", geom.Rect{X1: 990, Y1: 610, X2: 1090, Y2: 650})
+	session, rt := newTextSession(t, []frameScript{{
+		at:  time.Now(),
+		ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}},
+		matches: map[string][]vision.Match{
+			"确认框勾选框": {{Rect: geom.Rect{X1: 858, Y1: 562, X2: 902, Y2: 602}, Confidence: 0.95}},
+		},
+	}})
+	result, actions := step(t, session, rt, 0)
+	if result.State != "确认弹窗" {
+		t.Fatalf("state = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1040, Y: 630}}})
+}
+
+func TestConfirmDialogFallbackThrottled(t *testing.T) {
+	base := time.Date(2026, 11, 1, 7, 0, 0, 0, time.Local)
+	confirmText := block("确认", geom.Rect{X1: 990, Y1: 610, X2: 1090, Y2: 650})
+	boxes := map[string][]vision.Match{
+		"确认框勾选框": {{Rect: geom.Rect{X1: 858, Y1: 562, X2: 902, Y2: 602}, Confidence: 0.95}},
+	}
+	scripts := []frameScript{
+		{at: base, ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}}, matches: boxes},
+		{at: base.Add(time.Second), ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}}, matches: boxes},
+		{at: base.Add(3 * time.Second), ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}}, matches: boxes},
+	}
+	session, rt := newTextSession(t, scripts)
+	if result, _ := step(t, session, rt, 0); result.State != "确认弹窗" {
+		t.Fatalf("第 0 帧 state = %q", result.State)
+	}
+	// 1 秒内不再重复检查，避免每帧都在弹窗上点确认。
+	if result, actions := step(t, session, rt, 1); result.State != "等待剧情画面" || len(actions) != 0 {
+		t.Fatalf("节流期内不应再点: state = %q actions = %+v", result.State, actions)
+	}
+	if result, _ := step(t, session, rt, 2); result.State != "确认弹窗" {
+		t.Fatalf("超过间隔后应再次点确认, state = %q", result.State)
 	}
 }

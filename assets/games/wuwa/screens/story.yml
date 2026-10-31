@@ -33,6 +33,16 @@ area_list:
   - 730
   text: 确认
   lcs_percent: 1.0
+- area_name: 确认框勾选框
+  id_mark: false
+  pc_rect:
+  - 818
+  - 542
+  - 1012
+  - 628
+  template_sub_dir: story
+  template_id: confirm_check
+  template_match_threshold: 0.8
 - area_name: 对话内容
   id_mark: false
   pc_rect:

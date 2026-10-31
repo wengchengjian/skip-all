@@ -30,7 +30,9 @@ const (
 
 	// 点过跳过但确认框还没出现时，按上游 while find_skip() 的做法重试点跳过。
 	skipRetryInterval = 500 * time.Millisecond
-	skipRetryLimit    = 3
+	// confirmPollInterval 是"确认框已在场"兜底检查的间隔。
+	confirmPollInterval = 2 * time.Second
+	skipRetryLimit      = 3
 
 	padPhaseNone   = 0
 	padPhaseSkip   = 1 // 已按“+”触发普通跳过
@@ -63,6 +65,7 @@ type Session struct {
 	dialogIn       bool
 	confirmUntil   time.Time
 	lastSkipAt     time.Time
+	confirmPollAt  time.Time
 	skipRetries    int
 	padReady       bool
 	padPhase       int
@@ -245,7 +248,17 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待:" + name, Wait: wait}, nil, nil
 	}
 
-	// 5. 剧情模式门控：不在剧情/对话/CG 黑边内时，不按 A、不按 +，
+	// 5. 确认框已经在场（例如程序启动时弹窗就开着）：勾选框 + 确认文案双证才点。
+	// 对应上游 check_skip 在没点过跳过时也调一次 skip_confirm 的兜底。
+	if s.spec.ConfirmCheckArea != "" && !storyVisible {
+		if actions, ok, err := s.pollConfirmDialog(frame); err != nil {
+			return assist.Result{}, nil, err
+		} else if ok {
+			return assist.Result{State: "确认弹窗", Wait: confirmWait}, actions, nil
+		}
+	}
+
+	// 6. 剧情模式门控：不在剧情/对话/CG 黑边内时，不按 A、不按 +，
 	// 避免在大世界、战斗、普通菜单里误操作。
 	inDialog, err := s.inDialog(frame)
 	if err != nil {
@@ -255,7 +268,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 
-	// 6. 对话流程：先选项，再黑屏推进，最后对话框正文。
+	// 7. 对话流程：先选项，再黑屏推进，最后对话框正文。
 	step, err := s.doDialogClick(frame, storyVisible)
 	if err != nil {
 		return assist.Result{}, nil, err
@@ -265,7 +278,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return result, actions, nil
 	}
 
-	// 6. 没有匹配到剧情画面，等待后重新识别。
+	// 8. 没有匹配到剧情画面，等待后重新识别。
 	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
 
@@ -542,6 +555,32 @@ func (s *Session) retrySkip(frame assist.Frame) ([]assist.Action, bool, error) {
 		return []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}, true, nil
 	}
 	return nil, false, nil
+}
+
+// pollConfirmDialog 定期检查"确认框已经开着"：勾选框和确认文案同时命中才点，
+// 避免把设置页、退出确认之类只有「确认」的弹窗当成跳过确认框。
+func (s *Session) pollConfirmDialog(frame assist.Frame) ([]assist.Action, bool, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if !s.confirmPollAt.IsZero() && now.Sub(s.confirmPollAt) < confirmPollInterval {
+		return nil, false, nil
+	}
+	s.confirmPollAt = now
+	if _, ok, err := s.matchFirst(frame, s.spec.Screen, s.spec.ConfirmCheckArea); err != nil {
+		return nil, false, err
+	} else if !ok {
+		return nil, false, nil
+	}
+	block, ok, err := s.confirmBlock(frame)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	if s.cfg.gamepad {
+		return []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
+	}
+	return []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}, true, nil
 }
 
 func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
@@ -825,14 +864,24 @@ func (s *Session) inDialog(frame assist.Frame) (bool, error) {
 	return false, nil
 }
 
+// 字幕行的形态范围：1080p 下一行字幕约 20-26 像素高，
+// 菜单底部栏那种整块 UI 会到 32 像素以上，用高度就能把两者分开。
+const (
+	subtitleMinWidth  = 40
+	subtitleMaxWidth  = 900
+	subtitleMinHeight = 8
+	subtitleMaxHeight = 28
+)
+
 // subtitleVisible 用白色字幕行判断是否在对话里，不跑 OCR、也不要求灰底遮罩。
 func (s *Session) subtitleVisible(frame assist.Frame, area screen.Area) bool {
 	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{
 		ColorRange: &s.spec.ButtonColorRange,
-		MinHeight:  8,
+		MinHeight:  subtitleMinHeight,
 	})
 	for _, band := range bands {
-		if band.X2-band.X1 >= 40 {
+		w, h := band.X2-band.X1, band.Y2-band.Y1
+		if w >= subtitleMinWidth && w <= subtitleMaxWidth && h <= subtitleMaxHeight {
 			return true
 		}
 	}
@@ -882,10 +931,14 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 		return &actionStep{state: "手柄推进", wait: s.cfg.dialogClickInterval, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}}, nil
 	}
 
-	if actions, ok, err := s.clickOptionArea(frame, s.spec.RightOptionArea, now); err != nil {
-		return nil, err
-	} else if ok {
-		return &actionStep{state: "点击右方选项", wait: s.cfg.optionClickInterval, actions: actions}, nil
+	// 字幕式对话没有灰底可判，右侧白字在任何界面都会出现（背包、角色页），
+	// 必须先在剧情里才允许点选项，否则会在菜单里乱点。
+	if s.optionAllowed(inDialog, storyVisible) {
+		if actions, ok, err := s.clickOptionArea(frame, s.spec.RightOptionArea, now); err != nil {
+			return nil, err
+		} else if ok {
+			return &actionStep{state: "点击右方选项", wait: s.cfg.optionClickInterval, actions: actions}, nil
+		}
 	}
 
 	if s.cfg.mode == ModeSkip {
@@ -901,10 +954,12 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 		if stats.ColorfulPercent <= 0.01 && stats.MeanSaturation <= 1 {
 			return &actionStep{state: "黑屏点击", wait: s.cfg.dialogClickInterval, actions: clickCurrent()}, nil
 		}
-	} else if actions, ok, err := s.clickOptionArea(frame, s.spec.MiddleOptionArea, now); err != nil {
-		return nil, err
-	} else if ok {
-		return &actionStep{state: "点击中间选项", wait: s.cfg.optionClickInterval, actions: actions}, nil
+	} else if s.optionAllowed(inDialog, storyVisible) {
+		if actions, ok, err := s.clickOptionArea(frame, s.spec.MiddleOptionArea, now); err != nil {
+			return nil, err
+		} else if ok {
+			return &actionStep{state: "点击中间选项", wait: s.cfg.optionClickInterval, actions: actions}, nil
+		}
 	}
 
 	if inDialog || (s.cfg.mode != ModeSkip && storyVisible) {
@@ -938,6 +993,15 @@ func (s *Session) dialogClick(frame assist.Frame) ([]assist.Action, error) {
 		return nil, err
 	}
 	return []assist.Action{{Kind: assist.ActionClick, Point: area.Rect.Center()}}, nil
+}
+
+// optionAllowed 判断当前能不能点选项：字幕式对话框（鸣潮）没有灰底，
+// 只有确实在剧情里（有字幕或跳过按钮）才点，避免在菜单界面误点。
+func (s *Session) optionAllowed(inDialog, storyVisible bool) bool {
+	if s.spec.DialogStyle != DialogText {
+		return true
+	}
+	return inDialog || storyVisible
 }
 
 // clickOptionArea 用白色文字行定位选项，不跑 OCR；灰色选项不会被选中。

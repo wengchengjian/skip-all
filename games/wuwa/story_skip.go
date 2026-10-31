@@ -19,6 +19,7 @@ func storySkipSpec() storyskip.Spec {
 		StoryArea:        "剧情跳过",
 		ConfirmArea:      "对话框确认",
 		DialogArea:       "对话内容",
+		ConfirmCheckArea: "确认框勾选框",
 		RightOptionArea:  "右侧选项区域",
 		MiddleOptionArea: "中间选项区域",
 		// 鸣潮的“跳过”是左上角的图标，没有文字，只能靠模板：

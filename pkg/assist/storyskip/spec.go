@@ -58,20 +58,23 @@ type Guard struct {
 
 // Spec 描述一个游戏的剧情跳过界面。
 type Spec struct {
-	Screen              string      // 主画面名
-	StoryArea           string      // 剧情右上角菜单区域
-	ConfirmArea         string      // 跳过/确认弹窗的按钮区域
-	DialogArea          string      // 对话框内容区域
-	RightOptionArea     string      // 右侧对话选项区域
-	MiddleOptionArea    string      // 中间对话选项区域
-	AutoButtonArea      string      // 展开菜单后的自动按钮区域，可留空
-	StoryMenuAreas      []string    // 剧情菜单按钮模板区域（键盘/手柄可多个）
-	StorySkipAreas      []string    // 剧情跳过按钮模板区域
-	ConfirmTemplateArea string      // 确认按钮模板区域，可留空
-	DialogStyle         DialogStyle // 对话框识别方式，默认 DialogMask
-	DialogClickArea     string      // 点击推进对话的区域，留空时点击当前光标
-	DisableStoryOCR     bool        // 只靠模板判断剧情栏，不为剧情栏加载 OCR
-	IgnoreGamepad       bool        // 该游戏的跳过只能用鼠标，忽略全局手柄设置
+	Screen              string   // 主画面名
+	StoryArea           string   // 剧情右上角菜单区域
+	ConfirmArea         string   // 跳过/确认弹窗的按钮区域
+	DialogArea          string   // 对话框内容区域
+	RightOptionArea     string   // 右侧对话选项区域
+	MiddleOptionArea    string   // 中间对话选项区域
+	AutoButtonArea      string   // 展开菜单后的自动按钮区域，可留空
+	StoryMenuAreas      []string // 剧情菜单按钮模板区域（键盘/手柄可多个）
+	StorySkipAreas      []string // 剧情跳过按钮模板区域
+	ConfirmTemplateArea string   // 确认按钮模板区域，可留空
+	// ConfirmCheckArea 是确认弹窗里勾选框的模板区域，用来判"确认框已经在场"；
+	// 留空时不做这个判断。
+	ConfirmCheckArea string
+	DialogStyle      DialogStyle // 对话框识别方式，默认 DialogMask
+	DialogClickArea  string      // 点击推进对话的区域，留空时点击当前光标
+	DisableStoryOCR  bool        // 只靠模板判断剧情栏，不为剧情栏加载 OCR
+	IgnoreGamepad    bool        // 该游戏的跳过只能用鼠标，忽略全局手柄设置
 
 	Keywords     []string // 剧情右上角可见关键词，默认“菜单/跳过/自动”
 	ConfirmText  string   // 确认按钮关键词，默认“确认”
