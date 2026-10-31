@@ -77,4 +77,6 @@ export interface StatusView {
     "message": string;
     "error": string;
     "startedAt": string;
+    "fps": number;
+    "ocrBackend": string;
 }

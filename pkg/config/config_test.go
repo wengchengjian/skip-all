@@ -11,7 +11,7 @@ func TestDefaultApp(t *testing.T) {
 	if cfg.SchemaVersion != 1 || cfg.Capture.Method != "auto" || cfg.Capture.TargetFPS != 5 {
 		t.Fatalf("默认应用配置错误: %+v", cfg)
 	}
-	if !cfg.OCR.AutoDownload || cfg.OCR.Model != "ppocrv6" {
+	if !cfg.OCR.AutoDownload || cfg.OCR.Model != "ppocrv6" || cfg.OCR.GPU != "auto" {
 		t.Fatalf("默认 OCR 配置错误: %+v", cfg.OCR)
 	}
 	if cfg.Input.Mode != "background" || cfg.Input.PauseWhenBackground || cfg.Input.CursorMode != "auto" {

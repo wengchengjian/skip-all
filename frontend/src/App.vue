@@ -43,6 +43,7 @@ const {
 
 const pageTitle = computed(() => ({ home: "任务总览", settings: "协议配置", logs: "运行日志" }[tab.value]));
 const pageCode = computed(() => ({ home: "DASHBOARD", settings: "CONFIGURATION", logs: "EVENT STREAM" }[tab.value]));
+const fpsLabel = computed(() => (status.value.running ? `${status.value.fps.toFixed(1)} FPS` : "— FPS"));
 </script>
 
 <template>
@@ -86,11 +87,15 @@ const pageCode = computed(() => ({ home: "DASHBOARD", settings: "CONFIGURATION",
           <span class="page-kicker">SKIPALL · {{ pageCode }}</span>
           <h1>{{ pageTitle }}</h1>
         </div>
-        <div class="status-chip" :class="status.state">
-          <span class="status-pulse"></span>
-          <span>{{ stateLabel }}</span>
-          <span class="status-sep">/</span>
-          <span class="status-feature">{{ status.featureName || "STANDBY" }}</span>
+        <div class="status-cluster">
+          <span class="fps-chip" :class="{ live: status.running }">{{ fpsLabel }}</span>
+          <span v-if="status.ocrBackend" class="ocr-chip">OCR {{ status.ocrBackend }}</span>
+          <div class="status-chip" :class="status.state">
+            <span class="status-pulse"></span>
+            <span>{{ stateLabel }}</span>
+            <span class="status-sep">/</span>
+            <span class="status-feature">{{ status.featureName || "STANDBY" }}</span>
+          </div>
         </div>
       </header>
 

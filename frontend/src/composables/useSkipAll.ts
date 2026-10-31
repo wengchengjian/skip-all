@@ -20,6 +20,8 @@ export function useSkipAll() {
     message: "",
     error: "",
     startedAt: "",
+    fps: 0,
+    ocrBackend: "",
   });
   const logs = ref<LogEntry[]>([]);
   const selectedGameId = ref("zzz");
@@ -242,6 +244,7 @@ export function useSkipAll() {
   }
 
   const offs: Array<() => void> = [];
+  let statusTimer: number | undefined;
 
   onMounted(async () => {
     offs.push(
@@ -258,11 +261,13 @@ export function useSkipAll() {
         modelMessage.value = data.message ?? "";
       }),
     );
+    statusTimer = window.setInterval(refreshStatus, 1000);
     await Promise.all([loadGames(), loadConfig(), refreshStatus(), loadLogs(), checkModels()]);
   });
 
   onBeforeUnmount(() => {
     offs.forEach((off) => off());
+    window.clearInterval(statusTimer);
     window.clearTimeout(noticeTimer);
   });
 

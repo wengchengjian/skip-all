@@ -19,8 +19,10 @@ try {
 
     $out = Join-Path $root "bin"
     New-Item -ItemType Directory -Force -Path (Join-Path $out "models") | Out-Null
+    $runtimeOut = Join-Path $out "runtime"
+    if (Test-Path $runtimeOut) { Remove-Item $runtimeOut -Recurse -Force }
     if (Test-Path (Join-Path $root "assets\runtime")) {
-        Copy-Item (Join-Path $root "assets\runtime") (Join-Path $out "runtime") -Recurse -Force
+        Copy-Item (Join-Path $root "assets\runtime") $runtimeOut -Recurse -Force
     }
     if (Test-Path (Join-Path $root "assets\models\ppocrv6")) {
         Copy-Item (Join-Path $root "assets\models\ppocrv6") (Join-Path $out "models") -Recurse -Force

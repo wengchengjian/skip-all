@@ -22,6 +22,7 @@ const form = reactive({
   captureMethod: "auto",
   inputMode: "background",
   cursorMode: "auto",
+  ocrGpu: "auto",
   gamepad: false,
   excludedGames: [] as string[],
   hotkeyToggle: "F9",
@@ -48,6 +49,7 @@ watch(
     form.captureMethod = config.app.Capture.Method || "auto";
     form.inputMode = config.app.Input.Mode || "background";
     form.cursorMode = config.app.Input.CursorMode || "auto";
+    form.ocrGpu = config.app.OCR?.GPU || "auto";
     form.gamepad = config.app.Input.Gamepad;
     form.excludedGames = [...(config.app.ExcludedGames ?? [])];
     form.hotkeyToggle = config.app.Hotkeys.Toggle || "F9";
@@ -72,6 +74,7 @@ function save() {
   view.app.Input.CursorMode = form.cursorMode;
   view.app.Input.Gamepad = form.gamepad;
   view.app.Input.PauseWhenBackground = form.pauseWhenBackground;
+  if (view.app.OCR) view.app.OCR.GPU = form.ocrGpu;
   view.app.ExcludedGames = [...form.excludedGames];
   view.app.Hotkeys.Toggle = form.hotkeyToggle.trim() || "F9";
   view.app.Hotkeys.Panic = form.hotkeyPanic.trim() || "F10";
@@ -156,6 +159,15 @@ function save() {
               <option value="auto">auto · 自动回退</option>
               <option value="printwindow">printwindow · 后台</option>
               <option value="bitblt">bitblt</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>OCR 后端 / OCR BACKEND</span>
+            <select v-model="form.ocrGpu">
+              <option value="auto">auto · DirectML → CUDA → CPU</option>
+              <option value="dml">dml · DirectML（Windows 通用）</option>
+              <option value="cuda">cuda · NVIDIA CUDA</option>
+              <option value="cpu">cpu · 仅 CPU</option>
             </select>
           </label>
           <label class="field">

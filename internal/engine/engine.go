@@ -76,6 +76,7 @@ type Engine struct {
 	lastError   string
 	startedAt   time.Time
 	cancel      context.CancelFunc
+	fps         float64
 }
 
 // New 创建 engine。
@@ -111,6 +112,7 @@ func (e *Engine) Status() Status {
 		StartedAt:   e.startedAt,
 		LastMessage: e.lastMessage,
 		LastError:   e.lastError,
+		FPS:         e.fps,
 	}
 }
 
@@ -122,6 +124,7 @@ type Status struct {
 	StartedAt   time.Time
 	LastMessage string
 	LastError   string
+	FPS         float64
 }
 
 // Pause 暂停会话。
@@ -144,6 +147,13 @@ func (e *Engine) Resume() {
 	}
 	e.mu.Unlock()
 	e.emit("info", "已恢复")
+}
+
+// setFPS 更新实时帧率。
+func (e *Engine) setFPS(fps float64) {
+	e.mu.Lock()
+	e.fps = fps
+	e.mu.Unlock()
 }
 
 // Stop 请求停止会话。
@@ -172,6 +182,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	e.mu.Unlock()
 	defer func() {
 		cancel()
+		e.setFPS(0)
 		e.mu.Lock()
 		e.cancel = nil
 		if e.state != StateError {
@@ -202,6 +213,8 @@ func (e *Engine) Run(ctx context.Context) error {
 	failures := 0
 	lastState := ""
 	lastAction := ""
+	fpsFrames := 0
+	fpsStarted := time.Now()
 	for {
 		if runCtx.Err() != nil {
 			e.emit("info", "会话已停止")
@@ -254,6 +267,12 @@ func (e *Engine) Run(ctx context.Context) error {
 		lastState, lastAction = e.logStep(lastState, lastAction, result.State, actions)
 		if err := e.executeActions(runCtx, actions); err != nil {
 			return e.fail(err)
+		}
+		fpsFrames++
+		if elapsed := time.Since(fpsStarted); elapsed >= time.Second {
+			e.setFPS(float64(fpsFrames) / elapsed.Seconds())
+			fpsFrames = 0
+			fpsStarted = time.Now()
 		}
 		wait := result.Wait
 		if wait <= 0 {

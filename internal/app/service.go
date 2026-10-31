@@ -43,9 +43,10 @@ type Service struct {
 	logFile *lumberjack.Logger
 	sink    EventSink
 
-	appCfg config.AppConfig
-	zzzCfg config.ZZZConfig
-	ocr    vision.OCR
+	appCfg     config.AppConfig
+	zzzCfg     config.ZZZConfig
+	ocr        vision.OCR
+	ocrBackend string
 
 	sessions  map[string]*gameSession
 	watchStop chan struct{}
@@ -102,6 +103,8 @@ type StatusView struct {
 	Message     string    `json:"message"`
 	Error       string    `json:"error"`
 	StartedAt   time.Time `json:"startedAt"`
+	FPS         float64   `json:"fps"`
+	OCRBackend  string    `json:"ocrBackend"`
 }
 
 // ActionResult 是启动/停止类操作的结果。
@@ -465,11 +468,12 @@ func (s *Service) GetStatus() StatusView {
 	for _, sess := range s.sessions {
 		sessions = append(sessions, sess)
 	}
+	backend := s.ocrBackend
 	s.mu.Unlock()
 	if len(sessions) == 0 {
-		return StatusView{State: string(engine.StateIdle)}
+		return StatusView{State: string(engine.StateIdle), OCRBackend: backend}
 	}
-	status := StatusView{State: string(engine.StateStopped)}
+	status := StatusView{State: string(engine.StateStopped), OCRBackend: backend}
 	var ids []string
 	for _, sess := range sessions {
 		st := sess.eng.Status()
@@ -483,6 +487,7 @@ func (s *Service) GetStatus() StatusView {
 		if st.LastError != "" {
 			status.Error = st.LastError
 		}
+		status.FPS += st.FPS
 		if status.StartedAt.IsZero() || (!st.StartedAt.IsZero() && st.StartedAt.Before(status.StartedAt)) {
 			status.StartedAt = st.StartedAt
 		}
@@ -500,6 +505,9 @@ func (s *Service) GetStatus() StatusView {
 				status.State = string(engine.StateError)
 			}
 		}
+	}
+	if len(sessions) > 0 {
+		status.FPS /= float64(len(sessions))
 	}
 	if status.Running {
 		status.Paused = false
@@ -694,19 +702,82 @@ func (s *Service) ensureOCR() (vision.OCR, error) {
 		defer s.mu.Unlock()
 		return s.ocr, nil
 	}
+	appCfg := s.appCfg
 	dir, err := s.modelDirLocked()
 	s.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	ocr, err := vision.NewPaddleOCR(dir)
-	if err != nil {
-		return nil, err
+	mode := appCfg.OCR.GPU
+	if mode == "" {
+		mode = "auto"
 	}
-	s.mu.Lock()
-	s.ocr = ocr
-	s.mu.Unlock()
-	return ocr, nil
+	dml := s.findOCRRuntime("onnxruntime_dml.dll", appCfg.OCR.RuntimeDir)
+	cuda := s.findOCRRuntime("onnxruntime_cuda.dll", appCfg.OCR.RuntimeDir)
+	var candidates []ocrCandidate
+	if (mode == "auto" || mode == "dml") && dml != "" {
+		candidates = append(candidates, ocrCandidate{name: "DirectML", runtime: dml, directML: true})
+	}
+	if (mode == "auto" || mode == "cuda") && cuda != "" {
+		candidates = append(candidates, ocrCandidate{name: "CUDA", runtime: cuda, cuda: true})
+	}
+	// 如果 GPU provider 初始化失败，优先用同一个 ONNX Runtime DLL 建 CPU session；
+	// 该 DLL 同时包含 CPU provider，不需要重新加载一个 ORT 引擎。
+	cpuRuntime := ""
+	if len(candidates) > 0 {
+		cpuRuntime = candidates[0].runtime
+	}
+	candidates = append(candidates, ocrCandidate{name: "CPU", runtime: cpuRuntime})
+	var lastErr error
+	for _, candidate := range candidates {
+		ocr, err := vision.NewPaddleOCRWithOptions(dir, vision.PaddleOptions{
+			UseDirectML: candidate.directML,
+			UseCUDA:     candidate.cuda,
+			RuntimeLib:  candidate.runtime,
+		})
+		if err == nil {
+			s.mu.Lock()
+			s.ocr = ocr
+			s.ocrBackend = candidate.name
+			s.mu.Unlock()
+			s.appendLog("info", "OCR 后端: "+candidate.name+" ("+candidate.runtime+")")
+			return ocr, nil
+		}
+		lastErr = err
+		s.appendLog("warn", "OCR "+candidate.name+" 初始化失败，尝试下一个后端: "+err.Error())
+	}
+	return nil, fmt.Errorf("OCR 初始化失败: %w", lastErr)
+}
+
+type ocrCandidate struct {
+	name     string
+	runtime  string
+	directML bool
+	cuda     bool
+}
+
+// findOCRRuntime 依次在自定义目录、assets/runtime、exe/runtime 找 GPU 版 ORT DLL。
+func (s *Service) findOCRRuntime(name, customDir string) string {
+	var dirs []string
+	if customDir != "" {
+		dirs = append(dirs, customDir)
+	}
+	if s.assets != "" {
+		dirs = append(dirs, filepath.Join(s.assets, "runtime"))
+	}
+	if s.dataDir != "" {
+		dirs = append(dirs, filepath.Join(s.dataDir, "runtime"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		dirs = append(dirs, filepath.Join(filepath.Dir(exe), "runtime"))
+	}
+	for _, dir := range dirs {
+		p := filepath.Join(dir, name)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	return ""
 }
 
 func (s *Service) gamepadDLL() string {

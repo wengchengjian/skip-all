@@ -5,8 +5,8 @@
 | Wails | v3.0.0 | MIT | 桌面应用壳、系统托盘、全局快捷键 |
 | Vue | 3.x | MIT | 前端界面 |
 | Vite | 7.x | MIT | 前端构建 |
-| go-ocr | commit 3abab59da8147c88179b0a394449ce8fafd023bc | MIT | PaddleOCR 的 Go/ONNX 封装 |
-| onnxruntime_purego | v0.0.0-20260118041137-401482b32507 | MIT | 纯 Go 调用 onnxruntime |
+| go-ocr（本地 fork） | commit 3abab59da8147c88179b0a394449ce8fafd023bc | MIT | PaddleOCR 的 Go/ONNX 封装；`third_party/go-ocr` 增加 DirectML 配置 |
+| onnxruntime_purego（本地 fork） | v0.0.0-20260118041137-401482b32507 | MIT | 纯 Go 调用 onnxruntime；`third_party/onnxruntime_purego` 增加 DirectML 入口 |
 | PaddleOCR PP-OCRv6 模型 | OneDragon-Env release ppocrv6 | Apache-2.0 | 中文 OCR 模型 |
 | Microsoft onnxruntime | 1.27.x | MIT | ONNX 推理运行时 DLL |
 | ViGEmClient | nefarius/ViGEmClient | MIT | 虚拟 Xbox 手柄客户端 DLL |

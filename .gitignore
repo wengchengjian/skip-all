@@ -18,6 +18,11 @@ build/android/gen/
 assets/models/
 models/
 
+# GPU ONNX Runtime libraries are installed by scripts/install-ort-dml.ps1
+assets/runtime/onnxruntime_dml.dll
+assets/runtime/onnxruntime_providers_shared.dll
+assets/runtime/DirectML.dll
+
 # runtime data
 *.log
 logs/

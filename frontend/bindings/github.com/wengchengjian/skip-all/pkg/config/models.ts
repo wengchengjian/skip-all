@@ -60,6 +60,16 @@ export interface OCRConfig {
     "Model": string;
     "AutoDownload": boolean;
     "ModelDir": string;
+
+    /**
+     * GPU 控制 OCR 后端：auto / dml / cuda / cpu。
+     */
+    "GPU": string;
+
+    /**
+     * RuntimeDir 可放置 onnxruntime_dml.dll / onnxruntime_cuda.dll。
+     */
+    "RuntimeDir": string;
 }
 
 /**

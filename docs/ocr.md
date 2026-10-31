@@ -12,10 +12,11 @@
 ## 当前 skip-all
 
 - 模型：同样是 **PP-OCRv6**，文件在 `assets/models/ppocrv6`。
-- 运行时：当前 `go-ocr` 使用 CPU 版 `onnxruntime.dll`。
-- `go-ocr` 的 Go 配置只暴露了 `UseCuda`，没有 `DmlExecutionProvider`；所以目前不能直接复刻上游的 DirectML。
+- 运行时：已在 `third_party/go-ocr` 和 `third_party/onnxruntime_purego` 增加 DirectML 入口；GPU 后端用 `ocr.gpu: auto` 按 **DirectML → CUDA → CPU** 探测。
 - 跳过/点击模式已经改成**白色文字行投影**定位按钮、选项、确认框、对话框，不再逐帧 OCR；默认 5 FPS 下 `Step` 约 20ms，模型和 GPU 对这条路径基本没有影响。
 - `auto` 模式仍需要 OCR 识别“自动/菜单”，是唯一还会持续跑 OCR 的模式。
+- 顶栏实时显示 FPS 和当前 OCR 后端（DirectML / CUDA / CPU），方便直接测量性能。
+- DirectML 运行库可用 `scripts/install-ort-dml.ps1` 安装到 `assets/runtime`；也可在配置里指定 `ocr.runtime_dir`。
 
 ## 模型选择
 
@@ -29,29 +30,24 @@
 
 结论：**不要为了速度换模型**。当前瓶颈不是模型，而是每帧多次调用；文字行检测已经把跳过路径的 OCR 去掉了。`auto` 模式才值得上 GPU。
 
-## 加 GPU 的两条路
+## GPU 后端
 
-### 1. DirectML（推荐，和上游一致）
+### 1. DirectML（默认优先，和上游一致）
 
-需要：
+- 运行库：`onnxruntime_dml.dll` + `onnxruntime_providers_shared.dll` + `DirectML.dll`。
+- 安装：运行 `scripts/install-ort-dml.ps1`，文件会放到 `assets/runtime`。
+- `onnxruntime-directml` 在创建 session 时会自动注册 DML provider，因此本地绑定不再重复 append；重复 append 会报 `already been registered`。
+- 优点：Intel/NVIDIA/AMD 通用，不依赖 CUDA Toolkit。
 
-- `onnxruntime-directml.dll` 或带 DirectML provider 的 ONNX Runtime。
-- 给 `onnxruntime_purego` 增加 `SessionOptionsAppendExecutionProvider("DmlExecutionProvider", ...)` 的封装（当前绑定没有暴露这个通用接口）。
-- 启动时先探测 DML provider，再创建 OCR；失败回退 CPU。ONNX Runtime 的 engine 在进程内是全局单例，不能在同一进程里先 CPU 再切 GPU，自动回退需要在创建 OCR 前完成探测。
+### 2. CUDA（NVIDIA 可选）
 
-优点：Intel/NVIDIA/AMD 通用，不依赖 CUDA。  
-代价：需要 fork/替换 Go 的 ORT 绑定，或改用 Python/独立 OCR 进程。
+- 需要带 CUDA provider 的 `onnxruntime_cuda.dll`，以及匹配版本的 CUDA / cuDNN 运行库。
+- 放在 `assets/runtime` 或 `ocr.runtime_dir`；`ocr.gpu: cuda` 强制使用，`auto` 会在没有 DML 时尝试。
+- NVIDIA only；当前机器是 CMP 40HX，`nvidia-smi` 可用，但 GPU 已被其他程序占用。
 
-### 2. CUDA（当前 Go 绑定已有入口）
+### 自动探测
 
-`go-ocr` 的 `paddle.Config` 已有 `UseCuda`，但需要：
-
-- 带 CUDA provider 的 `onnxruntime.dll`（不是现在的 CPU DLL）。
-- 匹配版本的 CUDA / cuDNN 运行库。
-- NVIDIA GPU；当前机器是 CMP 40HX，`nvidia-smi` 可用，但 GPU 已被其他程序占用。
-
-优点：改动小，Go 绑定直接支持。  
-代价：NVIDIA only，部署依赖重；用户机器没有 CUDA 时必须回退 CPU。
+`ensureOCR` 会按 `DirectML → CUDA → CPU` 依次尝试；某个后端初始化失败会记录日志并把同一个 ORT DLL 当 CPU 运行时再试，最后回退默认 CPU。ONNX Runtime 的 engine 在进程内是全局单例，所以切换 DLL 需要重启进程。
 
 ## 建议配置
 

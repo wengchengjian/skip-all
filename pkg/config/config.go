@@ -52,6 +52,10 @@ type OCRConfig struct {
 	Model        string `yaml:"model"`
 	AutoDownload bool   `yaml:"auto_download"`
 	ModelDir     string `yaml:"model_dir"`
+	// GPU 控制 OCR 后端：auto / dml / cuda / cpu。
+	GPU string `yaml:"gpu"`
+	// RuntimeDir 可放置 onnxruntime_dml.dll / onnxruntime_cuda.dll。
+	RuntimeDir string `yaml:"runtime_dir"`
 }
 
 // DefaultApp 返回应用默认配置。
@@ -63,7 +67,7 @@ func DefaultApp() AppConfig {
 		Capture:       CaptureConfig{Method: "auto", TargetFPS: 5},
 		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "auto", Gamepad: false},
 		Hotkeys:       HotkeysConfig{Toggle: "F9", Panic: "F10"},
-		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true},
+		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true, GPU: "auto"},
 		ExcludedGames: []string{},
 	}
 }
@@ -156,6 +160,15 @@ func (c *AppConfig) normalizeAndValidate() error {
 	}
 	if c.OCR.Model == "" {
 		c.OCR.Model = "ppocrv6"
+	}
+	if c.OCR.GPU == "" {
+		c.OCR.GPU = "auto"
+	}
+	switch strings.ToLower(c.OCR.GPU) {
+	case "auto", "dml", "cuda", "cpu":
+		c.OCR.GPU = strings.ToLower(c.OCR.GPU)
+	default:
+		return fmt.Errorf("未知 ocr.gpu: %s", c.OCR.GPU)
 	}
 	seen := make(map[string]bool, len(c.ExcludedGames))
 	out := c.ExcludedGames[:0]

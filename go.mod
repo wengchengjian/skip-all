@@ -2,6 +2,10 @@ module github.com/wengchengjian/skip-all
 
 go 1.26.0
 
+replace github.com/getcharzp/go-ocr => ./third_party/go-ocr
+
+replace github.com/getcharzp/onnxruntime_purego => ./third_party/onnxruntime_purego
+
 require (
 	github.com/spf13/cobra v1.10.2
 	github.com/wailsapp/wails/v3 v3.0.0

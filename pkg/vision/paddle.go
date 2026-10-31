@@ -30,6 +30,12 @@ type PaddleOptions struct {
 	RecModelNumClasses int64
 	// ThreadCount 是识别 session 并发数。
 	ThreadCount int
+	// UseDirectML 启用 DirectML execution provider。
+	UseDirectML bool
+	// UseCUDA 启用 CUDA execution provider。
+	UseCUDA bool
+	// RuntimeLib 覆盖 onnxruntime 动态库路径。
+	RuntimeLib string
 }
 
 // DefaultPaddleOptions 返回 PaddleOCR 的默认参数。
@@ -60,6 +66,12 @@ func NewPaddleOCRWithOptions(modelDir string, opts PaddleOptions) (OCR, error) {
 	if err != nil {
 		return nil, err
 	}
+	if opts.RuntimeLib != "" {
+		if info, statErr := os.Stat(opts.RuntimeLib); statErr != nil || info.IsDir() {
+			return nil, fmt.Errorf("onnxruntime 库不存在: %s", opts.RuntimeLib)
+		}
+		files.onnxRuntime = opts.RuntimeLib
+	}
 	if opts.DetMaxSideLen <= 0 {
 		opts.DetMaxSideLen = 960
 	}
@@ -85,6 +97,8 @@ func NewPaddleOCRWithOptions(modelDir string, opts PaddleOptions) (OCR, error) {
 		RecHeight:           opts.RecHeight,
 		RecModelNumClasses:  opts.RecModelNumClasses,
 		ThreadCount:         opts.ThreadCount,
+		UseDirectML:         opts.UseDirectML,
+		UseCuda:             opts.UseCUDA,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("创建 PaddleOCR 引擎: %w", err)
