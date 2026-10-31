@@ -40,11 +40,12 @@ const (
 )
 
 var (
-	procSendInput    = user32.NewProc("SendInput")
-	procSetCursorPos = user32.NewProc("SetCursorPos")
-	procGetCursorPos = user32.NewProc("GetCursorPos")
-	procPostMessage  = user32.NewProc("PostMessageW")
-	procSendMessage  = user32.NewProc("SendMessageW")
+	procSendInput           = user32.NewProc("SendInput")
+	procSetCursorPos        = user32.NewProc("SetCursorPos")
+	procGetCursorPos        = user32.NewProc("GetCursorPos")
+	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
+	procPostMessage         = user32.NewProc("PostMessageW")
+	procSendMessage         = user32.NewProc("SendMessageW")
 )
 
 // mouseInput 对应 Win32 MOUSEINPUT。
@@ -221,11 +222,6 @@ func (i *Input) Click(p geom.Point) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
-	if i.background && i.shouldMoveCursor() && !i.win.IsActive() {
-		// 只有需要移动真实光标的兼容模式才要求游戏在前台；
-		// 纯消息点击不会影响覆盖窗口，可以在后台继续。
-		return nil
-	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	rect, err := i.win.ClientRect()
@@ -249,9 +245,6 @@ func (i *Input) Click(p geom.Point) error {
 func (i *Input) ClickCurrent() error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
-	}
-	if i.background && i.shouldMoveCursor() && !i.win.IsActive() {
-		return nil
 	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -435,6 +428,20 @@ func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
 	if err != nil {
 		return err
 	}
+	// 上游后台点击会先让游戏短暂成为前台，再点击并切回原窗口。
+	// 绝区零只处理前台窗口的鼠标输入，单纯 PostMessage 不会生效。
+	prevFg, _, _ := procGetForegroundWindow.Call()
+	if !i.win.IsActive() {
+		if err := i.win.Activate(); err != nil {
+			return fmt.Errorf("激活游戏窗口: %w", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	defer func() {
+		if prevFg != 0 && prevFg != hwnd {
+			_, _, _ = procSetForegroundWindow.Call(prevFg)
+		}
+	}()
 	targetX, targetY := rect.X1+p.X, rect.Y1+p.Y
 	saved, hasSaved := cursorPos()
 	if r, _, _ := procSetCursorPos.Call(uintptr(targetX), uintptr(targetY)); r == 0 {
