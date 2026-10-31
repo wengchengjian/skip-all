@@ -133,17 +133,6 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 	if s.cfg.gamepad && s.cfg.mode == ModeSkip {
-		if s.padPhase != padPhaseNone {
-			inStory, err := s.storyContext(frame)
-			if err != nil {
-				return assist.Result{}, nil, err
-			}
-			if !inStory {
-				s.padPhase = padPhaseNone
-				s.padAt = time.Time{}
-				s.confirmUntil = time.Time{}
-			}
-		}
 		result, actions, handled, err := s.handlePadPhase(frame)
 		if err != nil {
 			return assist.Result{}, nil, err
@@ -225,26 +214,6 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
 
-// storyContext 判断当前是否仍处于剧情/CG 上下文，用于及时清掉手柄阶段。
-func (s *Session) storyContext(frame assist.Frame) (bool, error) {
-	inDialog, err := s.inDialog(frame)
-	if err != nil {
-		return false, err
-	}
-	if inDialog || s.hasOptionBands(frame) || s.recentClicks > 0 {
-		return true, nil
-	}
-	area, err := s.area(s.spec.Screen, s.spec.StoryArea)
-	if err != nil {
-		return false, err
-	}
-	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, gamepadStoryCacheTTL)
-	if err != nil {
-		return false, err
-	}
-	return hasKeyword(blocks, s.spec.Keywords), nil
-}
-
 // hasOptionBands 判断当前是否有剧情选项；选项画面可能没有对话框正文。
 func (s *Session) hasOptionBands(frame assist.Frame) bool {
 	for _, name := range []string{s.spec.RightOptionArea, s.spec.MiddleOptionArea} {
@@ -281,6 +250,12 @@ func (s *Session) gamepadActivate(frame assist.Frame) (*actionStep, bool) {
 func (s *Session) handlePadPhase(frame assist.Frame) (assist.Result, []assist.Action, bool, error) {
 	if s.padPhase == padPhaseNone {
 		return assist.Result{}, nil, false, nil
+	}
+	if frame.At.Sub(s.padAt) > 3*time.Second {
+		s.padPhase = padPhaseNone
+		s.padAt = time.Time{}
+		s.confirmUntil = time.Time{}
+		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, true, nil
 	}
 	if frame.At.Sub(s.padAt) < padActionWait {
 		return assist.Result{State: "等待手柄操作", Wait: padActionWait}, nil, true, nil
