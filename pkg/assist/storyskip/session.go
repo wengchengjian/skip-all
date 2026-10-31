@@ -52,6 +52,10 @@ type Session struct {
 	recentClicks   int
 	ocrCache       map[string]ocrCacheEntry
 	guardCache     map[string]guardCacheEntry
+	dialogHash     uint64
+	dialogAt       time.Time
+	dialogCached   bool
+	dialogIn       bool
 	confirmUntil   time.Time
 	padReady       bool
 	padPhase       int
@@ -492,15 +496,21 @@ func (s *Session) inDialog(frame assist.Frame) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	hash := areaHash(frame.Image, area.Rect)
+	if s.cfg.mode == ModeSkip && s.dialogCached && hash == s.dialogHash && !frame.At.Before(s.dialogAt) {
+		return s.dialogIn, nil
+	}
 	stats, err := s.rt.ColorStats(frame, *area)
 	if err != nil {
 		return false, fmt.Errorf("统计对话框颜色: %w", err)
 	}
 	if stats.GrayMaskPercent <= s.spec.GrayMaskThreshold {
+		s.storeDialogResult(frame.At, hash, false)
 		return false, nil
 	}
 	// 跳过模式只要 gray mask 成立就点，兼容“……”这种没有文字行的对话框。
 	if s.cfg.mode == ModeSkip {
+		s.storeDialogResult(frame.At, hash, true)
 		return true, nil
 	}
 	// 点击/自动模式再用白色文字行确认，避免把其他灰底面板当对话。
@@ -510,10 +520,22 @@ func (s *Session) inDialog(frame assist.Frame) (bool, error) {
 	})
 	for _, band := range bands {
 		if band.X2-band.X1 >= 20 {
+			s.storeDialogResult(frame.At, hash, true)
 			return true, nil
 		}
 	}
+	s.storeDialogResult(frame.At, hash, false)
 	return false, nil
+}
+
+func (s *Session) storeDialogResult(at time.Time, hash uint64, in bool) {
+	if s.cfg.mode != ModeSkip {
+		return
+	}
+	s.dialogAt = at
+	s.dialogHash = hash
+	s.dialogIn = in
+	s.dialogCached = true
 }
 
 // doDialogClick 对应上游 _do_dialog_click：对话框/剧情可见时先选项，再黑屏/正文。
