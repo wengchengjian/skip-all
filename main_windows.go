@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -19,11 +20,6 @@ var assets embed.FS
 
 //go:embed build/windows/icon.ico
 var trayIcon []byte
-
-const (
-	defaultGameID    = "zzz"
-	defaultFeatureID = "story_skip"
-)
 
 // wailsApp 由 main 中赋值，供 EventSink 转发服务事件到前端。
 var wailsApp *application.App
@@ -84,11 +80,15 @@ func main() {
 
 	toggle := func() {
 		status := appSvc.GetStatus()
-		if status.Running || status.Paused {
-			appSvc.Stop()
+		if status.Paused {
+			appSvc.ResumeAll()
 			return
 		}
-		if result := appSvc.Start(defaultGameID, defaultFeatureID); !result.OK {
+		if status.Running {
+			appSvc.PauseAll()
+			return
+		}
+		if result := appSvc.StartAll(); !result.OK {
 			log.Printf("启动失败: %s", result.Error)
 		}
 	}
@@ -109,12 +109,19 @@ func main() {
 	})
 	menu.AddSeparator()
 	menu.Add("开始").OnClick(func(*application.Context) {
-		if result := appSvc.Start(defaultGameID, defaultFeatureID); !result.OK {
+		if result := appSvc.StartAll(); !result.OK {
 			log.Printf("启动失败: %s", result.Error)
 		}
 	})
+	menu.Add("暂停 / 继续").OnClick(func(*application.Context) {
+		if appSvc.GetStatus().Paused {
+			appSvc.ResumeAll()
+		} else {
+			appSvc.PauseAll()
+		}
+	})
 	menu.Add("停止").OnClick(func(*application.Context) {
-		appSvc.Stop()
+		appSvc.StopAll()
 	})
 	menu.AddSeparator()
 	menu.Add("退出").OnClick(func(*application.Context) {
@@ -143,9 +150,17 @@ func main() {
 	if err := wailsApp.GlobalShortcut.Register(toggleKey, toggle); err != nil {
 		log.Printf("注册快捷键 %s 失败: %v", toggleKey, err)
 	}
-	if err := wailsApp.GlobalShortcut.Register(panicKey, func() { appSvc.Stop() }); err != nil {
+	if err := wailsApp.GlobalShortcut.Register(panicKey, func() { appSvc.StopAll() }); err != nil {
 		log.Printf("注册快捷键 %s 失败: %v", panicKey, err)
 	}
+
+	// 启动即自动执行所有未排除游戏；游戏窗口稍后打开时后台扫描会继续尝试。
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		if result := appSvc.StartAll(); !result.OK {
+			log.Printf("自动启动: %s", result.Error)
+		}
+	}()
 
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)

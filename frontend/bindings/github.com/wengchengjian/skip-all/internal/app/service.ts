@@ -35,15 +35,12 @@ export function GetConfig(): $CancellablePromise<$models.ConfigView> {
     return $Call.ByID(4030083057);
 }
 
-/**
- * GetLogs 返回最近日志。
- */
 export function GetLogs(): $CancellablePromise<$models.LogEntry[] | null> {
     return $Call.ByID(1812585920);
 }
 
 /**
- * GetStatus 返回当前状态。
+ * GetStatus 返回所有会话的聚合状态。
  */
 export function GetStatus(): $CancellablePromise<$models.StatusView> {
     return $Call.ByID(4242635141);
@@ -64,17 +61,31 @@ export function ListGames(): $CancellablePromise<$models.GameView[] | null> {
 }
 
 /**
- * Pause 暂停当前会话。
+ * Pause 兼容旧调用。
  */
 export function Pause(): $CancellablePromise<void> {
     return $Call.ByID(3203417585);
 }
 
 /**
- * Resume 恢复当前会话。
+ * PauseAll 暂停所有运行中的会话。
+ */
+export function PauseAll(): $CancellablePromise<void> {
+    return $Call.ByID(1514821512);
+}
+
+/**
+ * Resume 兼容旧调用。
  */
 export function Resume(): $CancellablePromise<void> {
     return $Call.ByID(3633196598);
+}
+
+/**
+ * ResumeAll 恢复所有暂停的会话。
+ */
+export function ResumeAll(): $CancellablePromise<void> {
+    return $Call.ByID(1623825013);
 }
 
 /**
@@ -99,8 +110,22 @@ export function Start(gameID: string, featureID: string): $CancellablePromise<$m
 }
 
 /**
- * Stop 停止当前会话。
+ * StartAll 启动所有未排除游戏的默认功能；游戏未启动时由后台扫描等待。
+ */
+export function StartAll(): $CancellablePromise<$models.ActionResult> {
+    return $Call.ByID(2638882886);
+}
+
+/**
+ * Stop 兼容旧调用，停止全部会话。
  */
 export function Stop(): $CancellablePromise<void> {
     return $Call.ByID(2581445089);
+}
+
+/**
+ * StopAll 停止所有游戏会话。
+ */
+export function StopAll(): $CancellablePromise<void> {
+    return $Call.ByID(3450832536);
 }

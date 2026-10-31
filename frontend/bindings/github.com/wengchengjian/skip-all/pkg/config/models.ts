@@ -12,6 +12,11 @@ export interface AppConfig {
     "Input": InputConfig;
     "Hotkeys": HotkeysConfig;
     "OCR": OCRConfig;
+
+    /**
+     * ExcludedGames 是启动时跳过的游戏 ID；默认空表示全部启用。
+     */
+    "ExcludedGames": string[] | null;
 }
 
 /**

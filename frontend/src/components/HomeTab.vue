@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { DoctorReport, GameView, LogEntry, StatusView } from "../api";
+import type { ConfigView, DoctorReport, GameView, LogEntry, StatusView } from "../api";
 import LogList from "./LogList.vue";
 
 const props = defineProps<{
   games: GameView[];
+  config: ConfigView | null;
   selectedGameId: string;
   selectedFeatureId: string;
   status: StatusView;
@@ -34,6 +35,12 @@ const emit = defineEmits<{
 }>();
 
 const selectedGame = computed(() => props.games.find((game) => game.id === props.selectedGameId) ?? null);
+const excludedGames = computed(() => new Set(props.config?.app.ExcludedGames ?? []));
+function gameState(game: GameView): string {
+  if (excludedGames.value.has(game.id)) return "已排除";
+  if (props.status.gameId.split(",").includes(game.id)) return "运行中";
+  return "已启用";
+}
 const features = computed(() => selectedGame.value?.features ?? []);
 const selectedFeature = computed(() => features.value.find((feature) => feature.id === props.selectedFeatureId) ?? null);
 const recentLogs = computed(() => props.logs.slice(-7));
@@ -56,8 +63,8 @@ const sessionTime = computed(() => {
     <section class="panel mission-panel">
       <div class="panel-head">
         <div>
-          <span class="panel-kicker">游戏与功能</span>
-          <h2>选择跳过目标</h2>
+          <span class="panel-kicker">自动跳过范围</span>
+          <h2>全部游戏</h2>
         </div>
         <span class="panel-meta">{{ games.length }} 个目标</span>
       </div>
@@ -73,7 +80,7 @@ const sessionTime = computed(() => {
           <span class="game-index">0{{ index + 1 }}</span>
           <strong>{{ game.name }}</strong>
           <small>{{ game.id.toUpperCase() }}</small>
-          <span class="game-state">{{ game.id === selectedGameId ? "已连接" : "待命" }}</span>
+          <span class="game-state">{{ gameState(game) }}</span>
         </button>
         <p v-if="games.length === 0" class="empty-note">未发现内置游戏</p>
       </div>
@@ -102,8 +109,8 @@ const sessionTime = computed(() => {
       </div>
 
       <div class="mission-footer">
-        <span class="micro-label">当前功能</span>
-        <span class="mono-value">{{ selectedFeature?.id || "—" }}</span>
+        <span class="micro-label">启动策略</span>
+        <span class="mono-value">全部 · 自动检测</span>
       </div>
     </section>
 
@@ -128,14 +135,14 @@ const sessionTime = computed(() => {
       </div>
 
       <div class="command-actions">
-        <button class="btn btn-primary" :disabled="busy || sessionActive" @click="emit('start')">启动协议</button>
+        <button class="btn btn-primary" :disabled="busy" @click="emit('start')">开始全部</button>
         <button class="btn btn-ghost" :disabled="busy || !status.running" @click="emit('pause')">暂停</button>
         <button v-if="status.paused" class="btn btn-ghost" :disabled="busy" @click="emit('resume')">继续</button>
         <button class="btn btn-danger" :disabled="busy || !sessionActive" @click="emit('stop')">停止</button>
       </div>
 
       <div class="telemetry">
-        <div><span>GAME</span><strong>{{ selectedGame?.id?.toUpperCase() || "—" }}</strong></div>
+        <div><span>GAME</span><strong>{{ status.gameId ? status.gameId.toUpperCase() : "ALL" }}</strong></div>
         <div><span>FEATURE</span><strong>{{ status.featureId || selectedFeature?.id || "—" }}</strong></div>
         <div><span>STARTED</span><strong>{{ sessionTime }}</strong></div>
       </div>

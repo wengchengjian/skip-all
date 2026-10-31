@@ -165,7 +165,7 @@ export function useSkipAll() {
     }
     busy.value = true;
     try {
-      const result = await Service.Start(selectedGameId.value, selectedFeatureId.value);
+      const result = await Service.StartAll();
       if (result.ok) {
         showNotice(`已启动：${selectedFeature.value?.name ?? selectedFeatureId.value}`);
       } else {
@@ -182,7 +182,7 @@ export function useSkipAll() {
   async function stop() {
     busy.value = true;
     try {
-      await Service.Stop();
+      await Service.StopAll();
       await refreshStatus();
     } catch (err) {
       showNotice(`停止失败：${errorText(err)}`, "error");
@@ -194,7 +194,7 @@ export function useSkipAll() {
   async function pause() {
     busy.value = true;
     try {
-      await Service.Pause();
+      await Service.PauseAll();
       await refreshStatus();
     } catch (err) {
       showNotice(`暂停失败：${errorText(err)}`, "error");
@@ -206,7 +206,7 @@ export function useSkipAll() {
   async function resume() {
     busy.value = true;
     try {
-      await Service.Resume();
+      await Service.ResumeAll();
       await refreshStatus();
     } catch (err) {
       showNotice(`恢复失败：${errorText(err)}`, "error");
@@ -220,7 +220,7 @@ export function useSkipAll() {
     try {
       await Service.SaveConfig(view);
       config.value = view;
-      showNotice("设置已保存，下次启动会话生效");
+      showNotice("设置已保存，运行中的会话已自动重启");
     } catch (err) {
       showNotice(`保存配置失败：${errorText(err)}`, "error");
     } finally {

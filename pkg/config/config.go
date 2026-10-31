@@ -23,6 +23,8 @@ type AppConfig struct {
 	Input         InputConfig   `yaml:"input"`
 	Hotkeys       HotkeysConfig `yaml:"hotkeys"`
 	OCR           OCRConfig     `yaml:"ocr"`
+	// ExcludedGames 是启动时跳过的游戏 ID；默认空表示全部启用。
+	ExcludedGames []string `yaml:"excluded_games"`
 }
 
 // CaptureConfig 是截图参数。
@@ -62,6 +64,7 @@ func DefaultApp() AppConfig {
 		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "auto", Gamepad: false},
 		Hotkeys:       HotkeysConfig{Toggle: "F9", Panic: "F10"},
 		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true},
+		ExcludedGames: []string{},
 	}
 }
 
@@ -154,6 +157,17 @@ func (c *AppConfig) normalizeAndValidate() error {
 	if c.OCR.Model == "" {
 		c.OCR.Model = "ppocrv6"
 	}
+	seen := make(map[string]bool, len(c.ExcludedGames))
+	out := c.ExcludedGames[:0]
+	for _, id := range c.ExcludedGames {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	c.ExcludedGames = out
 	return nil
 }
 

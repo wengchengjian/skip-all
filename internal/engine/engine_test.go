@@ -97,6 +97,18 @@ func TestRunExecutesActionsAndStops(t *testing.T) {
 	}
 }
 
+func TestActionSummary(t *testing.T) {
+	got := actionSummary([]assist.Action{
+		{Kind: assist.ActionClick, Point: geom.Point{X: 12, Y: 34}},
+		{Kind: assist.ActionClickCurrent},
+		{Kind: assist.ActionKeyTap, Key: "xbox_a"},
+	})
+	want := "点击(12,34) + 点击当前光标 + 按键 xbox_a"
+	if got != want {
+		t.Fatalf("actionSummary = %q, want %q", got, want)
+	}
+}
+
 func TestPauseSkipsCapture(t *testing.T) {
 	dev := &fakeDevice{}
 	dev.active.Store(true)

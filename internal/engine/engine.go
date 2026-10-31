@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -199,6 +200,8 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	interval := time.Second / time.Duration(e.cfg.TargetFPS)
 	failures := 0
+	lastState := ""
+	lastAction := ""
 	for {
 		if runCtx.Err() != nil {
 			e.emit("info", "会话已停止")
@@ -248,6 +251,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		if result.Message != "" {
 			e.setMessage(result.Message)
 		}
+		lastState, lastAction = e.logStep(lastState, lastAction, result.State, actions)
 		if err := e.executeActions(runCtx, actions); err != nil {
 			return e.fail(err)
 		}
@@ -259,6 +263,43 @@ func (e *Engine) Run(ctx context.Context) error {
 			return nil
 		}
 	}
+}
+
+// logStep 记录状态切换和动作变化；重复的同一动作只写文件日志，避免刷屏。
+func (e *Engine) logStep(lastState, lastAction, state string, actions []assist.Action) (string, string) {
+	action := actionSummary(actions)
+	if state != lastState || action != lastAction {
+		message := "剧情流程: " + state
+		if action != "" {
+			message += " | " + action
+		}
+		e.emit("info", message)
+		return state, action
+	}
+	if action != "" {
+		e.logger.Debug("重复动作", "state", state, "action", action)
+	}
+	return lastState, lastAction
+}
+
+func actionSummary(actions []assist.Action) string {
+	if len(actions) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, action := range actions {
+		switch action.Kind {
+		case assist.ActionClick:
+			parts = append(parts, fmt.Sprintf("点击(%d,%d)", action.Point.X, action.Point.Y))
+		case assist.ActionClickCurrent:
+			parts = append(parts, "点击当前光标")
+		case assist.ActionKeyTap:
+			parts = append(parts, "按键 "+action.Key)
+		case assist.ActionWait:
+			parts = append(parts, fmt.Sprintf("等待 %s", action.Duration))
+		}
+	}
+	return strings.Join(parts, " + ")
 }
 
 func (e *Engine) executeActions(ctx context.Context, actions []assist.Action) error {

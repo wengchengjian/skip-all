@@ -17,6 +17,9 @@ func TestDefaultApp(t *testing.T) {
 	if cfg.Input.Mode != "background" || cfg.Input.PauseWhenBackground || cfg.Input.CursorMode != "auto" {
 		t.Fatalf("默认输入配置错误: %+v", cfg.Input)
 	}
+	if len(cfg.ExcludedGames) != 0 {
+		t.Fatalf("默认不应排除游戏: %+v", cfg.ExcludedGames)
+	}
 }
 
 func TestLoadAppMissingFile(t *testing.T) {

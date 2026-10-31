@@ -17,3 +17,4 @@ ocr:
   model: ppocrv6
   auto_download: true
   model_dir: "" # 留空使用默认模型目录
+excluded_games: [] # 启动时排除的游戏 ID，例如 [zzz]；留空表示全部启用

@@ -20,6 +20,23 @@ func TestServiceListGames(t *testing.T) {
 	}
 }
 
+func TestServiceExcludedGames(t *testing.T) {
+	svc, err := NewService(Options{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	defer svc.Shutdown()
+	svc.mu.Lock()
+	svc.appCfg.ExcludedGames = []string{"zzz"}
+	svc.mu.Unlock()
+	if !svc.isExcluded("zzz") {
+		t.Fatal("zzz 应被排除")
+	}
+	if svc.isExcluded("other") {
+		t.Fatal("other 不应被排除")
+	}
+}
+
 func TestServiceConfigRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := NewService(Options{DataDir: dir})

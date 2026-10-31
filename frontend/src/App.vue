@@ -98,6 +98,7 @@ const pageCode = computed(() => ({ home: "DASHBOARD", settings: "CONFIGURATION",
         <HomeTab
           v-if="tab === 'home'"
           :games="games"
+          :config="config"
           :selected-game-id="selectedGameId"
           :selected-feature-id="selectedFeatureId"
           :status="status"
@@ -122,7 +123,7 @@ const pageCode = computed(() => ({ home: "DASHBOARD", settings: "CONFIGURATION",
           @check-models="checkModels"
           @doctor="runDoctor"
         />
-        <SettingsTab v-else-if="tab === 'settings'" :config="config" :saving="busy" @save="saveConfig" />
+        <SettingsTab v-else-if="tab === 'settings'" :config="config" :games="games" :saving="busy" @save="saveConfig" />
         <LogsTab v-else :logs="logs" />
       </main>
     </section>

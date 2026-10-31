@@ -45,12 +45,22 @@ type Service struct {
 
 	appCfg config.AppConfig
 	zzzCfg config.ZZZConfig
-	eng    *engine.Engine
-	cancel context.CancelFunc
 	ocr    vision.OCR
-	gameID string
+
+	sessions  map[string]*gameSession
+	watchStop chan struct{}
+	waiting   map[string]bool
+	autoStop  bool
 
 	logs []LogEntry
+}
+
+// gameSession 是一个游戏当前的 engine 会话。
+type gameSession struct {
+	gameID    string
+	featureID string
+	eng       *engine.Engine
+	cancel    context.CancelFunc
 }
 
 // LogEntry 是 UI 显示的一条日志。
@@ -169,15 +179,19 @@ func NewService(opts Options) (*Service, error) {
 	if _, statErr := os.Stat(assets); statErr != nil {
 		assets = ""
 	}
-	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, sink: opts.EventSink, appCfg: appCfg, zzzCfg: zzzCfg}
+	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, sink: opts.EventSink, appCfg: appCfg, zzzCfg: zzzCfg, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
 	svc.appendLog("info", "skip-all 服务已初始化")
 	return svc, nil
 }
 
 // Shutdown 停止会话并释放资源。
 func (s *Service) Shutdown() {
-	s.Stop()
+	s.StopAll()
 	s.mu.Lock()
+	if s.watchStop != nil {
+		close(s.watchStop)
+		s.watchStop = nil
+	}
 	if s.ocr != nil {
 		_ = s.ocr.Close()
 		s.ocr = nil
@@ -224,35 +238,57 @@ func (s *Service) SaveConfig(view ConfigView) error {
 	return nil
 }
 
-// restartRunning 在配置保存后让运行中的会话立即使用新配置。
+// restartRunning 在配置保存后让所有运行中的会话立即使用新配置。
 func (s *Service) restartRunning() {
-	st := s.GetStatus()
-	if !st.Running && !st.Paused {
+	items := s.runningSessions()
+	if len(items) == 0 {
 		return
 	}
-	gameID, featureID := st.GameID, st.FeatureID
-	s.Stop()
+	s.StopAll()
+	s.mu.Lock()
+	s.autoStop = false
+	s.mu.Unlock()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		cur := s.GetStatus()
-		if !cur.Running && !cur.Paused {
+		if len(s.runningSessions()) == 0 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if res := s.Start(gameID, featureID); !res.OK {
-		s.appendLog("warn", "应用新配置后重启失败: "+res.Error)
+	for _, item := range items {
+		if s.isExcluded(item.gameID) {
+			s.appendLog("info", "["+item.gameID+"] 已加入排除列表，停止")
+			continue
+		}
+		if res := s.Start(item.gameID, item.featureID); !res.OK {
+			s.appendLog("warn", "应用新配置后重启失败: "+res.Error)
+		}
 	}
+}
+
+type sessionRef struct{ gameID, featureID string }
+
+func (s *Service) runningSessions() []sessionRef {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []sessionRef
+	for _, sess := range s.sessions {
+		st := sess.eng.Status()
+		if st.State == engine.StateRunning || st.State == engine.StatePaused {
+			out = append(out, sessionRef{gameID: sess.gameID, featureID: sess.featureID})
+		}
+	}
+	return out
 }
 
 // Start 启动指定游戏的功能。
 func (s *Service) Start(gameID, featureID string) ActionResult {
 	s.mu.Lock()
-	if s.eng != nil {
-		st := s.eng.Status()
+	if sess, ok := s.sessions[gameID]; ok {
+		st := sess.eng.Status()
 		if st.State == engine.StateRunning || st.State == engine.StatePaused {
 			s.mu.Unlock()
-			return ActionResult{OK: false, Error: "已有会话在运行"}
+			return ActionResult{OK: false, Error: "该游戏已有会话在运行"}
 		}
 	}
 	s.mu.Unlock()
@@ -297,7 +333,7 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	background := strings.ToLower(appCfg.Input.Mode) != "foreground"
 	input := platform.NewInputWithOptions(win, platform.InputOptions{Background: background, Gamepad: appCfg.Input.Gamepad, GamepadDLL: s.gamepadDLL(), CursorMode: appCfg.Input.CursorMode})
 	if appCfg.Input.Gamepad && !input.GamepadAvailable() {
-		s.appendLog("warn", "虚拟手柄不可用: "+fmt.Sprint(input.GamepadError()))
+		s.appendLog("warn", "["+game.Name()+"] 虚拟手柄不可用: "+fmt.Sprint(input.GamepadError()))
 	}
 	screens, err := screen.LoadFS(game.Assets(), "screens")
 	if err != nil {
@@ -308,68 +344,264 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 		return ActionResult{OK: false, Error: err.Error()}
 	}
 	matcher := vision.NewMatcher(ocr, vision.NewTemplateStoreFS(game.Assets(), "templates"))
-	eng := engine.New(capturer, input, screens, matcher, s.logger, feature, assist.Settings(settings), engine.Config{TargetFPS: appCfg.Capture.TargetFPS, PauseWhenBackground: appCfg.Input.PauseWhenBackground, ActivateWindow: !background}, func(ev engine.Event) { s.onEngineEvent(ev) })
-	s.mu.Lock()
-	s.eng = eng
-	s.mu.Unlock()
+	eng := engine.New(capturer, input, screens, matcher, s.logger, feature, assist.Settings(settings), engine.Config{TargetFPS: appCfg.Capture.TargetFPS, PauseWhenBackground: appCfg.Input.PauseWhenBackground, ActivateWindow: !background}, func(ev engine.Event) { s.onEngineEvent(gameID, ev) })
 	ctx, cancel := context.WithCancel(context.Background())
+	sess := &gameSession{gameID: gameID, featureID: featureID, eng: eng, cancel: cancel}
 	s.mu.Lock()
-	s.cancel = cancel
-	s.gameID = gameID
+	s.sessions[gameID] = sess
 	s.mu.Unlock()
+	s.appendLog("info", "["+game.Name()+"] 启动 "+feature.Name())
 	go func() {
 		err := eng.Run(ctx)
 		if err != nil {
-			s.appendLog("error", err.Error())
+			s.appendLog("error", "["+game.Name()+"] "+err.Error())
 		}
+		s.mu.Lock()
+		if cur, ok := s.sessions[gameID]; ok && cur == sess {
+			delete(s.sessions, gameID)
+		}
+		s.mu.Unlock()
 		s.emit("skipall:status", s.GetStatus())
 	}()
 	return ActionResult{OK: true}
 }
 
-// Stop 停止当前会话。
-func (s *Service) Stop() {
+// StartAll 启动所有未排除游戏的默认功能；游戏未启动时由后台扫描等待。
+func (s *Service) StartAll() ActionResult {
 	s.mu.Lock()
-	cancel := s.cancel
+	s.autoStop = false
 	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	s.startWatcher()
+	started := 0
+	var failures []string
+	for _, game := range games.All() {
+		if s.isExcluded(game.ID()) {
+			s.appendLog("info", "["+game.Name()+"] 已在排除列表，跳过")
+			continue
+		}
+		feature := s.defaultFeature(game)
+		if feature == nil {
+			continue
+		}
+		s.mu.Lock()
+		sess, exists := s.sessions[game.ID()]
+		s.mu.Unlock()
+		if exists {
+			st := sess.eng.Status()
+			if st.State == engine.StateRunning || st.State == engine.StatePaused {
+				continue
+			}
+		}
+		res := s.Start(game.ID(), feature.ID())
+		if res.OK {
+			started++
+		} else {
+			failures = append(failures, game.Name()+": "+res.Error)
+			s.appendLog("info", "["+game.Name()+"] 等待启动: "+res.Error)
+		}
 	}
-	if s.eng != nil {
-		s.eng.Stop()
+	if started == 0 && len(failures) > 0 {
+		return ActionResult{OK: false, Error: strings.Join(failures, "；")}
+	}
+	return ActionResult{OK: true}
+}
+
+// StopAll 停止所有游戏会话。
+func (s *Service) StopAll() {
+	s.mu.Lock()
+	s.autoStop = true
+	sessions := make([]*gameSession, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
+	}
+	s.mu.Unlock()
+	for _, sess := range sessions {
+		sess.cancel()
+		sess.eng.Stop()
 	}
 }
 
-// Pause 暂停当前会话。
-func (s *Service) Pause() {
-	if s.eng != nil {
-		s.eng.Pause()
-		s.emit("skipall:status", s.GetStatus())
+// Stop 兼容旧调用，停止全部会话。
+func (s *Service) Stop() { s.StopAll() }
+
+// PauseAll 暂停所有运行中的会话。
+func (s *Service) PauseAll() {
+	s.mu.Lock()
+	sessions := make([]*gameSession, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
 	}
+	s.mu.Unlock()
+	for _, sess := range sessions {
+		sess.eng.Pause()
+	}
+	s.emit("skipall:status", s.GetStatus())
 }
 
-// Resume 恢复当前会话。
-func (s *Service) Resume() {
-	if s.eng != nil {
-		s.eng.Resume()
-		s.emit("skipall:status", s.GetStatus())
+// Pause 兼容旧调用。
+func (s *Service) Pause() { s.PauseAll() }
+
+// ResumeAll 恢复所有暂停的会话。
+func (s *Service) ResumeAll() {
+	s.mu.Lock()
+	sessions := make([]*gameSession, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
 	}
+	s.mu.Unlock()
+	for _, sess := range sessions {
+		sess.eng.Resume()
+	}
+	s.emit("skipall:status", s.GetStatus())
 }
 
-// GetStatus 返回当前状态。
+// Resume 兼容旧调用。
+func (s *Service) Resume() { s.ResumeAll() }
+
+// GetStatus 返回所有会话的聚合状态。
 func (s *Service) GetStatus() StatusView {
 	s.mu.Lock()
-	eng := s.eng
-	gameID := s.gameID
-	s.mu.Unlock()
-	if eng == nil {
-		return StatusView{State: string(engine.StateIdle), GameID: gameID}
+	sessions := make([]*gameSession, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
 	}
-	st := eng.Status()
-	return StatusView{State: string(st.State), Running: st.State == engine.StateRunning, Paused: st.State == engine.StatePaused, GameID: gameID, FeatureID: st.FeatureID, FeatureName: st.FeatureName, Message: st.LastMessage, Error: st.LastError, StartedAt: st.StartedAt}
+	s.mu.Unlock()
+	if len(sessions) == 0 {
+		return StatusView{State: string(engine.StateIdle)}
+	}
+	status := StatusView{State: string(engine.StateStopped)}
+	var ids []string
+	for _, sess := range sessions {
+		st := sess.eng.Status()
+		ids = append(ids, sess.gameID)
+		status.GameID = strings.Join(ids, ",")
+		status.FeatureID = st.FeatureID
+		status.FeatureName = st.FeatureName
+		if st.LastMessage != "" {
+			status.Message = st.LastMessage
+		}
+		if st.LastError != "" {
+			status.Error = st.LastError
+		}
+		if status.StartedAt.IsZero() || (!st.StartedAt.IsZero() && st.StartedAt.Before(status.StartedAt)) {
+			status.StartedAt = st.StartedAt
+		}
+		switch st.State {
+		case engine.StateRunning:
+			status.State = string(engine.StateRunning)
+			status.Running = true
+		case engine.StatePaused:
+			if !status.Running {
+				status.State = string(engine.StatePaused)
+				status.Paused = true
+			}
+		case engine.StateError:
+			if !status.Running && !status.Paused {
+				status.State = string(engine.StateError)
+			}
+		}
+	}
+	if status.Running {
+		status.Paused = false
+	}
+	if len(sessions) > 1 {
+		status.FeatureName = "全部游戏"
+	}
+	return status
 }
 
-// GetLogs 返回最近日志。
+// defaultFeature 返回游戏第一个启用的功能。
+func (s *Service) defaultFeature(game assist.Game) assist.Feature {
+	for _, f := range game.Features() {
+		s.mu.Lock()
+		fc, ok := s.zzzCfg.Features[f.ID()]
+		enabled := !ok || fc.Enabled
+		s.mu.Unlock()
+		if enabled {
+			return f
+		}
+	}
+	return nil
+}
+
+func (s *Service) isExcluded(gameID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range s.appCfg.ExcludedGames {
+		if id == gameID {
+			return true
+		}
+	}
+	return false
+}
+
+// startWatcher 启动后台扫描，等待游戏窗口出现后自动开始。
+func (s *Service) startWatcher() {
+	s.mu.Lock()
+	if s.watchStop != nil {
+		s.mu.Unlock()
+		return
+	}
+	stop := make(chan struct{})
+	s.watchStop = stop
+	s.mu.Unlock()
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				s.scanGames()
+			}
+		}
+	}()
+}
+
+func (s *Service) scanGames() {
+	s.mu.Lock()
+	stopped := s.autoStop
+	s.mu.Unlock()
+	if stopped {
+		return
+	}
+	for _, game := range games.All() {
+		if s.isExcluded(game.ID()) {
+			continue
+		}
+		feature := s.defaultFeature(game)
+		if feature == nil {
+			continue
+		}
+		s.mu.Lock()
+		sess, exists := s.sessions[game.ID()]
+		s.mu.Unlock()
+		if exists {
+			st := sess.eng.Status()
+			if st.State == engine.StateRunning || st.State == engine.StatePaused {
+				continue
+			}
+		}
+		res := s.Start(game.ID(), feature.ID())
+		if res.OK {
+			s.mu.Lock()
+			delete(s.waiting, game.ID())
+			s.mu.Unlock()
+			s.appendLog("info", "["+game.Name()+"] 检测到游戏窗口，已自动启动")
+			continue
+		}
+		s.mu.Lock()
+		already := s.waiting[game.ID()]
+		if !already {
+			s.waiting[game.ID()] = true
+		}
+		s.mu.Unlock()
+		if !already {
+			s.appendLog("info", "["+game.Name()+"] 暂未找到游戏窗口，后台等待")
+		}
+	}
+}
 func (s *Service) GetLogs() []LogEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -519,9 +751,14 @@ func (s *Service) modelDirLocked() (string, error) {
 	return model.DefaultDir()
 }
 
-func (s *Service) onEngineEvent(ev engine.Event) {
-	s.appendLog(ev.Level, ev.Message)
-	s.emit("skipall:log", LogEntry{Time: ev.Time, Level: ev.Level, Message: ev.Message})
+func (s *Service) onEngineEvent(gameID string, ev engine.Event) {
+	name := gameID
+	if game, ok := games.Get(gameID); ok {
+		name = game.Name()
+	}
+	message := "[" + name + "] " + ev.Message
+	s.appendLog(ev.Level, message)
+	s.emit("skipall:log", LogEntry{Time: ev.Time, Level: ev.Level, Message: message})
 	s.emit("skipall:status", s.GetStatus())
 }
 

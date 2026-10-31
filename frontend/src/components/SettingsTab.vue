@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { reactive, watch } from "vue";
-import type { ConfigView } from "../api";
+import type { ConfigView, GameView } from "../api";
 
 const props = defineProps<{
   config: ConfigView | null;
+  games: GameView[];
   saving: boolean;
 }>();
 
@@ -22,6 +23,7 @@ const form = reactive({
   inputMode: "background",
   cursorMode: "auto",
   gamepad: false,
+  excludedGames: [] as string[],
   hotkeyToggle: "F9",
   hotkeyPanic: "F10",
 });
@@ -47,11 +49,20 @@ watch(
     form.inputMode = config.app.Input.Mode || "background";
     form.cursorMode = config.app.Input.CursorMode || "auto";
     form.gamepad = config.app.Input.Gamepad;
+    form.excludedGames = [...(config.app.ExcludedGames ?? [])];
     form.hotkeyToggle = config.app.Hotkeys.Toggle || "F9";
     form.hotkeyPanic = config.app.Hotkeys.Panic || "F10";
   },
   { immediate: true },
 );
+
+function toggleExcluded(id: string) {
+  if (form.excludedGames.includes(id)) {
+    form.excludedGames = form.excludedGames.filter((item) => item !== id);
+  } else {
+    form.excludedGames = [...form.excludedGames, id];
+  }
+}
 
 function save() {
   if (!props.config) return;
@@ -61,6 +72,7 @@ function save() {
   view.app.Input.CursorMode = form.cursorMode;
   view.app.Input.Gamepad = form.gamepad;
   view.app.Input.PauseWhenBackground = form.pauseWhenBackground;
+  view.app.ExcludedGames = [...form.excludedGames];
   view.app.Hotkeys.Toggle = form.hotkeyToggle.trim() || "F9";
   view.app.Hotkeys.Panic = form.hotkeyPanic.trim() || "F10";
 
@@ -90,7 +102,7 @@ function save() {
         <span class="panel-kicker">偏好设置</span>
         <h2>调整跳过的行为</h2>
       </div>
-      <span class="panel-meta">下次启动生效</span>
+      <span class="panel-meta">保存后立即生效</span>
     </div>
 
     <div class="settings-body">
@@ -169,6 +181,22 @@ function save() {
             <input v-model="form.gamepad" type="checkbox" />
             <span>启用虚拟 Xbox 手柄（需 ViGEmBus）</span>
           </label>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <div class="section-title"><span>03</span><h3>启动范围</h3></div>
+        <p class="form-hint">默认自动启动全部游戏；取消勾选即可排除该游戏。</p>
+        <div class="form-grid">
+          <label v-for="game in games" :key="game.id" class="checkbox-field">
+            <input
+              type="checkbox"
+              :checked="!form.excludedGames.includes(game.id)"
+              @change="toggleExcluded(game.id)"
+            />
+            <span>{{ game.name }} · {{ game.id.toUpperCase() }}</span>
+          </label>
+          <p v-if="games.length === 0" class="empty-note">暂无可排除的游戏</p>
         </div>
       </section>
     </div>
