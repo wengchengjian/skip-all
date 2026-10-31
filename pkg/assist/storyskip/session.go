@@ -282,10 +282,11 @@ func (s *Session) handlePadPhase(frame assist.Frame) (assist.Result, []assist.Ac
 		s.expectConfirm(frame.At, 5*time.Second)
 		return assist.Result{State: "手柄选择跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
 	case padPhaseChosen:
-		if frame.At.Sub(s.padAt) > time.Second {
-			s.expectConfirm(frame.At, time.Second)
-			s.padAt = frame.At
-			return assist.Result{State: "手柄选择跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
+		if frame.At.Sub(s.padAt) > 2*time.Second {
+			s.padPhase = padPhaseNone
+			s.padAt = time.Time{}
+			s.confirmUntil = time.Time{}
+			return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, true, nil
 		}
 		return assist.Result{State: "等待手柄确认", Wait: confirmWait}, nil, true, nil
 	default:
