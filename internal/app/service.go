@@ -18,6 +18,7 @@ import (
 	"github.com/wengchengjian/skip-all/internal/model"
 	"github.com/wengchengjian/skip-all/internal/platform"
 	"github.com/wengchengjian/skip-all/pkg/assist"
+	"github.com/wengchengjian/skip-all/pkg/assist/storyskip"
 	"github.com/wengchengjian/skip-all/pkg/config"
 	"github.com/wengchengjian/skip-all/pkg/screen"
 	"github.com/wengchengjian/skip-all/pkg/vision"
@@ -339,6 +340,10 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	if appCfg.Input.Gamepad && !input.GamepadAvailable() {
 		s.appendLog("warn", "["+game.Name()+"] 虚拟手柄不可用: "+fmt.Sprint(input.GamepadError()))
 	}
+	if settings == nil {
+		settings = assist.Settings{}
+	}
+	settings[storyskip.SettingGamepad] = appCfg.Input.Gamepad && input.GamepadAvailable()
 	screens, err := screen.LoadFS(game.Assets(), "screens")
 	if err != nil {
 		return ActionResult{OK: false, Error: err.Error()}

@@ -341,6 +341,59 @@ func TestMenuThenSkipThenConfirm(t *testing.T) {
 	}
 }
 
+func TestGamepadMenuSkipConfirm(t *testing.T) {
+	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
+	scripts := []frameScript{
+		{
+			at: base,
+			ocr: map[string][]vision.TextBlock{
+				"文本-剧情右上角": {block("菜单", geom.Rect{X1: 1700, Y1: 40, X2: 1760, Y2: 80})},
+			},
+		},
+		{at: base.Add(500 * time.Millisecond)},
+		{
+			at: base.Add(time.Second),
+			ocr: map[string][]vision.TextBlock{
+				"对话框确认": {block("确认", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
+			},
+		},
+		{
+			at: base.Add(1500 * time.Millisecond),
+			ocr: map[string][]vision.TextBlock{
+				"文本-剧情右上角": {block("跳过", geom.Rect{X1: 1720, Y1: 40, X2: 1800, Y2: 80})},
+			},
+		},
+		{
+			at: base.Add(2 * time.Second),
+			ocr: map[string][]vision.TextBlock{
+				"对话框确认": {block("确认", geom.Rect{X1: 1022, Y1: 544, X2: 1238, Y2: 750})},
+			},
+		},
+	}
+	session, rt := newTestSession(t, assist.Settings{SettingMode: "skip", SettingGamepad: true}, scripts)
+
+	_, actions := step(t, session, rt, 0)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}})
+
+	_, actions = step(t, session, rt, 1)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}})
+
+	result, actions := step(t, session, rt, 2)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}})
+	if result.State != "确认跳过" {
+		t.Fatalf("菜单确认状态 = %q", result.State)
+	}
+
+	_, actions = step(t, session, rt, 3)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}})
+
+	result, actions = step(t, session, rt, 4)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}})
+	if result.State != "确认跳过" {
+		t.Fatalf("普通跳过确认状态 = %q", result.State)
+	}
+}
+
 func TestMenuQuiet(t *testing.T) {
 	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
 	dialog := frameScript{

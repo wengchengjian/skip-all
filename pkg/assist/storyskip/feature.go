@@ -17,6 +17,7 @@ const (
 	SettingDialogClickInterval = "dialog_click_interval"
 	SettingOptionClickInterval = "option_click_interval"
 	SettingSleepAfterEmpty     = "sleep_after_empty"
+	SettingGamepad             = "gamepad"
 )
 
 // Feature 是剧情跳过功能。
@@ -53,6 +54,7 @@ func (f *Feature) DefaultSettings() assist.Settings {
 		SettingDialogClickInterval: 0.5,
 		SettingOptionClickInterval: 0.1,
 		SettingSleepAfterEmpty:     0.5,
+		SettingGamepad:             false,
 	}
 }
 
@@ -83,6 +85,7 @@ type sessionSettings struct {
 	dialogClickInterval time.Duration
 	optionClickInterval time.Duration
 	sleepAfterEmpty     time.Duration
+	gamepad             bool
 }
 
 func defaultSessionSettings() sessionSettings {
@@ -137,7 +140,26 @@ func parseSettings(settings assist.Settings) (sessionSettings, error) {
 	if cfg.sleepAfterEmpty < 0 {
 		return cfg, fmt.Errorf("设置 %s 不能为负数", SettingSleepAfterEmpty)
 	}
+	if value, ok := boolSetting(settings, SettingGamepad); ok {
+		cfg.gamepad = value
+	}
 	return cfg, nil
+}
+
+func boolSetting(settings assist.Settings, key string) (bool, bool) {
+	value, ok := settings[key]
+	if !ok || value == nil {
+		return false, false
+	}
+	switch v := value.(type) {
+	case bool:
+		return v, true
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(v))
+		return parsed, err == nil
+	default:
+		return false, false
+	}
 }
 
 func stringSetting(settings assist.Settings, key string) (string, bool) {

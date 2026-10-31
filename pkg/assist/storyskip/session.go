@@ -24,6 +24,14 @@ const (
 	storyCacheTTL       = 400 * time.Millisecond
 	storyButtonCacheTTL = time.Second
 	guardCacheTTL       = time.Second
+
+	padPhaseNone   = 0
+	padPhaseSkip   = 1 // 已按“+”触发普通跳过
+	padPhaseMenu   = 2 // 已按“+”打开菜单
+	padPhaseChosen = 3 // 已在菜单里按 A 选择“跳过”
+	padStartKey    = "xbox_start"
+	padConfirmKey  = "xbox_a"
+	padActionWait  = 400 * time.Millisecond
 )
 
 // Session 是剧情跳过状态机。
@@ -40,6 +48,8 @@ type Session struct {
 	recentClicks   int
 	ocrCache       map[string]ocrCacheEntry
 	confirmUntil   time.Time
+	padPhase       int
+	padAt          time.Time
 }
 
 type ocrCacheEntry struct {
@@ -99,6 +109,9 @@ func (s *Session) Close() error { return nil }
 func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []assist.Action, error) {
 	if frame.Image == nil {
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+	}
+	if s.cfg.gamepad && s.cfg.mode == ModeSkip {
+		return s.stepGamepad(frame)
 	}
 
 	// 1. 确认框：只在刚点过跳过/菜单后检查，避免每帧 OCR。
@@ -163,6 +176,89 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
 
+// stepGamepad 是纯手柄剧情跳过流程：+ 打开菜单/跳过，A 选择，A 确认。
+// 它不产生任何鼠标动作，适合游戏未聚焦时使用。
+func (s *Session) stepGamepad(frame assist.Frame) (assist.Result, []assist.Action, error) {
+	if s.padPhase != padPhaseNone {
+		if frame.At.Sub(s.padAt) < padActionWait {
+			return assist.Result{State: "等待手柄操作", Wait: padActionWait}, nil, nil
+		}
+		if s.confirmPending(frame.At) {
+			ok, err := s.confirmVisible(frame)
+			if err != nil {
+				return assist.Result{}, nil, err
+			}
+			if ok {
+				s.resetAfterConfirm()
+				return assist.Result{State: "确认跳过", Wait: confirmWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+			}
+		}
+		switch s.padPhase {
+		case padPhaseMenu:
+			s.padPhase = padPhaseChosen
+			s.padAt = frame.At
+			s.expectConfirm(frame.At, 5*time.Second)
+			return assist.Result{State: "手柄选择跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+		case padPhaseChosen:
+			if frame.At.Sub(s.padAt) > time.Second {
+				s.expectConfirm(frame.At, time.Second)
+				s.padAt = frame.At
+				return assist.Result{State: "手柄选择跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+			}
+			return assist.Result{State: "等待手柄确认", Wait: confirmWait}, nil, nil
+		default:
+			if frame.At.Sub(s.padAt) > 2*time.Second {
+				s.padPhase = padPhaseNone
+				s.confirmUntil = time.Time{}
+			}
+			return assist.Result{State: "等待手柄确认", Wait: confirmWait}, nil, nil
+		}
+	}
+
+	if s.inMenuQuiet(frame.At) {
+		return assist.Result{State: "等待手柄菜单", Wait: storyButtonWait}, nil, nil
+	}
+
+	area, err := s.area(s.spec.Screen, s.spec.StoryArea)
+	if err != nil {
+		return assist.Result{}, nil, err
+	}
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, storyButtonCacheTTL)
+	if err != nil {
+		return assist.Result{}, nil, fmt.Errorf("识别剧情按钮: %w", err)
+	}
+	if _, ok := findBlock(blocks, s.spec.SkipKeyword); ok {
+		s.padPhase = padPhaseSkip
+		s.padAt = frame.At
+		s.menuClickedAt = frame.At
+		s.expectConfirm(frame.At, 5*time.Second)
+		return assist.Result{State: "手柄跳过", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}, nil
+	}
+	if _, ok := findBlock(blocks, s.spec.MenuKeyword); ok {
+		s.padPhase = padPhaseMenu
+		s.padAt = frame.At
+		s.menuClickedAt = frame.At
+		return assist.Result{State: "手柄菜单", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}, nil
+	}
+
+	if name, wait, ok, err := s.hitGuard(frame); err != nil {
+		return assist.Result{}, nil, err
+	} else if ok {
+		s.recentClicks = 0
+		return assist.Result{State: "等待:" + name, Wait: wait}, nil, nil
+	}
+
+	inDialog, err := s.inDialog(frame)
+	if err != nil {
+		return assist.Result{}, nil, err
+	}
+	if inDialog {
+		s.recentClicks++
+		return assist.Result{State: "手柄对话", Wait: s.cfg.dialogClickInterval}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+	}
+	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+}
+
 // actionStep 是一次已命中的状态转换。
 type actionStep struct {
 	state   string
@@ -174,27 +270,39 @@ func (s *actionStep) unpack() (assist.Result, []assist.Action) {
 	return assist.Result{State: s.state, Wait: s.wait}, s.actions
 }
 
-func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error) {
+func (s *Session) confirmVisible(frame assist.Frame) (bool, error) {
 	area, err := s.area(s.spec.Screen, s.spec.ConfirmArea)
 	if err != nil {
-		return nil, false, err
+		return false, err
 	}
 	// 确认按钮必须先确认文字是“确认”，不能只凭白色像素就点：
 	// 菜单/跳过动画期间确认区域可能短暂出现其他白字，过早点击会导致跳过流程失败。
 	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, 100*time.Millisecond)
 	if err != nil {
-		return nil, false, fmt.Errorf("识别确认框: %w", err)
+		return false, fmt.Errorf("识别确认框: %w", err)
 	}
 	for _, block := range blocks {
 		// 上游的 lcs_percent=1.0 是精确匹配；这里也要求整段文字等于“确认”，
 		// 避免把“确认跳过”等菜单文字当成确认按钮。
 		if strings.TrimSpace(block.Text) == strings.TrimSpace(s.spec.ConfirmText) {
-			// 确认按钮区域是固定按钮框，点区域中心比点 OCR 文字框中心更稳，
-			// 避免 OCR 框只覆盖“确”或“认”导致点击位置偏移。
-			return []assist.Action{{Kind: assist.ActionClick, Point: area.Rect.Center()}}, true, nil
+			return true, nil
 		}
 	}
-	return nil, false, nil
+	return false, nil
+}
+
+func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error) {
+	area, err := s.area(s.spec.Screen, s.spec.ConfirmArea)
+	if err != nil {
+		return nil, false, err
+	}
+	ok, err := s.confirmVisible(frame)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	// 确认按钮区域是固定按钮框，点区域中心比点 OCR 文字框中心更稳，
+	// 避免 OCR 框只覆盖“确”或“认”导致点击位置偏移。
+	return []assist.Action{{Kind: assist.ActionClick, Point: area.Rect.Center()}}, true, nil
 }
 
 func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
@@ -511,6 +619,8 @@ func (s *Session) area(screenName, areaName string) (*screen.Area, error) {
 func (s *Session) resetAfterConfirm() {
 	s.menuClickedAt = time.Time{}
 	s.confirmUntil = time.Time{}
+	s.padPhase = padPhaseNone
+	s.padAt = time.Time{}
 	s.clearChosenOption()
 	s.recentClicks = 0
 }
