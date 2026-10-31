@@ -372,6 +372,14 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 			}
 			return &actionStep{state: "点击自动", wait: storyButtonWait, actions: []assist.Action{clickBlock(block)}}, true, nil
 		}
+		// 手柄模式下按钮图标可能只有“+”，OCR 认不出“菜单”两个字；
+		// 剧情栏只要有文字/图标块，就按菜单处理，直接按“+”再 A 选择。
+		if s.cfg.gamepad && len(blocks) > 0 {
+			s.padPhase = padPhaseMenu
+			s.padAt = frame.At
+			s.menuClickedAt = frame.At
+			return &actionStep{state: "手柄菜单(图标)", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, true, nil
+		}
 		return nil, false, nil
 	}
 
