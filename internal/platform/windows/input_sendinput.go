@@ -479,9 +479,9 @@ func (i *Input) shouldMoveCursor() bool {
 	case CursorAlways:
 		return true
 	default:
-		// auto/never 都走纯 PostMessage，不移动真实光标；
-		// 需要兼容不认 lParam 的窗口时再切到 always。
-		return false
+		// 绝区零只认真实光标，纯消息点击不会打开菜单/确认框。
+		// auto 使用真实光标，但游戏不在前台时由 Click 直接跳过。
+		return true
 	}
 }
 
