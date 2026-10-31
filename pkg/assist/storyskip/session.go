@@ -61,6 +61,9 @@ type Session struct {
 	padReady       bool
 	padPhase       int
 	padAt          time.Time
+	padFast        int
+	padFastAt      time.Time
+	padFastUntil   time.Time
 }
 
 type ocrCacheEntry struct {
@@ -134,6 +137,20 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 	if s.cfg.gamepad && s.cfg.mode == ModeSkip {
+		if s.padFast != 0 {
+			return s.stepFastPad(frame)
+		}
+		if s.padPhase == padPhaseNone && !frame.At.Before(s.padFastUntil) {
+			ok, err := s.fastStory(frame)
+			if err != nil {
+				return assist.Result{}, nil, err
+			}
+			if ok {
+				s.padFast = 1
+				s.padFastAt = frame.At
+				return s.stepFastPad(frame)
+			}
+		}
 		result, actions, handled, err := s.handlePadPhase(frame)
 		if err != nil {
 			return assist.Result{}, nil, err
@@ -231,6 +248,62 @@ func (s *Session) hasOptionBands(frame assist.Frame) bool {
 		}
 	}
 	return false
+}
+
+// fastStory 用便宜的灰底 + 白色文字行判断剧情，不跑 OCR，用于快速触发。
+func (s *Session) fastStory(frame assist.Frame) (bool, error) {
+	area, err := s.area(s.spec.Screen, s.spec.DialogArea)
+	if err != nil {
+		return false, err
+	}
+	stats, err := s.rt.ColorStats(frame, *area)
+	if err != nil {
+		return false, err
+	}
+	if stats.GrayMaskPercent <= s.spec.GrayMaskThreshold {
+		return false, nil
+	}
+	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{
+		ColorRange: &[2][3]uint8{{170, 170, 170}, {255, 255, 255}},
+		MinHeight:  8,
+	})
+	for _, band := range bands {
+		if band.X2-band.X1 >= 20 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// stepFastPad 是游戏手柄的快速固定序列：激活 → + → A → A。
+// 它不 OCR 菜单文字，依赖实际客户端已验证的按钮顺序。
+func (s *Session) stepFastPad(frame assist.Frame) (assist.Result, []assist.Action, error) {
+	if s.padFast == 1 {
+		if !s.padReady {
+			s.padReady = true
+			s.padFast = 2
+			s.padFastAt = frame.At
+			return assist.Result{State: "快速激活手柄", Wait: 200 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padActivateKey}}, nil
+		}
+		s.padFast = 2
+		s.padFastAt = frame.At
+	}
+	switch s.padFast {
+	case 2:
+		s.padFast = 3
+		s.padFastAt = frame.At
+		return assist.Result{State: "快速打开菜单", Wait: 800 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}, nil
+	case 3:
+		s.padFast = 4
+		s.padFastAt = frame.At
+		return assist.Result{State: "快速选择跳过", Wait: 350 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+	case 4:
+		s.padFast = 0
+		s.padFastAt = time.Time{}
+		s.padFastUntil = frame.At.Add(1500 * time.Millisecond)
+		return assist.Result{State: "快速确认跳过", Wait: 300 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+	}
+	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
 
 // gamepadActivate 只在确认进入剧情后才触发，避免在普通大世界按 A 或 +。
