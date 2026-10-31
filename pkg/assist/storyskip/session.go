@@ -67,6 +67,8 @@ type Session struct {
 	lastSkipAt     time.Time
 	confirmPollAt  time.Time
 	skipRetries    int
+	menuOpen       bool
+	menuOpenAt     time.Time
 	entryVisible   bool
 	// entrySet 只在一次 Step 内有效：每帧开始时清掉，避免跨帧复用旧结论。
 	entrySet     bool
@@ -219,6 +221,15 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待确认框", Wait: confirmWait}, nil, nil
 	}
 
+	// 1.5 已经按开剧情菜单：等菜单出来，点“跳过剧情”。
+	if s.menuOpen {
+		result, actions, err := s.stepStoryMenu(frame)
+		if err != nil {
+			return assist.Result{}, nil, err
+		}
+		return result, actions, nil
+	}
+
 	// 2. 剧情右上角：跳过 / 菜单 / 自动。
 	storyVisible := false
 	if s.cfg.mode == ModeClick {
@@ -339,6 +350,68 @@ func (s *Session) storyEntryVisible(frame assist.Frame) bool {
 	s.entryVisible = s.storyMenuVisible(frame) || s.storySkipVisible(frame)
 	s.entrySet = true
 	return s.entryVisible
+}
+
+// openStoryMenu 按下打开剧情菜单的键；已经在菜单里时不重复按。
+func (s *Session) openStoryMenu(frame assist.Frame) *actionStep {
+	if s.menuOpen {
+		return &actionStep{state: "等待剧情菜单", wait: s.spec.MenuWait}
+	}
+	s.menuOpen = true
+	s.menuOpenAt = frame.At
+	s.confirmUntil = time.Time{}
+	s.menuClickedAt = time.Time{}
+	s.lastSkipAt = time.Time{}
+	s.skipRetries = 0
+	return &actionStep{state: "按键打开剧情菜单", wait: s.spec.MenuWait,
+		actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: s.spec.OpenMenuKey}}}
+}
+
+// clickMenuSkip 在剧情菜单里找“跳过剧情”并点击；找不到返回 nil。
+func (s *Session) clickMenuSkip(frame assist.Frame) (*actionStep, error) {
+	if s.spec.MenuSkipArea == "" {
+		return nil, nil
+	}
+	area, err := s.area(s.spec.Screen, s.spec.MenuSkipArea)
+	if err != nil {
+		return nil, err
+	}
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, storyButtonCacheTTL)
+	if err != nil {
+		return nil, fmt.Errorf("识别剧情菜单: %w", err)
+	}
+	block, ok := findBlock(blocks, s.spec.MenuSkipKeyword)
+	if !ok {
+		return nil, nil
+	}
+	s.menuOpen = false
+	s.menuClickedAt = frame.At
+	s.expectConfirm(frame.At, 5*time.Second)
+	return &actionStep{state: "点击跳过剧情", wait: s.spec.SkipClickWait,
+		actions: []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}}, nil
+}
+
+// stepStoryMenu 处理“剧情菜单已打开 → 点菜单里的跳过按钮”。
+func (s *Session) stepStoryMenu(frame assist.Frame) (assist.Result, []assist.Action, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if now.Sub(s.menuOpenAt) < s.spec.MenuWait {
+		return assist.Result{State: "等待剧情菜单", Wait: s.spec.MenuWait}, nil, nil
+	}
+	if now.Sub(s.menuOpenAt) > 5*time.Second {
+		s.menuOpen = false
+		s.confirmUntil = time.Time{}
+		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+	}
+	if step, err := s.clickMenuSkip(frame); err != nil {
+		return assist.Result{}, nil, err
+	} else if step != nil {
+		result, actions := step.unpack()
+		return result, actions, nil
+	}
+	return assist.Result{State: "等待剧情菜单", Wait: 200 * time.Millisecond}, nil, nil
 }
 
 // dialogUIEvidence 是严格版：要求模板真的命中剧情 UI。
@@ -560,7 +633,7 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 
 // retrySkip 在确认框还没出现时补点一次跳过图标，节流到 skipRetryInterval。
 func (s *Session) retrySkip(frame assist.Frame) ([]assist.Action, bool, error) {
-	if s.cfg.gamepad || s.lastSkipAt.IsZero() || s.skipRetries >= skipRetryLimit {
+	if s.cfg.gamepad || s.spec.OpenMenuKey != "" || s.lastSkipAt.IsZero() || s.skipRetries >= skipRetryLimit {
 		return nil, false, nil
 	}
 	if frame.At.Sub(s.lastSkipAt) < skipRetryInterval {
@@ -631,6 +704,11 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 				if match, ok, err := s.matchFirst(frame, s.spec.Screen, name); err != nil {
 					return nil, false, err
 				} else if ok {
+					// 鸣潮这类没有可点跳过图标的界面：先按键叫出剧情菜单，
+					// 菜单里才有“跳过剧情”按钮。
+					if s.spec.OpenMenuKey != "" {
+						return s.openStoryMenu(frame), true, nil
+					}
 					s.menuClickedAt = frame.At
 					s.lastSkipAt = frame.At
 					s.skipRetries = 0
@@ -1156,6 +1234,8 @@ func (s *Session) resetAfterConfirm() {
 	s.menuClickedAt = time.Time{}
 	s.lastSkipAt = time.Time{}
 	s.skipRetries = 0
+	s.menuOpen = false
+	s.menuOpenAt = time.Time{}
 	s.confirmUntil = time.Time{}
 	s.padPhase = padPhaseNone
 	s.padAt = time.Time{}

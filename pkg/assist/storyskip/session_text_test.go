@@ -37,6 +37,7 @@ func textScreens() *screen.Set {
 		AreaList: []*screen.Area{
 			{Name: "剧情跳过", RectValues: []int{24, 132, 150, 236}, TemplateSubDir: "story", TemplateID: "skip"},
 			{Name: "对话框确认", RectValues: []int{980, 595, 1420, 700}, Text: "确认"},
+			{Name: "剧情菜单-跳过剧情", RectValues: []int{1140, 725, 1610, 845}},
 			{Name: "确认框勾选框", RectValues: []int{818, 542, 1012, 628}, TemplateSubDir: "story", TemplateID: "confirm_check"},
 			{Name: "对话内容", RectValues: []int{480, 780, 1440, 935}},
 			{Name: "右侧选项区域", RectValues: []int{1150, 300, 1900, 760}, ColorRange: &[2][3]uint8{{240, 240, 240}, {255, 255, 255}}},
@@ -269,4 +270,103 @@ func TestSubtitleWithStoryUIClicks(t *testing.T) {
 		t.Fatalf("state = %q", result.State)
 	}
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 960, Y: 857}}})
+}
+
+// escSpec 是鸣潮的按键流程：检测到剧情 → ESC → 点跳过剧情 → 确认。
+func escSpec() Spec {
+	spec := textSpec()
+	spec.OpenMenuKey = "esc"
+	spec.MenuSkipArea = "剧情菜单-跳过剧情"
+	spec.MenuSkipKeyword = "跳过"
+	spec.MenuWait = 800 * time.Millisecond
+	return spec
+}
+
+func newEscSession(t *testing.T, scripts []frameScript) (*Session, *fakeRuntime) {
+	t.Helper()
+	rt := &fakeRuntime{screens: textScreens(), scripts: scripts}
+	session, err := NewFeature(escSpec()).NewSession(rt, assist.Settings{"mode": "skip"})
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	return session.(*Session), rt
+}
+
+func TestOpenStoryMenuKeyThenSkipThenConfirm(t *testing.T) {
+	base := time.Date(2026, 11, 1, 8, 0, 0, 0, time.Local)
+	skipMatch := map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 58, Y1: 165, X2: 100, Y2: 205}, Confidence: 0.95}}}
+	scripts := []frameScript{
+		{at: base, matches: skipMatch},
+		{
+			at: base.Add(time.Second),
+			ocr: map[string][]vision.TextBlock{
+				"剧情菜单-跳过剧情": {block("跳过剧情", geom.Rect{X1: 1200, Y1: 760, X2: 1400, Y2: 800})},
+			},
+		},
+		{
+			at: base.Add(1500 * time.Millisecond),
+			ocr: map[string][]vision.TextBlock{
+				"对话框确认": {block("确认", geom.Rect{X1: 1047, Y1: 613, X2: 1310, Y2: 658})},
+			},
+		},
+	}
+	session, rt := newEscSession(t, scripts)
+
+	// 1. 看到剧情界面：按 ESC 叫出剧情菜单，不去点图标。
+	result, actions := step(t, session, rt, 0)
+	if result.State != "按键打开剧情菜单" {
+		t.Fatalf("第 0 帧 state = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionKeyTap, Key: "esc"}})
+
+	// 2. 菜单出来：点“跳过剧情”。
+	result, actions = step(t, session, rt, 1)
+	if result.State != "点击跳过剧情" {
+		t.Fatalf("第 1 帧 state = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1300, Y: 780}}})
+
+	// 3. 弹确认框：点“确认”。
+	result, actions = step(t, session, rt, 2)
+	if result.State != "确认跳过" {
+		t.Fatalf("第 2 帧 state = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1178, Y: 635}}})
+}
+
+func TestOpenStoryMenuWaitsBeforeClicking(t *testing.T) {
+	base := time.Date(2026, 11, 1, 8, 0, 0, 0, time.Local)
+	skipMatch := map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 58, Y1: 165, X2: 100, Y2: 205}, Confidence: 0.95}}}
+	scripts := []frameScript{
+		{at: base, matches: skipMatch},
+		{
+			at: base.Add(200 * time.Millisecond),
+			ocr: map[string][]vision.TextBlock{
+				"剧情菜单-跳过剧情": {block("跳过剧情", geom.Rect{X1: 1200, Y1: 760, X2: 1400, Y2: 800})},
+			},
+		},
+	}
+	session, rt := newEscSession(t, scripts)
+	step(t, session, rt, 0)
+	// 菜单还没动画完，不能点。
+	if result, actions := step(t, session, rt, 1); result.State != "等待剧情菜单" || len(actions) != 0 {
+		t.Fatalf("菜单动画期间不应点击: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestStoryMenuWithoutSkipButtonGivesUp(t *testing.T) {
+	base := time.Date(2026, 11, 1, 8, 0, 0, 0, time.Local)
+	skipMatch := map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 58, Y1: 165, X2: 100, Y2: 205}, Confidence: 0.95}}}
+	scripts := []frameScript{
+		{at: base, matches: skipMatch},
+		{at: base.Add(6 * time.Second), matches: skipMatch},
+	}
+	session, rt := newEscSession(t, scripts)
+	step(t, session, rt, 0)
+	if result, _ := step(t, session, rt, 1); result.State != "等待剧情画面" {
+		t.Fatalf("超时后应放弃, state = %q", result.State)
+	}
+	if session.menuOpen {
+		t.Fatal("超时后 menuOpen 应复位")
+	}
 }

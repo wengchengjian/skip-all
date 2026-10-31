@@ -68,6 +68,15 @@ type Spec struct {
 	StoryMenuAreas      []string // 剧情菜单按钮模板区域（键盘/手柄可多个）
 	StorySkipAreas      []string // 剧情跳过按钮模板区域
 	ConfirmTemplateArea string   // 确认按钮模板区域，可留空
+	// OpenMenuKey 设置后，检测到剧情界面时先按这个键打开剧情菜单
+	//（例如鸣潮按 ESC 出"剧情梗概"，里面才有"跳过剧情"按钮），而不是点击图标。
+	OpenMenuKey string
+	// MenuSkipArea 是剧情菜单里"跳过剧情"按钮的区域，配合 MenuSkipKeyword 用。
+	MenuSkipArea string
+	// MenuSkipKeyword 是剧情菜单里跳过按钮的文字，默认"跳过"。
+	MenuSkipKeyword string
+	// MenuWait 是按下打开菜单的键之后等动画的时间，默认 600ms。
+	MenuWait time.Duration
 	// ConfirmCheckArea 是确认弹窗里勾选框的模板区域，用来判"确认框已经在场"；
 	// 留空时不做这个判断。
 	ConfirmCheckArea string
@@ -107,6 +116,12 @@ func (s Spec) withDefaults() Spec {
 	}
 	if s.SkipKeyword == "" {
 		s.SkipKeyword = "跳过"
+	}
+	if s.MenuSkipKeyword == "" {
+		s.MenuSkipKeyword = s.SkipKeyword
+	}
+	if s.MenuWait <= 0 {
+		s.MenuWait = 600 * time.Millisecond
 	}
 	if s.MenuKeyword == "" {
 		s.MenuKeyword = "菜单"
