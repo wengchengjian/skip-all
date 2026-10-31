@@ -1,0 +1,11 @@
+# 绝区零游戏配置示例
+schema_version: 1
+features:
+  story_skip:
+    enabled: true
+    settings:
+      mode: skip # skip / auto / click
+      dialog_option: last # first / last
+      dialog_click_interval: 0.5
+      option_click_interval: 0.1
+      sleep_after_empty: 0.5

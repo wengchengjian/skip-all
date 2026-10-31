@@ -1,0 +1,18 @@
+# skip-all 应用配置示例
+schema_version: 1
+language: zh-CN
+log_level: info
+capture:
+  method: auto # auto / printwindow / bitblt（PrintWindow 可后台截图）
+  target_fps: 10
+input:
+  mode: background # background：PostMessage，不抢焦点、不移动物理鼠标；foreground：SendInput
+  pause_when_background: false # 后台模式下保持运行；需要前台才暂停时改为 true
+  gamepad: false # 需要虚拟手柄时改为 true（需 ViGEmBus 驱动 + ViGEmClient.dll）
+hotkeys:
+  toggle: F9
+  panic: F10
+ocr:
+  model: ppocrv6
+  auto_download: true
+  model_dir: "" # 留空使用默认模型目录

@@ -1,0 +1,14 @@
+screen_id: battle
+screen_name: 战斗画面
+pc_alt: true
+area_list:
+- area_name: 按键-交互
+  id_mark: false
+  pc_rect:
+  - 1403
+  - 916
+  - 1505
+  - 1018
+  template_sub_dir: battle
+  template_id: btn_interact
+  template_match_threshold: 0.7

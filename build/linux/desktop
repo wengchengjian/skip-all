@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=SkipAll
+Comment=Skip game stories, cutscenes and time-wasting interactions.
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/skip-all.exe %u
+Terminal=false
+Type=Application
+Icon=skip-all.exe
+Categories=Utility;
+StartupWMClass=skip-all.exe
+
+ 

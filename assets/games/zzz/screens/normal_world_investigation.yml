@@ -1,0 +1,14 @@
+screen_id: normal_world_investigation
+screen_name: 大世界-勘域
+pc_alt: true
+area_list:
+- area_name: 勘域-菜单
+  id_mark: true
+  pc_rect:
+  - 62
+  - 40
+  - 139
+  - 110
+  template_sub_dir: normal_world_investigation
+  template_id: menu
+  template_match_threshold: 0.7

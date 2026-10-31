@@ -1,0 +1,23 @@
+skip-all
+Copyright (C) 2026 skip-all contributors
+
+This project is licensed under the GNU General Public License, version 3
+(GPL-3.0). See LICENSE for the full text.
+
+Portions of this project are derived from:
+
+  ZenlessZoneZero-OneDragon
+  https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+  Commit: cc3e80f3eacbbe11df5af06590cff095d95553a6
+  Copyright (C) OneDragon-Anything contributors
+  Licensed under GPL-3.0
+
+The initial v0.1 implementation ports the behavior of the upstream
+"委托助手" (Commission Assistant) story/dialogue skip flow, screen definitions
+and the small template images referenced by that flow. See docs/upstream.md
+for the file-by-file mapping and modification notes.
+
+ViGEmClient.dll is distributed under the MIT License; see
+assets/runtime/ViGEmClient-LICENSE.txt.
+
+Third-party components and their licenses are listed in docs/third-party.md.

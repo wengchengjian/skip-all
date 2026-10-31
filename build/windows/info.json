@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0409": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "SkipAll",
+			"FileDescription": "Skip game stories, cutscenes and time-wasting interactions.",
+			"LegalCopyright": "Copyright (C) 2026 SkipAll Contributors",
+			"ProductName": "SkipAll",
+			"Comments": "Skip game stories, cutscenes and time-wasting interactions."
+		}
+	}
+}
