@@ -31,7 +31,7 @@ const (
 	padPhaseChosen = 3 // 已在菜单里按 A 选择“跳过”
 	padStartKey    = "xbox_start"
 	padConfirmKey  = "xbox_a"
-	padActivateKey = "xbox_a"
+	padActivateKey = "xbox_rs_up"
 	padActionWait  = 400 * time.Millisecond
 )
 
