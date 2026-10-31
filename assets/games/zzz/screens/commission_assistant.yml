@@ -115,6 +115,16 @@ area_list:
   template_sub_dir: commission_assistant
   template_id: skip_pad
   template_match_threshold: 0.7
+- area_name: 剧情跳过-普通
+  id_mark: false
+  pc_rect:
+  - 1600
+  - 35
+  - 1845
+  - 100
+  template_sub_dir: commission_assistant
+  template_id: skip_normal
+  template_match_threshold: 0.7
 - area_name: 剧情确认-模板
   id_mark: false
   pc_rect:

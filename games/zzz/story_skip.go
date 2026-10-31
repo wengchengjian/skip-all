@@ -23,7 +23,7 @@ func storySkipSpec() storyskip.Spec {
 		MiddleOptionArea:    "中间选项区域",
 		AutoButtonArea:      "按钮-自动",
 		StoryMenuAreas:      []string{"剧情菜单-键盘", "剧情菜单-手柄"},
-		StorySkipAreas:      []string{"剧情跳过-手柄"},
+		StorySkipAreas:      []string{"剧情跳过-普通", "剧情跳过-手柄"},
 		ConfirmTemplateArea: "剧情确认-模板",
 		Keywords:            []string{"菜单", "跳过", "自动"},
 		ConfirmText:         "确认",

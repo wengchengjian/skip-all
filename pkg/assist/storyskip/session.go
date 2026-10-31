@@ -137,10 +137,22 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 	if s.cfg.gamepad && s.cfg.mode == ModeSkip {
+		// 确认框优先于快速序列/剧情识别：确认框可能出现在菜单、跳过按钮或
+		// 无跳过按钮的点击路径之后，不能等下一次快速序列重新开始。
+		if s.padFast != 0 {
+			if actions, handled, err := s.clickConfirm(frame); err != nil {
+				return assist.Result{}, nil, err
+			} else if handled {
+				s.padFast = 0
+				s.padFastAt = time.Time{}
+				s.padFastUntil = frame.At.Add(500 * time.Millisecond)
+				return assist.Result{State: "确认跳过", Wait: confirmWait}, actions, nil
+			}
+		}
 		if s.padFast != 0 {
 			return s.stepFastPad(frame)
 		}
-		if s.padPhase != padPhaseNone && !s.storyMenuVisible(frame) {
+		if s.padPhase != padPhaseNone && !s.storyEntryVisible(frame) {
 			s.padPhase = padPhaseNone
 			s.padAt = time.Time{}
 			s.confirmUntil = time.Time{}
@@ -278,9 +290,24 @@ func (s *Session) storyMenuVisible(frame assist.Frame) bool {
 	return false
 }
 
+// storySkipVisible 用固定模板确认右上角有“跳过”按钮。
+func (s *Session) storySkipVisible(frame assist.Frame) bool {
+	for _, name := range s.spec.StorySkipAreas {
+		if _, ok, err := s.matchFirst(frame, s.spec.Screen, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+// storyEntryVisible 表示右上角有剧情菜单或跳过按钮。
+func (s *Session) storyEntryVisible(frame assist.Frame) bool {
+	return s.storyMenuVisible(frame) || s.storySkipVisible(frame)
+}
+
 // fastStory 用便宜的灰底 + 白色文字行判断剧情，不跑 OCR，用于快速触发。
 func (s *Session) fastStory(frame assist.Frame) (bool, error) {
-	if !s.storyMenuVisible(frame) {
+	if !s.storyEntryVisible(frame) {
 		return false, nil
 	}
 	return s.fastDialog(frame)
@@ -339,10 +366,14 @@ func (s *Session) stepFastPad(frame assist.Frame) (assist.Result, []assist.Actio
 		s.padFastAt = frame.At
 		return assist.Result{State: "快速确认跳过", Wait: 500 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
 	case 5:
+		s.padFast = 6
+		s.padFastAt = frame.At
+		return assist.Result{State: "快速确认跳过", Wait: 500 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+	case 6:
 		s.padFast = 0
 		s.padFastAt = time.Time{}
 		s.padFastUntil = frame.At.Add(1500 * time.Millisecond)
-		return assist.Result{State: "快速确认跳过", Wait: 300 * time.Millisecond}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+		return assist.Result{State: "快速确认跳过", Wait: 300 * time.Millisecond}, nil, nil
 	}
 	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
@@ -773,7 +804,7 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 			return activation, nil
 		}
 		// 有剧情菜单模板才走“+ 打开菜单”；没有菜单的普通对话只按 A 推进。
-		if inDialog && s.storyMenuVisible(frame) {
+		if inDialog && s.storyEntryVisible(frame) {
 			s.padPhase = padPhaseMenu
 			s.padAt = now
 			s.menuClickedAt = now
