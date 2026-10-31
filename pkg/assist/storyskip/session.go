@@ -31,7 +31,7 @@ const (
 	padPhaseChosen = 3 // 已在菜单里按 A 选择“跳过”
 	padStartKey    = "xbox_start"
 	padConfirmKey  = "xbox_a"
-	padActivateKey = "xbox_rs_up"
+	padActivateKey = "xbox_a"
 	padActionWait  = 400 * time.Millisecond
 )
 
@@ -262,8 +262,12 @@ func (s *Session) stepGamepad(frame assist.Frame) (assist.Result, []assist.Actio
 		return assist.Result{}, nil, err
 	}
 	if inDialog {
-		s.recentClicks++
-		return assist.Result{State: "手柄对话", Wait: s.cfg.dialogClickInterval}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, nil
+		// 剧情栏 OCR 可能漏掉菜单图标，但对话框仍在：先按“+”打开剧情菜单，
+		// 再走 A 选第一项 / A 确认，避免退化成一句一句按 A。
+		s.padPhase = padPhaseMenu
+		s.padAt = frame.At
+		s.menuClickedAt = frame.At
+		return assist.Result{State: "手柄菜单", Wait: padActionWait}, []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}, nil
 	}
 	return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 }
