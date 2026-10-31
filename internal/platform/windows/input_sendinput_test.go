@@ -103,8 +103,8 @@ func TestCursorMode(t *testing.T) {
 		t.Fatal("always 模式应移动光标")
 	}
 	in = &Input{cursorMode: CursorAuto}
-	if !in.shouldMoveCursor() {
-		t.Fatal("auto 模式也必须移动光标，绝区零后台点击依赖真实光标位置")
+	if in.shouldMoveCursor() {
+		t.Fatal("auto 模式应使用纯消息点击，不移动光标")
 	}
 }
 

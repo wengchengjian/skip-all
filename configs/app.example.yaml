@@ -7,7 +7,7 @@ capture:
   target_fps: 5
 input:
   mode: background # background：PostMessage，不抢焦点；foreground：SendInput
-  cursor_mode: auto # auto：每次点击短暂移动并归位（默认，绝区零后台点击依赖真实光标）；never：绝不移动（可能无法点击）；always：每次移动
+  cursor_mode: auto # auto：纯后台消息点击，不移动光标；never：同 auto；always：真实光标点击（兼容性回退）
   pause_when_background: false # 后台模式下保持运行；需要前台才暂停时改为 true
   gamepad: false # 需要虚拟手柄时改为 true（需 ViGEmBus 驱动 + ViGEmClient.dll）
 hotkeys:

@@ -221,8 +221,9 @@ func (i *Input) Click(p geom.Point) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
-	if i.background && !i.win.IsActive() {
-		// 游戏不在前台时不做任何光标/点击动作，避免把点击发到覆盖它的其他应用。
+	if i.background && i.shouldMoveCursor() && !i.win.IsActive() {
+		// 只有需要移动真实光标的兼容模式才要求游戏在前台；
+		// 纯消息点击不会影响覆盖窗口，可以在后台继续。
 		return nil
 	}
 	i.mu.Lock()
@@ -249,7 +250,7 @@ func (i *Input) ClickCurrent() error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
-	if i.background && !i.win.IsActive() {
+	if i.background && i.shouldMoveCursor() && !i.win.IsActive() {
 		return nil
 	}
 	i.mu.Lock()
@@ -259,7 +260,6 @@ func (i *Input) ClickCurrent() error {
 		if err != nil {
 			return err
 		}
-		// 对话点击也走真实光标：绝区零忽略 lParam，只有光标在窗口内才生效。
 		return i.backgroundClickAtLocked(geom.Point{X: rect.Width() / 2, Y: rect.Height() / 2}, i.shouldMoveCursor())
 	}
 	if err := i.ensureActiveLocked(); err != nil {
@@ -277,7 +277,7 @@ func (i *Input) KeyTap(key string) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
-	if i.background && !i.win.IsActive() {
+	if i.background && !i.win.IsActive() && !strings.HasPrefix(key, "xbox_") {
 		return nil
 	}
 	i.mu.Lock()
@@ -410,18 +410,18 @@ func (i *Input) backgroundClickAtLocked(p geom.Point, moveCursor bool) error {
 	return i.postClickLocked(hwnd, p)
 }
 
-// postClickLocked 只发窗口消息；部分游戏会忽略 lParam，改用当前光标位置。
+// postClickLocked 纯后台消息点击：不移动真实光标，坐标只放在 lParam 里。
 func (i *Input) postClickLocked(hwnd uintptr, p geom.Point) error {
 	lparam := uintptr(uint16(p.X)) | uintptr(uint16(p.Y))<<16
-	if err := postMessage(hwnd, wmActivate, waActive, 0); err != nil {
-		return err
-	}
+	// 与上游后台模式设计一致：先同步假装激活，再移动/按下/抬起。
+	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
+	time.Sleep(10 * time.Millisecond)
 	_ = postMessage(hwnd, wmMouseMove, 0, lparam)
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 	if err := postMessage(hwnd, wmLButtonDown, mkLButton, lparam); err != nil {
 		return err
 	}
-	time.Sleep(clickHoldTime)
+	time.Sleep(20 * time.Millisecond)
 	if err := postMessage(hwnd, wmLButtonUp, 0, lparam); err != nil {
 		_ = postMessage(hwnd, wmLButtonUp, 0, lparam)
 		return err
@@ -479,9 +479,9 @@ func (i *Input) shouldMoveCursor() bool {
 	case CursorAlways:
 		return true
 	default:
-		// 绝区零的后台点击依赖真实光标位置，lParam 会被忽略。
-		// auto 也必须每次短暂移光标再归位，否则用户一动鼠标跳过就失效。
-		return true
+		// auto/never 都走纯 PostMessage，不移动真实光标；
+		// 需要兼容不认 lParam 的窗口时再切到 always。
+		return false
 	}
 }
 
