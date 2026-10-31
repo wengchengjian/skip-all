@@ -155,9 +155,15 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 				s.padFastAt = frame.At
 				return s.stepFastPad(frame)
 			}
-			// 手柄快速路径只认灰色对话框 + 白色正文；
-			// 没有这个信号时直接等待，不再跑剧情栏 OCR，也不在大世界按任何键。
-			return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+			// 没有剧情菜单模板时，仍允许“无跳过按钮、只能点击推进”的对话。
+			// 任务列表靠左上角返回守卫排除，不在这里一刀切。
+			dialog, err := s.fastDialog(frame)
+			if err != nil {
+				return assist.Result{}, nil, err
+			}
+			if !dialog {
+				return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
+			}
 		}
 		result, actions, handled, err := s.handlePadPhase(frame)
 		if err != nil {
@@ -181,11 +187,6 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		// 确认框还没出现：先不要继续点剧情栏/菜单，否则会把下一次跳过按钮
 		// 当成确认点击，导致整个跳过流程失败。
 		return assist.Result{State: "等待确认框", Wait: confirmWait}, nil, nil
-	}
-
-	// 鼠标路径也先用固定菜单模板门控，任务列表/日程等画面不跑 OCR。
-	if !s.cfg.gamepad && len(s.spec.StoryMenuAreas) > 0 && !s.storyMenuVisible(frame) {
-		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 
 	// 2. 剧情右上角：跳过 / 菜单 / 自动。
@@ -226,9 +227,6 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	inDialog, err := s.inDialog(frame)
 	if err != nil {
 		return assist.Result{}, nil, err
-	}
-	if len(s.spec.StoryMenuAreas) > 0 && !s.storyMenuVisible(frame) {
-		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
 	if !storyVisible && !inDialog && !s.hasOptionBands(frame) && s.recentClicks <= 0 {
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
@@ -285,6 +283,12 @@ func (s *Session) fastStory(frame assist.Frame) (bool, error) {
 	if !s.storyMenuVisible(frame) {
 		return false, nil
 	}
+	return s.fastDialog(frame)
+}
+
+// fastDialog 只判断灰底 + 白色正文，不要求剧情菜单模板；
+// 用于没有“跳过”按钮、只能点击推进的对话。
+func (s *Session) fastDialog(frame assist.Frame) (bool, error) {
 	area, err := s.area(s.spec.Screen, s.spec.DialogArea)
 	if err != nil {
 		return false, err
@@ -764,13 +768,15 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 		if activation, ok := s.gamepadActivate(frame); ok {
 			return activation, nil
 		}
-		// 对话框本身也是剧情栏 OCR 容易漏掉的状态；手柄模式直接从“+”开始，
-		// 后续 A 选择/A 确认由 handlePadPhase 统一处理。
-		if inDialog {
+		// 有剧情菜单模板才走“+ 打开菜单”；没有菜单的普通对话只按 A 推进。
+		if inDialog && s.storyMenuVisible(frame) {
 			s.padPhase = padPhaseMenu
 			s.padAt = now
 			s.menuClickedAt = now
 			return &actionStep{state: "手柄菜单", wait: padActionWait, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padStartKey}}}, nil
+		}
+		if inDialog {
+			return &actionStep{state: "手柄对话", wait: s.cfg.dialogClickInterval, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}}, nil
 		}
 		return &actionStep{state: "手柄推进", wait: s.cfg.dialogClickInterval, actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}}, nil
 	}
