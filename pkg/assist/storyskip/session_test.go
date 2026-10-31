@@ -16,10 +16,13 @@ import (
 )
 
 type frameScript struct {
-	at      time.Time
-	ocr     map[string][]vision.TextBlock
-	matches map[string][]vision.Match
-	gray    map[string]float64
+	at       time.Time
+	ocr      map[string][]vision.TextBlock
+	ocrColor map[string][]vision.TextBlock // 带高亮颜色过滤时的结果
+	matches  map[string][]vision.Match
+	gray     map[string]float64
+	colorful map[string]float64
+	sat      map[string]float64
 }
 
 type fakeRuntime struct {
@@ -43,7 +46,12 @@ func (f *fakeRuntime) script() frameScript {
 	return f.scripts[f.current]
 }
 
-func (f *fakeRuntime) OCR(_ assist.Frame, area screen.Area, _ vision.OCROptions) ([]vision.TextBlock, error) {
+func (f *fakeRuntime) OCR(_ assist.Frame, area screen.Area, opts vision.OCROptions) ([]vision.TextBlock, error) {
+	if opts.ColorRange != nil {
+		if blocks, ok := f.script().ocrColor[area.Name]; ok {
+			return blocks, nil
+		}
+	}
 	return f.script().ocr[area.Name], nil
 }
 
@@ -52,7 +60,15 @@ func (f *fakeRuntime) MatchTemplate(_ assist.Frame, area screen.Area, _ vision.T
 }
 
 func (f *fakeRuntime) ColorStats(_ assist.Frame, area screen.Area) (vision.ColorStats, error) {
-	return vision.ColorStats{GrayMaskPercent: f.script().gray[area.Name]}, nil
+	colorful, ok := f.script().colorful[area.Name]
+	if !ok {
+		colorful = 1
+	}
+	sat, ok := f.script().sat[area.Name]
+	if !ok {
+		sat = 255
+	}
+	return vision.ColorStats{GrayMaskPercent: f.script().gray[area.Name], ColorfulPercent: colorful, MeanSaturation: sat}, nil
 }
 
 func (f *fakeRuntime) Log() *slog.Logger {
@@ -331,6 +347,49 @@ func TestDialogClick(t *testing.T) {
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClickCurrent}})
 }
 
+func TestGraySkipIsIgnored(t *testing.T) {
+	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
+	script := frameScript{
+		at: base,
+		ocr: map[string][]vision.TextBlock{
+			"文本-剧情右上角": {block("跳过", geom.Rect{X1: 1720, Y1: 40, X2: 1800, Y2: 80})},
+		},
+		ocrColor: map[string][]vision.TextBlock{"文本-剧情右上角": nil},
+	}
+	session, rt := newTestSession(t, nil, []frameScript{script})
+	rt.current = 0
+	frame := testFrame()
+	frame.At = base
+	step, _, err := session.handleStoryBar(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if step != nil {
+		t.Fatalf("灰色跳过不应产生点击: %+v", step)
+	}
+}
+
+func TestWhiteSkipClicks(t *testing.T) {
+	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
+	white := block("跳过", geom.Rect{X1: 1720, Y1: 40, X2: 1800, Y2: 80})
+	script := frameScript{
+		at:       base,
+		ocr:      map[string][]vision.TextBlock{"文本-剧情右上角": {white}},
+		ocrColor: map[string][]vision.TextBlock{"文本-剧情右上角": {white}},
+	}
+	session, rt := newTestSession(t, nil, []frameScript{script})
+	rt.current = 0
+	frame := testFrame()
+	frame.At = base
+	step, _, err := session.handleStoryBar(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if step == nil || len(step.actions) != 1 || step.actions[0].Point != white.Rect.Center() {
+		t.Fatalf("白色跳过应点击: %+v", step)
+	}
+}
+
 func TestDialogOptions(t *testing.T) {
 	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
 	options := []vision.TextBlock{
@@ -369,10 +428,44 @@ func TestDialogOptions(t *testing.T) {
 			},
 			gray: map[string]float64{"对话框内容": 0.95},
 		}
-		session, rt := newTestSession(t, nil, []frameScript{centerScript})
+		session, rt := newTestSession(t, assist.Settings{SettingMode: "auto"}, []frameScript{centerScript})
 		_, actions := step(t, session, rt, 0)
 		checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 800, Y: 520}}})
 	})
+}
+
+func TestGraySkipFallsThroughToOptions(t *testing.T) {
+	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
+	script := frameScript{
+		at: base,
+		ocr: map[string][]vision.TextBlock{
+			"文本-剧情右上角": {block("跳过", geom.Rect{X1: 1720, Y1: 40, X2: 1800, Y2: 80})},
+			"右侧选项区域": {
+				block("第一个", geom.Rect{X1: 1500, Y1: 580, X2: 1800, Y2: 620}),
+				block("第二个", geom.Rect{X1: 1500, Y1: 680, X2: 1800, Y2: 720}),
+			},
+		},
+		ocrColor: map[string][]vision.TextBlock{"文本-剧情右上角": nil},
+	}
+	session, rt := newTestSession(t, nil, []frameScript{script})
+	_, actions := step(t, session, rt, 0)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1650, Y: 700}}})
+}
+
+func TestOptionsWithoutDialog(t *testing.T) {
+	base := time.Date(2026, 10, 31, 20, 0, 0, 0, time.Local)
+	script := frameScript{
+		at: base,
+		ocr: map[string][]vision.TextBlock{
+			"右侧选项区域": {
+				block("第一个", geom.Rect{X1: 1500, Y1: 580, X2: 1800, Y2: 620}),
+				block("第二个", geom.Rect{X1: 1500, Y1: 680, X2: 1800, Y2: 720}),
+			},
+		},
+	}
+	session, rt := newTestSession(t, nil, []frameScript{script})
+	_, actions := step(t, session, rt, 0)
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1650, Y: 700}}})
 }
 
 func TestRecentDialogClicksStop(t *testing.T) {

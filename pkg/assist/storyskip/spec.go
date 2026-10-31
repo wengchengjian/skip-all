@@ -59,6 +59,9 @@ type Spec struct {
 	SkipKeyword string   // 跳过关键词，默认“跳过”
 	MenuKeyword string   // 菜单关键词，默认“菜单”
 	AutoKeyword string   // 自动关键词，默认“自动”
+	// ButtonColorRange 是可用按钮/选项的高亮颜色范围，默认白色。
+	// 灰色“跳过”是禁用态，必须过滤掉，否则会一直点它。
+	ButtonColorRange [2][3]uint8
 
 	Guards []Guard // 命中后等待、不点击的区域
 
@@ -84,6 +87,9 @@ func (s Spec) withDefaults() Spec {
 	}
 	if len(s.Keywords) == 0 {
 		s.Keywords = []string{s.MenuKeyword, s.SkipKeyword, s.AutoKeyword}
+	}
+	if s.ButtonColorRange == [2][3]uint8{} {
+		s.ButtonColorRange = [2][3]uint8{{240, 240, 240}, {255, 255, 255}}
 	}
 	if s.MenuQuiet <= 0 {
 		s.MenuQuiet = 5 * time.Second

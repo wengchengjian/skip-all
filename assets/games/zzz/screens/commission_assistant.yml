@@ -78,3 +78,10 @@ area_list:
   - 242
   text: 自动
   lcs_percent: 0.5
+- area_name: 玩法引导
+  id_mark: false
+  pc_rect:
+  - 342
+  - 213
+  - 565
+  - 285

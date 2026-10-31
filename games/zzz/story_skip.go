@@ -32,6 +32,8 @@ func storySkipSpec() storyskip.Spec {
 			{Area: "战斗-菜单", Kind: storyskip.GuardTemplate},
 			{Screen: "大世界-勘域", Area: "勘域-菜单", Kind: storyskip.GuardTemplate},
 			{Screen: "战斗画面", Area: "按键-交互", Kind: storyskip.GuardTemplate},
+			{Area: "玩法引导", Kind: storyskip.GuardText, Text: "玩法引导"},
+			{Area: "玩法引导", Kind: storyskip.GuardText, Text: "战斗引导"},
 		},
 		MenuQuiet:         5 * time.Second,
 		SkipClickWait:     400 * time.Millisecond,
