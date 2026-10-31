@@ -88,6 +88,8 @@ games/zzz               绝区零适配器与资源
 frontend                Vue 3 + TypeScript 界面
 ```
 
+OCR 模型与 GPU 方案：阅读 [docs/ocr.md](docs/ocr.md)。
+
 新增游戏：阅读 [docs/adding-a-game.md](docs/adding-a-game.md)。如果游戏也是“右上角菜单/跳过/确认 + 对话框”的同构 UI，通常只需要新增 games/<id> 和画面 YAML，不用改核心。
 
 ## 跨平台
