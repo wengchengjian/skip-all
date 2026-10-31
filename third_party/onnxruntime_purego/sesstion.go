@@ -47,11 +47,16 @@ func (o *SessionOptions) SetCpuMemArena(useArena bool) error {
 
 // EnableDirectML 启用 DirectML（Windows 上兼容 Intel/NVIDIA/AMD GPU）。
 func (o *SessionOptions) EnableDirectML() error {
+	return o.EnableDirectMLDevice(0)
+}
+
+// EnableDirectMLDevice 使用指定的 DXGI adapter 序号启用 DirectML。
+func (o *SessionOptions) EnableDirectMLDevice(deviceID int32) error {
 	// onnxruntime-directml 不会仅因为加载了 DML 版 DLL 就自动使用 GPU，
-	// 仍需要显式 Append 执行提供者；否则实际跑 CPU，CPU 占用会很高。
+	// 仍需要显式 Append 执行提供者；deviceID 对应 DXGI adapter 枚举序号。
 	var appendDML func(SessionOptionsHandle, int32) StatusHandle
 	purego.RegisterLibFunc(&appendDML, o.engine.handle, "OrtSessionOptionsAppendExecutionProvider_DML")
-	return o.engine.checkStatus(appendDML(o.handle, 0))
+	return o.engine.checkStatus(appendDML(o.handle, deviceID))
 }
 
 // EnableCUDA 启用 CUDA

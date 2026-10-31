@@ -13,6 +13,7 @@ type Config struct {
 	// 可选参数
 	UseCuda             bool    // (可选) 是否启用 CUDA
 	UseDirectML         bool    // (可选) 是否启用 DirectML（Windows）
+	DMLDeviceID         int     // (可选) DirectML 使用的 DXGI adapter 序号
 	NumThreads          int     // (可选) ONNX 线程数, 默认由CPU核心数决定
 	ThreadCount         int     // (可选) 识别 Session 并发数, 默认 1。>1 时创建多个 ONNX Session 实现并行识别
 	DetMaxSideLen       int     // (可选) 检测模型预处理的最长边, 默认 960

@@ -722,8 +722,13 @@ func (s *Service) ensureOCR() (vision.OCR, error) {
 	dml := s.findOCRRuntime("onnxruntime_dml.dll", appCfg.OCR.RuntimeDir)
 	cuda := s.findOCRRuntime("onnxruntime_cuda.dll", appCfg.OCR.RuntimeDir)
 	var candidates []ocrCandidate
+	dmlDevice := 0
 	if (mode == "auto" || mode == "dml") && dml != "" {
-		candidates = append(candidates, ocrCandidate{name: "DirectML", runtime: dml, directML: true})
+		if index, name := platform.DiscreteGPUIndex(); name != "" {
+			dmlDevice = index
+			s.appendLog("info", fmt.Sprintf("DirectML 选择独立显卡 [%d] %s", index, name))
+		}
+		candidates = append(candidates, ocrCandidate{name: "DirectML", runtime: dml, directML: true, dmlDevice: dmlDevice})
 	}
 	if (mode == "auto" || mode == "cuda") && cuda != "" {
 		candidates = append(candidates, ocrCandidate{name: "CUDA", runtime: cuda, cuda: true})
@@ -740,6 +745,7 @@ func (s *Service) ensureOCR() (vision.OCR, error) {
 		for _, candidate := range candidates {
 			ocr, err := vision.NewPaddleOCRWithOptions(dir, vision.PaddleOptions{
 				UseDirectML: candidate.directML,
+				DMLDeviceID: candidate.dmlDevice,
 				UseCUDA:     candidate.cuda,
 				RuntimeLib:  candidate.runtime,
 			})
@@ -764,10 +770,11 @@ func (s *Service) ensureOCR() (vision.OCR, error) {
 }
 
 type ocrCandidate struct {
-	name     string
-	runtime  string
-	directML bool
-	cuda     bool
+	name      string
+	runtime   string
+	directML  bool
+	dmlDevice int
+	cuda      bool
 }
 
 // findOCRRuntime 依次在自定义目录、assets/runtime、exe/runtime 找 GPU 版 ORT DLL。

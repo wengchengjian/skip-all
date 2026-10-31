@@ -15,6 +15,7 @@ type Config struct {
 	// 可选参数
 	UseCuda     bool // (可选) 是否启用 CUDA
 	UseDirectML bool // (可选) 是否启用 DirectML（Windows）
+	DMLDeviceID int  // (可选) DirectML 使用的 DXGI adapter 序号
 	NumThreads  int  // (可选) ONNX 线程数, 默认由CPU核心数决定
 
 	// EnableCpuMemArena 控制 ONNX 的内存池策略
@@ -66,7 +67,7 @@ func (cfg *Config) New() error {
 	}
 	// 启用 DirectML
 	if cfg.UseDirectML {
-		if err := options.EnableDirectML(); err != nil {
+		if err := options.EnableDirectMLDevice(int32(cfg.DMLDeviceID)); err != nil {
 			return fmt.Errorf("启用 DirectML 失败: %w", err)
 		}
 	}

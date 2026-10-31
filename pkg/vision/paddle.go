@@ -32,6 +32,8 @@ type PaddleOptions struct {
 	ThreadCount int
 	// NumThreads 是 ONNX 单 session 的 CPU 线程数。
 	NumThreads int
+	// DMLDeviceID 是 DirectML 使用的 DXGI adapter 序号。
+	DMLDeviceID int
 	// UseDirectML 启用 DirectML execution provider。
 	UseDirectML bool
 	// UseCUDA 启用 CUDA execution provider。
@@ -104,6 +106,7 @@ func NewPaddleOCRWithOptions(modelDir string, opts PaddleOptions) (OCR, error) {
 		RecModelNumClasses:  opts.RecModelNumClasses,
 		ThreadCount:         opts.ThreadCount,
 		NumThreads:          opts.NumThreads,
+		DMLDeviceID:         opts.DMLDeviceID,
 		UseDirectML:         opts.UseDirectML,
 		UseCuda:             opts.UseCUDA,
 	})
