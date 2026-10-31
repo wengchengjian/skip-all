@@ -67,7 +67,8 @@
 | pkg/screen | 画面 YAML 模型与加载 |
 | pkg/vision | OCR/模板/颜色/LCS |
 | games/zzz | 绝区零适配器、StorySkip Spec、内嵌资源 |
-| assets/games/zzz | 画面 YAML 和模板图片 |
+| games/wuwa | 鸣潮适配器、StorySkip Spec（字幕行 + 跳过图标）、内嵌资源 |
+| assets/games/zzz、assets/games/wuwa | 画面 YAML 和模板图片 |
 | frontend | Vue 3 + TypeScript 界面 |
 
 ## 关键设计决定

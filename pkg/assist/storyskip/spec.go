@@ -15,6 +15,16 @@ const (
 	ModeClick Mode = "click"
 )
 
+// DialogStyle 是对话框的识别方式。
+type DialogStyle string
+
+const (
+	// DialogMask 用半透明灰底遮罩识别对话框，要求区域几乎全是灰底。
+	DialogMask DialogStyle = "mask"
+	// DialogText 用白色字幕行识别对话，适合没有对话框底板的设计。
+	DialogText DialogStyle = "text"
+)
+
 // DialogOption 是对话选项的选择策略。
 type DialogOption string
 
@@ -48,22 +58,26 @@ type Guard struct {
 
 // Spec 描述一个游戏的剧情跳过界面。
 type Spec struct {
-	Screen              string   // 主画面名
-	StoryArea           string   // 剧情右上角菜单区域
-	ConfirmArea         string   // 跳过/确认弹窗的按钮区域
-	DialogArea          string   // 对话框内容区域
-	RightOptionArea     string   // 右侧对话选项区域
-	MiddleOptionArea    string   // 中间对话选项区域
-	AutoButtonArea      string   // 展开菜单后的自动按钮区域，可留空
-	StoryMenuAreas      []string // 剧情菜单按钮模板区域（键盘/手柄可多个）
-	StorySkipAreas      []string // 剧情跳过按钮模板区域
-	ConfirmTemplateArea string   // 确认按钮模板区域，可留空
+	Screen              string      // 主画面名
+	StoryArea           string      // 剧情右上角菜单区域
+	ConfirmArea         string      // 跳过/确认弹窗的按钮区域
+	DialogArea          string      // 对话框内容区域
+	RightOptionArea     string      // 右侧对话选项区域
+	MiddleOptionArea    string      // 中间对话选项区域
+	AutoButtonArea      string      // 展开菜单后的自动按钮区域，可留空
+	StoryMenuAreas      []string    // 剧情菜单按钮模板区域（键盘/手柄可多个）
+	StorySkipAreas      []string    // 剧情跳过按钮模板区域
+	ConfirmTemplateArea string      // 确认按钮模板区域，可留空
+	DialogStyle         DialogStyle // 对话框识别方式，默认 DialogMask
+	DialogClickArea     string      // 点击推进对话的区域，留空时点击当前光标
+	DisableStoryOCR     bool        // 只靠模板判断剧情栏，不为剧情栏加载 OCR
 
-	Keywords    []string // 剧情右上角可见关键词，默认“菜单/跳过/自动”
-	ConfirmText string   // 确认按钮关键词，默认“确认”
-	SkipKeyword string   // 跳过关键词，默认“跳过”
-	MenuKeyword string   // 菜单关键词，默认“菜单”
-	AutoKeyword string   // 自动关键词，默认“自动”
+	Keywords     []string // 剧情右上角可见关键词，默认“菜单/跳过/自动”
+	ConfirmText  string   // 确认按钮关键词，默认“确认”
+	ConfirmTexts []string // 确认按钮的全部可接受文本（如简繁/多语言），默认只有 ConfirmText
+	SkipKeyword  string   // 跳过关键词，默认“跳过”
+	MenuKeyword  string   // 菜单关键词，默认“菜单”
+	AutoKeyword  string   // 自动关键词，默认“自动”
 	// ButtonColorRange 是可用按钮/选项的高亮颜色范围，默认白色。
 	// 灰色“跳过”是禁用态，必须过滤掉，否则会一直点它。
 	ButtonColorRange [2][3]uint8
@@ -80,6 +94,12 @@ type Spec struct {
 func (s Spec) withDefaults() Spec {
 	if s.ConfirmText == "" {
 		s.ConfirmText = "确认"
+	}
+	if len(s.ConfirmTexts) == 0 {
+		s.ConfirmTexts = []string{s.ConfirmText}
+	}
+	if s.DialogStyle == "" {
+		s.DialogStyle = DialogMask
 	}
 	if s.SkipKeyword == "" {
 		s.SkipKeyword = "跳过"

@@ -190,15 +190,15 @@ type StorySkipConfig struct {
 	Settings map[string]any `yaml:"settings"`
 }
 
-// ZZZConfig 是绝区零游戏配置。
-type ZZZConfig struct {
+// GameConfig 是单个游戏的配置。
+type GameConfig struct {
 	SchemaVersion int                        `yaml:"schema_version"`
 	Features      map[string]StorySkipConfig `yaml:"features"`
 }
 
-// DefaultZZZ 返回绝区零默认配置。
-func DefaultZZZ() ZZZConfig {
-	return ZZZConfig{
+// DefaultGame 返回单个游戏的默认配置。
+func DefaultGame() GameConfig {
+	return GameConfig{
 		SchemaVersion: SchemaVersion,
 		Features: map[string]StorySkipConfig{
 			"story_skip": {Enabled: true, Settings: map[string]any{}},
@@ -206,9 +206,9 @@ func DefaultZZZ() ZZZConfig {
 	}
 }
 
-// LoadZZZ 读取绝区零配置；文件不存在时返回默认配置。
-func LoadZZZ(path string) (ZZZConfig, error) {
-	cfg := DefaultZZZ()
+// LoadGame 读取单个游戏的配置；文件不存在时返回默认配置。
+func LoadGame(path string) (GameConfig, error) {
+	cfg := DefaultGame()
 	if path == "" {
 		return cfg, nil
 	}
@@ -217,26 +217,26 @@ func LoadZZZ(path string) (ZZZConfig, error) {
 		return cfg, nil
 	}
 	if err != nil {
-		return ZZZConfig{}, fmt.Errorf("读取游戏配置 %s: %w", path, err)
+		return GameConfig{}, fmt.Errorf("读取游戏配置 %s: %w", path, err)
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return ZZZConfig{}, fmt.Errorf("解析游戏配置 %s: %w", path, err)
+		return GameConfig{}, fmt.Errorf("解析游戏配置 %s: %w", path, err)
 	}
 	if err := cfg.normalizeAndValidate(); err != nil {
-		return ZZZConfig{}, fmt.Errorf("校验游戏配置 %s: %w", path, err)
+		return GameConfig{}, fmt.Errorf("校验游戏配置 %s: %w", path, err)
 	}
 	return cfg, nil
 }
 
-// SaveZZZ 保存绝区零配置。
-func SaveZZZ(path string, cfg ZZZConfig) error {
+// SaveGame 保存单个游戏的配置。
+func SaveGame(path string, cfg GameConfig) error {
 	if err := cfg.normalizeAndValidate(); err != nil {
 		return fmt.Errorf("校验游戏配置: %w", err)
 	}
 	return writeYAML(path, cfg)
 }
 
-func (c *ZZZConfig) normalizeAndValidate() error {
+func (c *GameConfig) normalizeAndValidate() error {
 	if c.SchemaVersion == 0 {
 		c.SchemaVersion = SchemaVersion
 	}

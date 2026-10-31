@@ -17,6 +17,19 @@ The initial v0.1 implementation ports the behavior of the upstream
 and the small template images referenced by that flow. See docs/upstream.md
 for the file-by-file mapping and modification notes.
 
+The Wuthering Waves ("鸣潮") story skip flow references the behavior of:
+
+  ok-wuthering-waves
+  https://github.com/ok-oldking/ok-wuthering-waves
+  Copyright (C) ok-oldking contributors
+  Licensed under AGPL-3.0
+
+No source code or image assets from that project are copied: the upstream is
+AGPL-3.0, which is not compatible with this project's GPL-3.0, so only the
+skip flow and timing were used as a reference and reimplemented in Go. The
+Wuthering Waves templates under assets/games/wuwa were cropped from in-game
+screenshots; game artwork belongs to its respective rights holders.
+
 ViGEmClient.dll is distributed under the MIT License; see
 assets/runtime/ViGEmClient-LICENSE.txt.
 

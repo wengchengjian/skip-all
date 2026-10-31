@@ -1,22 +1,40 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wengchengjian/skip-all/pkg/config"
 )
 
 func TestServiceListGames(t *testing.T) {
-	svc, err := NewService(Options{DataDir: t.TempDir()})
+	dir := t.TempDir()
+	svc, err := NewService(Options{DataDir: dir})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 	defer svc.Shutdown()
-	games := svc.ListGames()
-	if len(games) != 1 || games[0].ID != "zzz" {
-		t.Fatalf("games = %+v", games)
+	list := svc.ListGames()
+	var zzz *GameView
+	for i := range list {
+		if list[i].ID == "zzz" {
+			zzz = &list[i]
+		}
 	}
-	if len(games[0].Features) != 1 || games[0].Features[0].ID != "story_skip" {
-		t.Fatalf("features = %+v", games[0].Features)
+	if zzz == nil {
+		t.Fatalf("games = %+v", list)
+	}
+	if len(zzz.Features) != 1 || zzz.Features[0].ID != "story_skip" {
+		t.Fatalf("features = %+v", zzz.Features)
+	}
+	if cfg := svc.GetConfig(); len(cfg.Games) != len(list) {
+		t.Fatalf("每个游戏都应有一份配置: %+v", cfg.Games)
+	}
+	for _, game := range list {
+		if _, err := os.Stat(filepath.Join(dir, "games", game.ID+".yaml")); err != nil {
+			t.Fatalf("游戏 %s 缺少配置文件: %v", game.ID, err)
+		}
 	}
 }
 
@@ -27,7 +45,7 @@ func TestServiceExcludedGames(t *testing.T) {
 	}
 	defer svc.Shutdown()
 	svc.mu.Lock()
-	svc.appCfg.ExcludedGames = []string{"zzz"}
+	svc.appCfg.ExcludedGames = GameIDs()
 	svc.mu.Unlock()
 	if !svc.isExcluded("zzz") {
 		t.Fatal("zzz 应被排除")
@@ -52,6 +70,12 @@ func TestServiceConfigRoundTrip(t *testing.T) {
 	defer svc.Shutdown()
 	view := svc.GetConfig()
 	view.App.Capture.TargetFPS = 15
+	view.Games["zzz"] = config.GameConfig{
+		SchemaVersion: config.SchemaVersion,
+		Features: map[string]config.StorySkipConfig{
+			"story_skip": {Enabled: false, Settings: map[string]any{"mode": "click"}},
+		},
+	}
 	if err := svc.SaveConfig(view); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
@@ -65,5 +89,9 @@ func TestServiceConfigRoundTrip(t *testing.T) {
 	defer loaded.Shutdown()
 	if got := loaded.GetConfig().App.Capture.TargetFPS; got != 15 {
 		t.Fatalf("TargetFPS = %d, want 15", got)
+	}
+	feature := loaded.GetConfig().Games["zzz"].Features["story_skip"]
+	if feature.Enabled || feature.Settings["mode"] != "click" {
+		t.Fatalf("zzz 游戏配置未落盘: %+v", feature)
 	}
 }

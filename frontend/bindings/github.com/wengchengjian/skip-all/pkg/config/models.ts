@@ -28,6 +28,14 @@ export interface CaptureConfig {
 }
 
 /**
+ * GameConfig 是单个游戏的配置。
+ */
+export interface GameConfig {
+    "SchemaVersion": number;
+    "Features": { [_ in string]?: StorySkipConfig } | null;
+}
+
+/**
  * HotkeysConfig 是全局快捷键。
  */
 export interface HotkeysConfig {
@@ -78,12 +86,4 @@ export interface OCRConfig {
 export interface StorySkipConfig {
     "Enabled": boolean;
     "Settings": { [_ in string]?: any } | null;
-}
-
-/**
- * ZZZConfig 是绝区零游戏配置。
- */
-export interface ZZZConfig {
-    "SchemaVersion": number;
-    "Features": { [_ in string]?: StorySkipConfig } | null;
 }

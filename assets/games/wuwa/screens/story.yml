@@ -1,0 +1,61 @@
+screen_id: wuwa_story
+screen_name: 鸣潮剧情
+pc_alt: false
+area_list:
+- area_name: 剧情跳过
+  id_mark: false
+  pc_rect:
+  - 24
+  - 132
+  - 150
+  - 236
+  template_sub_dir: story
+  template_id: skip
+  template_match_threshold: 0.75
+- area_name: 剧情跳过-顶部
+  id_mark: false
+  pc_rect:
+  - 30
+  - 20
+  - 190
+  - 120
+  template_sub_dir: story
+  template_id: skip
+  template_match_threshold: 0.75
+- area_name: 对话框确认
+  id_mark: false
+  pc_rect:
+  - 980
+  - 595
+  - 1420
+  - 700
+  text: 确认
+  lcs_percent: 1.0
+- area_name: 对话内容
+  id_mark: false
+  pc_rect:
+  - 480
+  - 780
+  - 1440
+  - 935
+- area_name: 右侧选项区域
+  id_mark: false
+  pc_rect:
+  - 1150
+  - 300
+  - 1900
+  - 760
+  color_range:
+  - - 240
+    - 240
+    - 240
+  - - 255
+    - 255
+    - 255
+- area_name: 中间选项区域
+  id_mark: false
+  pc_rect:
+  - 520
+  - 250
+  - 1400
+  - 780

@@ -25,7 +25,8 @@ export function useSkipAll() {
     ocrBackend: "",
   });
   const logs = ref<LogEntry[]>([]);
-  const selectedGameId = ref("zzz");
+  // 游戏列表异步加载，默认选中项由 loadGames 落成 games[0].id。
+  const selectedGameId = ref("");
   const selectedFeatureId = ref("story_skip");
   const busy = ref(false);
 

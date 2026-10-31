@@ -130,7 +130,14 @@ const fpsLabel = computed(() =>
           @check-models="checkModels"
           @doctor="runDoctor"
         />
-        <SettingsTab v-else-if="tab === 'settings'" :config="config" :games="games" :saving="busy" @save="saveConfig" />
+        <SettingsTab
+          v-else-if="tab === 'settings'"
+          :config="config"
+          :games="games"
+          :selected-game-id="selectedGameId"
+          :saving="busy"
+          @save="saveConfig"
+        />
         <LogsTab v-else :logs="logs" />
       </main>
     </section>

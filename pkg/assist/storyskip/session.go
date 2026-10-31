@@ -320,6 +320,9 @@ func (s *Session) fastDialog(frame assist.Frame) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if s.spec.DialogStyle == DialogText {
+		return s.subtitleVisible(frame, *area), nil
+	}
 	stats, err := s.rt.ColorStats(frame, *area)
 	if err != nil {
 		return false, err
@@ -455,31 +458,36 @@ func (s *actionStep) unpack() (assist.Result, []assist.Action) {
 }
 
 func (s *Session) confirmVisible(frame assist.Frame) (bool, error) {
+	_, ok, err := s.confirmBlock(frame)
+	return ok, err
+}
+
+// confirmBlock 找出确认按钮的文字块；找不到时返回 ok=false。
+func (s *Session) confirmBlock(frame assist.Frame) (vision.TextBlock, bool, error) {
 	area, err := s.area(s.spec.Screen, s.spec.ConfirmArea)
 	if err != nil {
-		return false, err
+		return vision.TextBlock{}, false, err
 	}
 	// 确认按钮必须先确认文字是“确认”，不能只凭白色像素就点：
 	// 菜单/跳过动画期间确认区域可能短暂出现其他白字，过早点击会导致跳过流程失败。
 	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, 100*time.Millisecond)
 	if err != nil {
-		return false, fmt.Errorf("识别确认框: %w", err)
+		return vision.TextBlock{}, false, fmt.Errorf("识别确认框: %w", err)
 	}
 	for _, block := range blocks {
-		// 上游的 lcs_percent=1.0 是精确匹配；这里也要求整段文字等于“确认”，
+		// 上游的 lcs_percent=1.0 是精确匹配；这里也要求整段文字等于确认文案，
 		// 避免把“确认跳过”等菜单文字当成确认按钮。
-		if strings.TrimSpace(block.Text) == strings.TrimSpace(s.spec.ConfirmText) {
-			return true, nil
+		text := strings.TrimSpace(block.Text)
+		for _, want := range s.spec.ConfirmTexts {
+			if text == strings.TrimSpace(want) {
+				return block, true, nil
+			}
 		}
 	}
-	return false, nil
+	return vision.TextBlock{}, false, nil
 }
 
 func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error) {
-	area, err := s.area(s.spec.Screen, s.spec.ConfirmArea)
-	if err != nil {
-		return nil, false, err
-	}
 	if s.spec.ConfirmTemplateArea != "" {
 		if match, ok, err := s.matchFirst(frame, s.spec.Screen, s.spec.ConfirmTemplateArea); err != nil {
 			return nil, false, err
@@ -490,16 +498,16 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 			return []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}, true, nil
 		}
 	}
-	ok, err := s.confirmVisible(frame)
+	block, ok, err := s.confirmBlock(frame)
 	if err != nil || !ok {
 		return nil, false, err
 	}
 	if s.cfg.gamepad {
 		return []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
 	}
-	// 确认按钮区域是固定按钮框，点区域中心比点 OCR 文字框中心更稳，
-	// 避免 OCR 框只覆盖“确”或“认”导致点击位置偏移。
-	return []assist.Action{{Kind: assist.ActionClick, Point: area.Rect.Center()}}, true, nil
+	// 点 OCR 文字块中心：弹窗宽度会随文案变化，确认按钮不在固定位置，
+	// 点区域中心在宽区域上会落空。
+	return []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}, true, nil
 }
 
 func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
@@ -539,6 +547,9 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 					return &actionStep{state: "模板菜单", wait: storyButtonWait, actions: []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}}, true, nil
 				}
 			}
+		}
+		if s.spec.DisableStoryOCR {
+			return nil, false, nil
 		}
 		// 先按原始画面 OCR 找“菜单/跳过/自动”，不能只看白色文字行：
 		// 菜单和灰色跳过在原始画面里仍然有字，只靠白色行会漏掉整条菜单路径。
@@ -749,6 +760,9 @@ func (s *Session) inDialog(frame assist.Frame) (bool, error) {
 	if s.cfg.mode == ModeSkip && s.dialogCached && hash == s.dialogHash && !frame.At.Before(s.dialogAt) {
 		return s.dialogIn, nil
 	}
+	if s.spec.DialogStyle == DialogText {
+		return s.subtitleVisible(frame, *area), nil
+	}
 	stats, err := s.rt.ColorStats(frame, *area)
 	if err != nil {
 		return false, fmt.Errorf("统计对话框颜色: %w", err)
@@ -771,6 +785,20 @@ func (s *Session) inDialog(frame assist.Frame) (bool, error) {
 	}
 	s.storeDialogResult(frame.At, hash, false)
 	return false, nil
+}
+
+// subtitleVisible 用白色字幕行判断是否在对话里，不跑 OCR、也不要求灰底遮罩。
+func (s *Session) subtitleVisible(frame assist.Frame, area screen.Area) bool {
+	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{
+		ColorRange: &s.spec.ButtonColorRange,
+		MinHeight:  8,
+	})
+	for _, band := range bands {
+		if band.X2-band.X1 >= 40 {
+			return true
+		}
+	}
+	return false
 }
 
 func containsChinese(s string) bool {
@@ -843,14 +871,35 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 
 	if inDialog || (s.cfg.mode != ModeSkip && storyVisible) {
 		s.recentClicks = s.spec.RecentClickLimit
-		return &actionStep{state: "对话中点击", wait: s.cfg.dialogClickInterval, actions: clickCurrent()}, nil
+		actions, err := s.dialogClick(frame)
+		if err != nil {
+			return nil, err
+		}
+		return &actionStep{state: "对话中点击", wait: s.cfg.dialogClickInterval, actions: actions}, nil
 	}
 
 	if s.recentClicks > 0 {
 		s.recentClicks--
-		return &actionStep{state: "点击最近对话", wait: recentDialogWait, actions: clickCurrent()}, nil
+		actions, err := s.dialogClick(frame)
+		if err != nil {
+			return nil, err
+		}
+		return &actionStep{state: "点击最近对话", wait: recentDialogWait, actions: actions}, nil
 	}
 	return nil, nil
+}
+
+// dialogClick 返回推进对话的点击动作；配置了 DialogClickArea 时点它的中心，
+// 否则沿用点击当前光标（绝区零的对话可以点屏幕任意位置推进）。
+func (s *Session) dialogClick(frame assist.Frame) ([]assist.Action, error) {
+	if s.spec.DialogClickArea == "" {
+		return clickCurrent(), nil
+	}
+	area, err := s.area(s.spec.Screen, s.spec.DialogClickArea)
+	if err != nil {
+		return nil, err
+	}
+	return []assist.Action{{Kind: assist.ActionClick, Point: area.Rect.Center()}}, nil
 }
 
 // clickOptionArea 用白色文字行定位选项，不跑 OCR；灰色选项不会被选中。

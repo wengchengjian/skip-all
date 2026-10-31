@@ -15,9 +15,9 @@ export type {
 export type {
   AppConfig,
   CaptureConfig,
+  GameConfig,
   HotkeysConfig,
   InputConfig,
   OCRConfig,
   StorySkipConfig,
-  ZZZConfig,
 } from "../bindings/github.com/wengchengjian/skip-all/pkg/config/models.js";

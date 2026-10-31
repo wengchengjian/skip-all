@@ -87,8 +87,8 @@ func TestSaveAppRoundTrip(t *testing.T) {
 	}
 }
 
-func TestZZZConfig(t *testing.T) {
-	def := DefaultZZZ()
+func TestGameConfig(t *testing.T) {
+	def := DefaultGame()
 	if !def.Features["story_skip"].Enabled {
 		t.Fatal("默认应启用 story_skip")
 	}
@@ -106,7 +106,7 @@ features:
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := LoadZZZ(path)
+	cfg, err := LoadGame(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,13 +119,13 @@ features:
 	}
 }
 
-func TestLoadZZZInvalidFeatureName(t *testing.T) {
+func TestLoadGameInvalidFeatureName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "zzz.yml")
 	data := "schema_version: 1\nfeatures:\n  \" \":\n    enabled: true\n"
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadZZZ(path); err == nil {
+	if _, err := LoadGame(path); err == nil {
 		t.Fatal("空 feature 名称应报错")
 	}
 }

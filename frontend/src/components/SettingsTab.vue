@@ -5,6 +5,7 @@ import type { ConfigView, GameView } from "../api";
 const props = defineProps<{
   config: ConfigView | null;
   games: GameView[];
+  selectedGameId: string;
   saving: boolean;
 }>();
 
@@ -35,10 +36,10 @@ function toNumber(value: unknown, fallback: number): number {
 }
 
 watch(
-  () => props.config,
-  (config) => {
+  () => [props.config, props.selectedGameId] as const,
+  ([config]) => {
     if (!config) return;
-    const feature = config.zzz.Features?.["story_skip"];
+    const feature = config.games?.[props.selectedGameId]?.Features?.["story_skip"];
     const settings = feature?.Settings ?? {};
     form.mode = String(settings.mode ?? "skip");
     form.dialogOption = String(settings.dialog_option ?? "last");
@@ -79,21 +80,22 @@ function save() {
   view.app.Hotkeys.Toggle = form.hotkeyToggle.trim() || "F9";
   view.app.Hotkeys.Panic = form.hotkeyPanic.trim() || "F10";
 
-  const features = view.zzz.Features ?? {};
-  view.zzz.Features = features;
-  let feature = features["story_skip"];
-  if (!feature) {
-    feature = { Enabled: true, Settings: {} };
-    features["story_skip"] = feature;
+  // 剧情跳过参数写入当前选中的游戏，其它游戏保持原样。
+  const gameId = props.selectedGameId;
+  if (gameId) {
+    view.games = view.games ?? {};
+    const game = (view.games[gameId] ??= { SchemaVersion: 1, Features: {} });
+    const features = (game.Features ??= {});
+    const feature = (features["story_skip"] ??= { Enabled: true, Settings: {} });
+    feature.Settings = {
+      ...(feature.Settings ?? {}),
+      mode: form.mode,
+      dialog_option: form.dialogOption,
+      dialog_click_interval: form.dialogClickInterval,
+      option_click_interval: form.optionClickInterval,
+      sleep_after_empty: form.sleepAfterEmpty,
+    };
   }
-  feature.Settings = {
-    ...(feature.Settings ?? {}),
-    mode: form.mode,
-    dialog_option: form.dialogOption,
-    dialog_click_interval: form.dialogClickInterval,
-    option_click_interval: form.optionClickInterval,
-    sleep_after_empty: form.sleepAfterEmpty,
-  };
   emit("save", view);
 }
 </script>

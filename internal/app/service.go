@@ -45,7 +45,7 @@ type Service struct {
 	sink    EventSink
 
 	appCfg     config.AppConfig
-	zzzCfg     config.ZZZConfig
+	gameCfg    map[string]config.GameConfig
 	ocr        vision.OCR
 	ocrBackend string
 
@@ -89,8 +89,8 @@ type FeatureView struct {
 
 // ConfigView 是应用与游戏配置快照。
 type ConfigView struct {
-	App config.AppConfig `json:"app"`
-	ZZZ config.ZZZConfig `json:"zzz"`
+	App   config.AppConfig             `json:"app"`
+	Games map[string]config.GameConfig `json:"games"`
 }
 
 // StatusView 是当前运行状态。
@@ -145,15 +145,21 @@ func NewService(opts Options) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	zzzCfg, err := config.LoadZZZ(filepath.Join(dataDir, "games", "zzz.yaml"))
-	if err != nil {
-		return nil, err
+	gameCfg := make(map[string]config.GameConfig)
+	for _, game := range games.All() {
+		cfg, err := config.LoadGame(gameConfigFile(dataDir, game.ID()))
+		if err != nil {
+			return nil, err
+		}
+		gameCfg[game.ID()] = cfg
 	}
 	if err := config.SaveApp(filepath.Join(dataDir, "config.yaml"), appCfg); err != nil {
 		return nil, err
 	}
-	if err := config.SaveZZZ(filepath.Join(dataDir, "games", "zzz.yaml"), zzzCfg); err != nil {
-		return nil, err
+	for id, cfg := range gameCfg {
+		if err := config.SaveGame(gameConfigFile(dataDir, id), cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	logFile := &lumberjack.Logger{Filename: filepath.Join(dataDir, "logs", "skip-all.log"), MaxSize: 10, MaxBackups: 7, MaxAge: 30, Compress: true}
@@ -184,7 +190,7 @@ func NewService(opts Options) (*Service, error) {
 	if _, statErr := os.Stat(assets); statErr != nil {
 		assets = ""
 	}
-	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, sink: opts.EventSink, appCfg: appCfg, zzzCfg: zzzCfg, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
+	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, sink: opts.EventSink, appCfg: appCfg, gameCfg: gameCfg, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
 	svc.appendLog("info", "skip-all 服务已初始化")
 	return svc, nil
 }
@@ -220,11 +226,24 @@ func (s *Service) ListGames() []GameView {
 	return out
 }
 
+// gameConfigFile 返回单个游戏的配置文件路径。
+func gameConfigFile(dataDir, gameID string) string {
+	return filepath.Join(dataDir, "games", gameID+".yaml")
+}
+
+// gameConfigLocked 返回指定游戏的配置；缺失时回落到默认配置。调用方需持有 s.mu。
+func (s *Service) gameConfigLocked(gameID string) config.GameConfig {
+	if cfg, ok := s.gameCfg[gameID]; ok {
+		return cfg
+	}
+	return config.DefaultGame()
+}
+
 // GetConfig 返回当前配置。
 func (s *Service) GetConfig() ConfigView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return ConfigView{App: s.appCfg, ZZZ: s.zzzCfg}
+	return ConfigView{App: s.appCfg, Games: s.gameCfg}
 }
 
 // SaveConfig 保存配置并更新内存快照；运行中的会话会用新配置自动重启。
@@ -232,12 +251,22 @@ func (s *Service) SaveConfig(view ConfigView) error {
 	if err := config.SaveApp(filepath.Join(s.dataDir, "config.yaml"), view.App); err != nil {
 		return err
 	}
-	if err := config.SaveZZZ(filepath.Join(s.dataDir, "games", "zzz.yaml"), view.ZZZ); err != nil {
-		return err
+	// 逐个游戏保存；前端传来的未知 ID 直接忽略。
+	saved := make(map[string]config.GameConfig, len(view.Games))
+	for id, cfg := range view.Games {
+		if _, ok := games.Get(id); !ok {
+			continue
+		}
+		if err := config.SaveGame(gameConfigFile(s.dataDir, id), cfg); err != nil {
+			return err
+		}
+		saved[id] = cfg
 	}
 	s.mu.Lock()
 	s.appCfg = view.App
-	s.zzzCfg = view.ZZZ
+	for id, cfg := range saved {
+		s.gameCfg[id] = cfg
+	}
 	s.mu.Unlock()
 	s.restartRunning()
 	return nil
@@ -315,7 +344,7 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 
 	settings := feature.DefaultSettings()
 	s.mu.Lock()
-	if fc, ok := s.zzzCfg.Features[featureID]; ok {
+	if fc, ok := s.gameConfigLocked(gameID).Features[featureID]; ok {
 		if !fc.Enabled {
 			s.mu.Unlock()
 			return ActionResult{OK: false, Error: "功能已在配置中禁用"}
@@ -527,12 +556,11 @@ func (s *Service) GetStatus() StatusView {
 
 // defaultFeature 返回游戏第一个启用的功能。
 func (s *Service) defaultFeature(game assist.Game) assist.Feature {
+	s.mu.Lock()
+	cfg := s.gameConfigLocked(game.ID())
+	s.mu.Unlock()
 	for _, f := range game.Features() {
-		s.mu.Lock()
-		fc, ok := s.zzzCfg.Features[f.ID()]
-		enabled := !ok || fc.Enabled
-		s.mu.Unlock()
-		if enabled {
+		if fc, ok := cfg.Features[f.ID()]; !ok || fc.Enabled {
 			return f
 		}
 	}

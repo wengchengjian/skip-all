@@ -4,9 +4,9 @@
 export type {
     AppConfig,
     CaptureConfig,
+    GameConfig,
     HotkeysConfig,
     InputConfig,
     OCRConfig,
-    StorySkipConfig,
-    ZZZConfig
+    StorySkipConfig
 } from "./models.js";

@@ -2,13 +2,14 @@
 package games
 
 import (
+	"github.com/wengchengjian/skip-all/games/wuwa"
 	"github.com/wengchengjian/skip-all/games/zzz"
 	"github.com/wengchengjian/skip-all/pkg/assist"
 )
 
 // All 返回全部内置游戏。
 func All() []assist.Game {
-	return []assist.Game{zzz.New()}
+	return []assist.Game{zzz.New(), wuwa.New()}
 }
 
 // Get 按游戏标识查找内置游戏。

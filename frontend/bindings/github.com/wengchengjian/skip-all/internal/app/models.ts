@@ -18,7 +18,7 @@ export interface ActionResult {
  */
 export interface ConfigView {
     "app": config$0.AppConfig;
-    "zzz": config$0.ZZZConfig;
+    "games": { [_ in string]?: config$0.GameConfig } | null;
 }
 
 /**
