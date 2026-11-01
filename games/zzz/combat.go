@@ -45,8 +45,9 @@ func combatSpec() combat.Spec {
 			combat.StepLiberation: {X1: 1728, Y1: 778, X2: 1826, Y2: 876},
 		},
 		// 复活/失败界面出现时暂停出招（绝区零没有鸣潮那种入场技，IntroSteps 留空）。
-		AbortArea:  "中断提示",
-		AbortTexts: []string{"重新挑战", "挑战失败", "撤退", "复活"},
+		AbortArea: "中断提示",
+		// 文案取自上游 screen_info/battle.yml 的战斗结果区域：完成 / 再来一次 / 退出 / 撤退 / 倒带。
+		AbortTexts: []string{"完成", "再来一次", "退出", "撤退", "倒带", "重新挑战", "挑战失败"},
 		// 代理人定位来自上游 AgentTypeEnum，切人时按定位打分。
 		Roles:  agentRoles,
 		Switch: &combat.SwitchPolicy{MinInterval: 3 * time.Second},

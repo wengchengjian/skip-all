@@ -15,7 +15,7 @@ area_list:
 - area_name: 中断提示
   id_mark: false
   pc_rect:
-  - 560
-  - 360
-  - 1360
-  - 720
+  - 520
+  - 840
+  - 1850
+  - 1060

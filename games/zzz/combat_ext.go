@@ -348,8 +348,8 @@ func zzzExtensions(team *zzzTeam) []combat.Extension {
 			ChainBar:  geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900},
 			ChainRGB:  [2][3]uint8{{200, 120, 40}, {255, 205, 120}},
 			ChainRate: 0.5,
-			// 快速支援按钮（与 zzzQuickAssistExt 同区域同模板）。
-			AssistArea: geom.Rect{X1: 1580, Y1: 860, X2: 1780, Y2: 1050},
+			// 快速支援按钮：上游 按键-切换后援 (1615,776)-(1726,877)。
+			AssistArea: geom.Rect{X1: 1615, Y1: 776, X2: 1726, Y2: 877},
 			AssistIDs:  []string{"btn_assist_1", "btn_assist_2"},
 		},
 		&zzzDodgeExt{
