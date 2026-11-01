@@ -12,6 +12,9 @@ import (
 
 // wuwaRule 是"条件 -> 动作序列"的一条规则，条件语法与绝区零的规则引擎一致：
 // 支持 ! & | ()，原子由 cond 解析函数给出。
+// baseRuleKey 是"没有专属规则的角色"共用的回退规则表。
+const baseRuleKey = "__base__"
+
 type wuwaRule struct {
 	Cond string
 	Ops  []combat.Step
@@ -62,7 +65,12 @@ func (e *wuwaRuleExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Action
 			return action, "规则-队列", true, nil
 		}
 	}
-	for _, rule := range e.Rules[agent] {
+	// 没有专属规则的角色沿用上游 BaseChar.do_perform 的保守动作（"__base__"）。
+	rules := e.Rules[agent]
+	if len(rules) == 0 {
+		rules = e.Rules[baseRuleKey]
+	}
+	for _, rule := range rules {
 		if !e.eval(rule.Cond, frame) || len(rule.Ops) == 0 {
 			continue
 		}

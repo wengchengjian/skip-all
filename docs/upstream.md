@@ -340,7 +340,7 @@
 
 ## 逐角色条件规则（鸣潮）
 
-上游 48 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**135 条规则覆盖 41 个角色**。
+上游 48 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**135 条规则覆盖 41 个角色**，其余角色回退到上游 `BaseChar.do_perform()` 的保守动作（声骸→解放→技能→重击）。
 
 可表达原子：`技能可用`（上游 `resonance_available`）、`声骸可用`、`解放可用`、`回路满`/`回路未满`（`is_forte_full`）。
 
