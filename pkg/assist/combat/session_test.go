@@ -700,3 +700,34 @@ func TestAbortPausesWhenReviveShown(t *testing.T) {
 		t.Fatalf("出现复活提示时应暂停: state=%q actions=%+v", result.State, actions)
 	}
 }
+
+func TestSwitchInvalidatesCooldownCache(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"a", "b", "c"}}
+	spec.Roles = map[string]Role{"a": RoleMainDPS, "b": RoleSubDPS, "c": RoleHealer}
+	spec.Plan = []Step{{Kind: StepSkill}, {Kind: StepAttack}}
+	spec.Cooldowns = map[StepKind]geom.Rect{StepSkill: {X1: 10, Y1: 10, X2: 60, Y2: 60}}
+
+	rt := testRuntime(true)
+	rt.ocrText = "9"
+	session := newSession(rt, spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+
+	// 先读一次冷却（"9" 秒），技能被跳过。
+	result, _ := step(t, session, frameAt(base))
+	if result.State != "连招-普攻" {
+		t.Fatalf("冷却中应当跳过技能, state = %q", result.State)
+	}
+	if len(session.cdCache) == 0 {
+		t.Fatal("应当写入过冷却缓存")
+	}
+	// 切人后缓存必须清空，否则新角色的技能会被误判成冷却中。
+	session.noteSwitch(assist.Frame{}, base.Add(time.Second))
+	if len(session.cdCache) != 0 {
+		t.Fatalf("切人后冷却缓存应清空, 还有 %d 条", len(session.cdCache))
+	}
+	if session.agentAt != (time.Time{}) || session.agentID != "" {
+		t.Fatal("切人后角色缓存也要清空")
+	}
+}

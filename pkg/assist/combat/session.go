@@ -76,6 +76,11 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		// 证据会短暂丢失（转身、切人、特效遮挡），用保持时间把它们连起来。
 		s.cursor = 0
 		s.lockAt = time.Time{}
+		// 脱战了：缓存和入场技都清掉，下一场重新来。
+		s.cdCache = make(map[StepKind]cdEntry)
+		s.agentAt = time.Time{}
+		s.agentID = ""
+		s.introLeft = nil
 		// 上游在战斗结束后会切回治疗位；这里也是同一件事。
 		if s.healed && !s.cfg.noHealer {
 			if key := s.healerKey(frame); key != "" {
@@ -342,6 +347,11 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 		if step.Index < 0 || step.Index >= len(s.spec.Keys.Switch) {
 			return assist.Action{}, "", false
 		}
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		s.noteSwitch(frame, now)
 		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Switch[step.Index]}, "切换角色", true
 	}
 	return assist.Action{}, "", false
@@ -435,8 +445,7 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 	if coverage < full {
 		return assist.Action{}, false
 	}
-	s.switchAt = now
-	s.introLeft = append([]Step(nil), s.spec.IntroSteps...)
+	s.noteSwitch(frame, now)
 	return assist.Action{Kind: assist.ActionKeyTap, Key: s.chooseSwitchKey(frame)}, true
 }
 
@@ -541,6 +550,17 @@ func roleScore(current, target Role) float64 {
 		return 10
 	}
 	return 0
+}
+
+// noteSwitch 记录一次切人：清掉与"当前角色"有关的缓存，并挂上入场技。
+// 切人之后技能按钮上的冷却数字换了人、头像也换了，缓存必须失效。
+func (s *Session) noteSwitch(frame assist.Frame, now time.Time) {
+	s.switchAt = now
+	s.cdCache = make(map[StepKind]cdEntry)
+	s.agentAt = time.Time{}
+	s.agentID = ""
+	s.introLeft = append([]Step(nil), s.spec.IntroSteps...)
+	_ = frame
 }
 
 // healerKey 返回治疗位按键：能识别出队伍里的治疗就按它的槽位键，否则用配置的固定键。
