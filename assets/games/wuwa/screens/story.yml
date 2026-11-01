@@ -13,6 +13,16 @@ area_list:
   template_id: skip
   template_match_threshold: 0.75
   template_white_mask: true
+- area_name: 剧情跳过-对话-上游
+  id_mark: false
+  pc_rect:
+  - 66
+  - 24
+  - 140
+  - 100
+  template_sub_dir: story
+  template_id: skip_dialog_okww
+  template_match_threshold: 0.78
 - area_name: 剧情跳过-对话
   id_mark: false
   pc_rect:

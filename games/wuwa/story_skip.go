@@ -27,7 +27,7 @@ func storySkipSpec() storyskip.Spec {
 		MiddleOptionArea: "中间选项区域",
 		// 鸣潮的“跳过”是左上角的图标，没有文字，只能靠模板：
 		// 过场剧情在左侧偏下，普通剧情对话在左上角、图标更小。
-		StorySkipAreas: []string{"剧情跳过", "剧情跳过-对话", "剧情跳过-对话-大"},
+		StorySkipAreas: []string{"剧情跳过", "剧情跳过-对话", "剧情跳过-对话-大", "剧情跳过-对话-上游"},
 		// 字幕式界面：没有对话框底板，靠白色字幕行 + 剧情 UI 模板判断。
 		Mode:            storyskip.TextMode{},
 		DialogClickArea: "对话内容",
