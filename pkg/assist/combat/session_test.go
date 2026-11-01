@@ -1076,3 +1076,73 @@ func TestConcertoRequiresFullRing(t *testing.T) {
 		t.Fatal("满环应当触发切人")
 	}
 }
+
+// switchVerifyTeam 的 Current 只在 flip 之后才返回新槽位，用来模拟"切人没生效/生效"。
+type switchVerifyTeam struct {
+	slot   int
+	verify int
+}
+
+func (s *switchVerifyTeam) Current(Runtime, assist.Frame) (int, bool, error) {
+	if s.verify > 0 {
+		return s.verify, true, nil
+	}
+	return s.slot, true, nil
+}
+func (s *switchVerifyTeam) Agent(Runtime, assist.Frame) (string, bool, error) {
+	if s.verify > 0 {
+		return "b", true, nil
+	}
+	return "a", true, nil
+}
+
+func TestSwitchVerifyRetriesWhenInputDropped(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Keys.Attack = ""
+	spec.AttackPoint = geom.Point{X: 960, Y: 540}
+	team := &switchVerifyTeam{slot: 0}
+	spec.Team = team
+	spec.Roles = map[string]Role{"a": RoleMainDPS, "b": RoleSubDPS}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	// 第一帧：协奏满 -> 切人
+	if result, _ := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base}); result.State != "协奏满切人" {
+		t.Fatalf("应当先切人, state=%q", result.State)
+	}
+	// 400ms 后前台仍是同一人（输入被吞）-> 补一次普攻并提示
+	result, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base.Add(400 * time.Millisecond)})
+	if result.State != "切人未生效" || len(actions) != 1 || actions[0].Kind != assist.ActionClick {
+		t.Fatalf("切人没生效时应当补普攻: state=%q actions=%+v", result.State, actions)
+	}
+}
+
+func TestSwitchVerifyAcceptsSuccessfulSwitch(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	team := &switchVerifyTeam{slot: 0}
+	spec.Team = team
+	spec.Roles = map[string]Role{"a": RoleMainDPS, "b": RoleSubDPS}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	step(t, session, assist.Frame{Image: concertoFullFrame(), At: base})
+	team.verify = 1 // 切人生效
+	result, _ := step(t, session, assist.Frame{Image: frameAt(base.Add(400 * time.Millisecond)).Image, At: base.Add(400 * time.Millisecond)})
+	if result.State == "切人未生效" {
+		t.Fatal("已经切过去了不该再补普攻")
+	}
+}

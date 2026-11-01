@@ -27,6 +27,12 @@ const cooldownOCRTTL = 500 * time.Millisecond
 // agentTTL 是角色识别的缓存时间。
 const agentTTL = 2 * time.Second
 
+// 切人确认的时间窗：300ms 内没换人就认为输入被吞，800ms 后放弃。
+const (
+	switchVerifyGrace   = 300 * time.Millisecond
+	switchVerifyTimeout = 800 * time.Millisecond
+)
+
 // defaultConcertoFullRatio 是协奏环算"满"的默认门限：上游要求正好满（1.0），
 // 留 5% 余量给抗锯齿与颜色容差。
 const defaultConcertoFullRatio = 0.95
@@ -51,7 +57,11 @@ type Session struct {
 	introLeft  []Step
 	introUntil time.Time
 	introMode  IntroMode
-	abortAt    time.Time
+	// 切人后要确认真的切过去了：后台输入可能被吞，上游 switch_next_char 里也会复查 in_team。
+	pendingFrom int
+	pendingAt   time.Time
+	pendingDone bool
+	abortAt     time.Time
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
@@ -308,6 +318,26 @@ func (s *Session) checkAbort(frame assist.Frame) (bool, error) {
 }
 
 func (s *Session) nextAction(frame assist.Frame) (assist.Action, string, bool) {
+	// 切人确认：800ms 内发现前台没变，就补一次普攻（上游 switch_next_char 里的兜底）。
+	if !s.pendingAt.IsZero() && s.spec.Team != nil {
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		since := now.Sub(s.pendingAt)
+		if since > switchVerifyTimeout || s.pendingFrom < 0 {
+			s.pendingAt = time.Time{}
+		} else if cur, ok, err := s.spec.Team.Current(runtimeAdapter{rt: s.rt}, frame); err == nil && ok && cur != s.pendingFrom {
+			s.pendingAt = time.Time{} // 切人成功
+		} else if since > switchVerifyGrace && !s.pendingDone {
+			s.pendingDone = true
+			action := assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}
+			if s.spec.Keys.Attack != "" {
+				action = assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Attack}
+			}
+			return action, "切人未生效", true
+		}
+	}
 	// 入场等待：上游 wait_intro() 期间一直点普攻，直到落地（技能可用）或超时。
 	if !s.introUntil.IsZero() {
 		now := frame.At
@@ -517,7 +547,17 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 	if coverage < full {
 		return assist.Action{}, false
 	}
+	// 记下切走之前的槽位，切完要确认真的换了人。
+	if s.spec.Team != nil {
+		if cur, ok, err := s.spec.Team.Current(runtimeAdapter{rt: s.rt}, frame); err == nil && ok {
+			s.pendingFrom = cur
+		} else {
+			s.pendingFrom = -1
+		}
+	}
 	s.noteSwitch(frame, now)
+	s.pendingAt = now
+	s.pendingDone = false
 	return assist.Action{Kind: assist.ActionKeyTap, Key: s.chooseSwitchKey(frame)}, true
 }
 
