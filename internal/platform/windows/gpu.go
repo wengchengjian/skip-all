@@ -30,10 +30,12 @@ type dxgiAdapterDesc1 struct {
 	Flags                 uint32
 }
 
-func comCall(obj uintptr, index int, args ...uintptr) uintptr {
-	vtbl := *(*uintptr)(unsafe.Pointer(obj))
-	fn := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(index)*unsafe.Sizeof(uintptr(0))))
-	all := append([]uintptr{obj}, args...)
+// comCall 调 COM 接口的第 index 个方法。
+// obj 用 unsafe.Pointer 承载而不是 uintptr：这样全程不出现 uintptr -> unsafe.Pointer 的转换，
+// go vet 的 unsafeptr 检查才过得去。
+func comCall(obj unsafe.Pointer, index int, args ...uintptr) uintptr {
+	fn := (*[512]uintptr)(obj)[index]
+	all := append([]uintptr{uintptr(obj)}, args...)
 	r, _, _ := syscall.SyscallN(fn, all...)
 	return r
 }
@@ -44,9 +46,9 @@ func DiscreteGPUIndex() (int, string) {
 	_ = windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED)
 	defer windows.CoUninitialize()
 
-	var factory uintptr
+	var factory unsafe.Pointer
 	hr, _, _ := procCreateDXGIFactory1.Call(uintptr(unsafe.Pointer(&iidIDXGIFactory1)), uintptr(unsafe.Pointer(&factory)))
-	if hr != 0 || factory == 0 {
+	if hr != 0 || factory == nil {
 		return 0, ""
 	}
 	defer comCall(factory, 2)
@@ -54,9 +56,9 @@ func DiscreteGPUIndex() (int, string) {
 	bestIndex, bestMemory := -1, uint64(0)
 	bestName := ""
 	for index := 0; index < 16; index++ {
-		var adapter uintptr
+		var adapter unsafe.Pointer
 		hr := comCall(factory, 12, uintptr(index), uintptr(unsafe.Pointer(&adapter)))
-		if hr == dxgiErrorNotFound || adapter == 0 {
+		if hr == dxgiErrorNotFound || adapter == nil {
 			break
 		}
 		var desc dxgiAdapterDesc1
