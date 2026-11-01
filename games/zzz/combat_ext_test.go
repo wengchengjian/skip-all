@@ -172,3 +172,56 @@ func TestZZZAgentPlansPresent(t *testing.T) {
 		}
 	}
 }
+
+// areaFake 按 (区域, 模板) 给命中结果，用来验证连携选边。
+type areaFake struct {
+	byRect map[geom.Rect]map[string]float64
+}
+
+func (f areaFake) MatchTemplate(_ assist.Frame, area screen.Area, ref vision.TemplateRef, _ float64) ([]vision.Match, error) {
+	if score, ok := f.byRect[area.Rect][ref.ID]; ok && score > 0 {
+		return []vision.Match{{Rect: area.Rect, Confidence: score}}, nil
+	}
+	return nil, nil
+}
+
+func TestChainPicksSideByRole(t *testing.T) {
+	left := geom.Rect{X1: 479, Y1: 828, X2: 597, Y2: 946}
+	right := geom.Rect{X1: 1322, Y1: 828, X2: 1440, Y2: 946}
+	ext := &zzzChainExt{
+		Bar:       geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900},
+		BarRGB:    [2][3]uint8{{200, 120, 40}, {255, 205, 120}},
+		BarRate:   0.5,
+		Left:      left,
+		Right:     right,
+		LeftKey:   "q",
+		RightKey:  "e",
+		Interval:  time.Second,
+		avatarIDs: []string{"ellen", "lycaon"},
+		threshold: 0.78,
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 886; y < 898; y++ {
+		for x := 820; x < 1092; x++ {
+			img.SetRGBA(x, y, color.RGBA{240, 170, 60, 255})
+		}
+	}
+	// 左边是副C（莱卡恩），右边是主C（艾莲）-> 应当选右边。
+	rt := areaFake{byRect: map[geom.Rect]map[string]float64{
+		left:  {"lycaon": 0.9},
+		right: {"ellen": 0.9},
+	}}
+	action, state, ok, err := ext.Step(rt, assist.Frame{Image: img, At: time.Now()})
+	if err != nil || !ok || state != "连携技-右" || action.Key != "e" {
+		t.Fatalf("应当选主C那一侧: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	}
+
+	// 两边都认不出 -> 退回亮度（都暗默认左边）。
+	rt2 := areaFake{byRect: map[geom.Rect]map[string]float64{}}
+	ext2 := *ext
+	ext2.last = time.Time{}
+	action, state, ok, err = ext2.Step(rt2, assist.Frame{Image: img, At: time.Now()})
+	if err != nil || !ok || state != "连携技-左" || action.Key != "q" {
+		t.Fatalf("认不出时退回左侧: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	}
+}

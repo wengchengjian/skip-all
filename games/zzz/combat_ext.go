@@ -90,11 +90,14 @@ type zzzChainExt struct {
 	RightKey string
 	Interval time.Duration
 	last     time.Time
+	// avatarIDs 是连携槽位里要试的头像模板（与 templates/avatar1 一致）。
+	avatarIDs []string
+	threshold float64
 }
 
 func (c *zzzChainExt) Name() string { return "chain" }
 
-func (c *zzzChainExt) Step(_ combat.Runtime, frame assist.Frame) (assist.Action, string, bool, error) {
+func (c *zzzChainExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Action, string, bool, error) {
 	now := frame.At
 	if now.IsZero() {
 		now = time.Now()
@@ -105,15 +108,62 @@ func (c *zzzChainExt) Step(_ combat.Runtime, frame assist.Frame) (assist.Action,
 	if vision.ColorRatio(frame.Image, c.Bar, c.BarRGB) < c.BarRate {
 		return assist.Action{}, "", false, nil
 	}
-	// 哪一侧更亮就选哪一侧；两侧都暗就默认左边（上游缺省也是左侧优先）。
+	c.last = now
+
+	// 先认人：两边分别匹配头像模板，取分数最高的 id。
+	leftID := c.matchSide(rt, frame, c.Left)
+	rightID := c.matchSide(rt, frame, c.Right)
+	leftScore := chainRoleScore(leftID)
+	rightScore := chainRoleScore(rightID)
+	if leftScore != rightScore {
+		if rightScore > leftScore {
+			return assist.Action{Kind: assist.ActionKeyTap, Key: c.RightKey}, "连携技-右", true, nil
+		}
+		return assist.Action{Kind: assist.ActionKeyTap, Key: c.LeftKey}, "连携技-左", true, nil
+	}
+
+	// 认不出来或定位同分：退回比亮度，两侧都暗默认左边。
 	left := vision.ColorRatio(frame.Image, c.Left, brightRange)
 	right := vision.ColorRatio(frame.Image, c.Right, brightRange)
 	key, state := c.LeftKey, "连携技-左"
 	if right > left {
 		key, state = c.RightKey, "连携技-右"
 	}
-	c.last = now
 	return assist.Action{Kind: assist.ActionKeyTap, Key: key}, state, true, nil
+}
+
+// matchSide 在一个连携槽位里认人，返回匹配度最高的代理人 id。
+func (c *zzzChainExt) matchSide(rt combat.Runtime, frame assist.Frame, area geom.Rect) string {
+	best, bestID := 0.0, ""
+	threshold := c.threshold
+	if threshold <= 0 {
+		threshold = 0.8
+	}
+	for _, id := range c.avatarIDs {
+		matches, err := rt.MatchTemplate(frame, screen.Area{Name: "连携槽位", Rect: area}, vision.TemplateRef{SubDir: "avatar1", ID: id}, threshold)
+		if err != nil || len(matches) == 0 {
+			continue
+		}
+		if matches[0].Confidence > best {
+			best, bestID = matches[0].Confidence, id
+		}
+	}
+	return bestID
+}
+
+// chainRoleScore 决定连携时优先让谁出场：主C最高，其次副C，辅助/治疗最低。
+func chainRoleScore(id string) int {
+	switch agentRoles[id] {
+	case combat.RoleMainDPS:
+		return 3
+	case combat.RoleSubDPS:
+		return 2
+	case combat.RoleSupport:
+		return 1
+	case combat.RoleHealer:
+		return 1
+	}
+	return 0
 }
 
 // zzzUltimateExt 是绝区零的终结技：只有按钮点亮（可用）时才按。
@@ -162,14 +212,16 @@ func zzzExtensions() []combat.Extension {
 			},
 		},
 		&zzzChainExt{
-			Bar:      geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900},
-			BarRGB:   [2][3]uint8{{200, 120, 40}, {255, 205, 120}},
-			BarRate:  0.5,
-			Left:     geom.Rect{X1: 479, Y1: 828, X2: 597, Y2: 946},
-			Right:    geom.Rect{X1: 1322, Y1: 828, X2: 1440, Y2: 946},
-			LeftKey:  "q",
-			RightKey: "e",
-			Interval: 900 * time.Millisecond,
+			Bar:       geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900},
+			BarRGB:    [2][3]uint8{{200, 120, 40}, {255, 205, 120}},
+			BarRate:   0.5,
+			Left:      geom.Rect{X1: 479, Y1: 828, X2: 597, Y2: 946},
+			Right:     geom.Rect{X1: 1322, Y1: 828, X2: 1440, Y2: 946},
+			LeftKey:   "q",
+			RightKey:  "e",
+			Interval:  900 * time.Millisecond,
+			avatarIDs: avatarIDs("avatar1"),
+			threshold: 0.78,
 		},
 		&zzzUltimateExt{
 			Rect:      geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876},
