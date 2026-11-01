@@ -412,18 +412,30 @@ func (i *Input) backgroundClickAtLocked(p geom.Point, moveCursor bool) error {
 
 // postClickLocked 纯后台消息点击：不移动真实光标，坐标只放在 lParam 里。
 func (i *Input) postClickLocked(hwnd uintptr, p geom.Point) error {
+	// 上游 ok-ww 的做法：客户区坐标 -> 屏幕坐标 -> 找出真正覆盖该点的子窗口 ->
+	// 换成该窗口的客户区坐标再投递。UE5 这类游戏收输入的是子窗口，投给顶层会被忽略。
+	target := hwnd
 	lparam := uintptr(uint16(p.X)) | uintptr(uint16(p.Y))<<16
+	if screen, err := clientToScreen(hwnd, winPoint{X: int32(p.X), Y: int32(p.Y)}); err == nil {
+		target = targetWindowAt(hwnd, screen)
+		if local, err := screenToClient(target, screen); err == nil {
+			lparam = uintptr(uint16(local.X)) | uintptr(uint16(local.Y))<<16
+		}
+	}
 	// 与上游后台模式设计一致：先同步假装激活，再移动/按下/抬起。
 	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
+	if target != hwnd {
+		_, _, _ = procSendMessage.Call(target, wmActivate, waActive, 0)
+	}
 	time.Sleep(10 * time.Millisecond)
-	_ = postMessage(hwnd, wmMouseMove, 0, lparam)
+	_ = postMessage(target, wmMouseMove, 0, lparam)
 	time.Sleep(10 * time.Millisecond)
-	if err := postMessage(hwnd, wmLButtonDown, mkLButton, lparam); err != nil {
+	if err := postMessage(target, wmLButtonDown, mkLButton, lparam); err != nil {
 		return err
 	}
 	time.Sleep(20 * time.Millisecond)
-	if err := postMessage(hwnd, wmLButtonUp, 0, lparam); err != nil {
-		_ = postMessage(hwnd, wmLButtonUp, 0, lparam)
+	if err := postMessage(target, wmLButtonUp, 0, lparam); err != nil {
+		_ = postMessage(target, wmLButtonUp, 0, lparam)
 		return err
 	}
 	return nil
@@ -506,7 +518,8 @@ func (i *Input) backgroundKeyTapLocked(vk uint16) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
-	if err := postMessage(i.win.Handle(), 0x0100, uintptr(vk), 1); err != nil {
+	// 上游 ok-ww 的 make_lparam 会把扫描码写进 bit16-23；没有扫描码时游戏常常直接忽略。
+	if err := postMessage(i.win.Handle(), 0x0100, uintptr(vk), keyLParam(vk, false)); err != nil {
 		return err
 	}
 	i.pressed[vk] = false
@@ -518,7 +531,7 @@ func (i *Input) backgroundKeyUpLocked(vk uint16) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
-	return postMessage(i.win.Handle(), 0x0101, uintptr(vk), 0xC0000001)
+	return postMessage(i.win.Handle(), 0x0101, uintptr(vk), keyLParam(vk, true))
 }
 
 func postMessage(hwnd uintptr, msg, wparam, lparam uintptr) error {

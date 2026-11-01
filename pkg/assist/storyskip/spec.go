@@ -15,16 +15,6 @@ const (
 	ModeClick Mode = "click"
 )
 
-// DialogStyle 是对话框的识别方式。
-type DialogStyle string
-
-const (
-	// DialogMask 用半透明灰底遮罩识别对话框，要求区域几乎全是灰底。
-	DialogMask DialogStyle = "mask"
-	// DialogText 用白色字幕行识别对话，适合没有对话框底板的设计。
-	DialogText DialogStyle = "text"
-)
-
 // DialogOption 是对话选项的选择策略。
 type DialogOption string
 
@@ -68,22 +58,13 @@ type Spec struct {
 	StoryMenuAreas      []string // 剧情菜单按钮模板区域（键盘/手柄可多个）
 	StorySkipAreas      []string // 剧情跳过按钮模板区域
 	ConfirmTemplateArea string   // 确认按钮模板区域，可留空
-	// OpenMenuKey 设置后，检测到剧情界面时先按这个键打开剧情菜单
-	//（例如鸣潮按 ESC 出"剧情梗概"，里面才有"跳过剧情"按钮），而不是点击图标。
-	OpenMenuKey string
-	// MenuSkipArea 是剧情菜单里"跳过剧情"按钮的区域，配合 MenuSkipKeyword 用。
-	MenuSkipArea string
-	// MenuSkipKeyword 是剧情菜单里跳过按钮的文字，默认"跳过"。
-	MenuSkipKeyword string
-	// MenuWait 是按下打开菜单的键之后等动画的时间，默认 600ms。
-	MenuWait time.Duration
 	// ConfirmCheckArea 是确认弹窗里勾选框的模板区域，用来判"确认框已经在场"；
 	// 留空时不做这个判断。
 	ConfirmCheckArea string
-	DialogStyle      DialogStyle // 对话框识别方式，默认 DialogMask
-	DialogClickArea  string      // 点击推进对话的区域，留空时点击当前光标
-	DisableStoryOCR  bool        // 只靠模板判断剧情栏，不为剧情栏加载 OCR
-	IgnoreGamepad    bool        // 该游戏的跳过只能用鼠标，忽略全局手柄设置
+	Mode             DialogMode // 画面判读实现，留空用 MaskMode（灰底对话框）
+	DialogClickArea  string     // 点击推进对话的区域，留空时点击当前光标
+	DisableStoryOCR  bool       // 只靠模板判断剧情栏，不为剧情栏加载 OCR
+	IgnoreGamepad    bool       // 该游戏的跳过只能用鼠标，忽略全局手柄设置
 
 	Keywords     []string // 剧情右上角可见关键词，默认“菜单/跳过/自动”
 	ConfirmText  string   // 确认按钮关键词，默认“确认”
@@ -111,17 +92,8 @@ func (s Spec) withDefaults() Spec {
 	if len(s.ConfirmTexts) == 0 {
 		s.ConfirmTexts = []string{s.ConfirmText}
 	}
-	if s.DialogStyle == "" {
-		s.DialogStyle = DialogMask
-	}
 	if s.SkipKeyword == "" {
 		s.SkipKeyword = "跳过"
-	}
-	if s.MenuSkipKeyword == "" {
-		s.MenuSkipKeyword = s.SkipKeyword
-	}
-	if s.MenuWait <= 0 {
-		s.MenuWait = 600 * time.Millisecond
 	}
 	if s.MenuKeyword == "" {
 		s.MenuKeyword = "菜单"

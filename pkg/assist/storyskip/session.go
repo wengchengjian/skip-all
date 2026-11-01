@@ -67,8 +67,6 @@ type Session struct {
 	lastSkipAt     time.Time
 	confirmPollAt  time.Time
 	skipRetries    int
-	menuOpen       bool
-	menuOpenAt     time.Time
 	entryVisible   bool
 	// entrySet 只在一次 Step 内有效：每帧开始时清掉，避免跨帧复用旧结论。
 	entrySet     bool
@@ -221,15 +219,6 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "等待确认框", Wait: confirmWait}, nil, nil
 	}
 
-	// 1.5 已经按开剧情菜单：等菜单出来，点“跳过剧情”。
-	if s.menuOpen {
-		result, actions, err := s.stepStoryMenu(frame)
-		if err != nil {
-			return assist.Result{}, nil, err
-		}
-		return result, actions, nil
-	}
-
 	// 2. 剧情右上角：跳过 / 菜单 / 自动。
 	storyVisible := false
 	if s.cfg.mode == ModeClick {
@@ -339,10 +328,7 @@ func (s *Session) storySkipVisible(frame assist.Frame) bool {
 	return false
 }
 
-// storyEntryVisible 表示画面里真的有剧情 UI：跳过按钮，或已配置的菜单按钮。
-// 没配置菜单区域时不能当成"可见"，否则字幕式对话会退化成"看到白字就点"，
-// 大世界的任务提示、交互提示都会被误判成对话。
-// 同一帧会多次调用，这里按帧记忆，避免重复模板匹配。
+// storyEntryVisible 是宽松版：没配置菜单区域时按"可见"处理（绝区零的默认语义）。
 func (s *Session) storyEntryVisible(frame assist.Frame) bool {
 	if s.entrySet {
 		return s.entryVisible
@@ -352,76 +338,22 @@ func (s *Session) storyEntryVisible(frame assist.Frame) bool {
 	return s.entryVisible
 }
 
-// openStoryMenu 按下打开剧情菜单的键；已经在菜单里时不重复按。
-func (s *Session) openStoryMenu(frame assist.Frame) *actionStep {
-	if s.menuOpen {
-		return &actionStep{state: "等待剧情菜单", wait: s.spec.MenuWait}
-	}
-	s.menuOpen = true
-	s.menuOpenAt = frame.At
-	s.confirmUntil = time.Time{}
-	s.menuClickedAt = time.Time{}
-	s.lastSkipAt = time.Time{}
-	s.skipRetries = 0
-	return &actionStep{state: "按键打开剧情菜单", wait: s.spec.MenuWait,
-		actions: []assist.Action{{Kind: assist.ActionKeyTap, Key: s.spec.OpenMenuKey}}}
-}
-
-// clickMenuSkip 在剧情菜单里找“跳过剧情”并点击；找不到返回 nil。
-func (s *Session) clickMenuSkip(frame assist.Frame) (*actionStep, error) {
-	if s.spec.MenuSkipArea == "" {
-		return nil, nil
-	}
-	area, err := s.area(s.spec.Screen, s.spec.MenuSkipArea)
-	if err != nil {
-		return nil, err
-	}
-	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, storyButtonCacheTTL)
-	if err != nil {
-		return nil, fmt.Errorf("识别剧情菜单: %w", err)
-	}
-	block, ok := findBlock(blocks, s.spec.MenuSkipKeyword)
-	if !ok {
-		return nil, nil
-	}
-	s.menuOpen = false
-	s.menuClickedAt = frame.At
-	s.expectConfirm(frame.At, 5*time.Second)
-	return &actionStep{state: "点击跳过剧情", wait: s.spec.SkipClickWait,
-		actions: []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}}, nil
-}
-
-// stepStoryMenu 处理“剧情菜单已打开 → 点菜单里的跳过按钮”。
-func (s *Session) stepStoryMenu(frame assist.Frame) (assist.Result, []assist.Action, error) {
-	now := frame.At
-	if now.IsZero() {
-		now = time.Now()
-	}
-	if now.Sub(s.menuOpenAt) < s.spec.MenuWait {
-		return assist.Result{State: "等待剧情菜单", Wait: s.spec.MenuWait}, nil, nil
-	}
-	if now.Sub(s.menuOpenAt) > 5*time.Second {
-		s.menuOpen = false
-		s.confirmUntil = time.Time{}
-		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
-	}
-	if step, err := s.clickMenuSkip(frame); err != nil {
-		return assist.Result{}, nil, err
-	} else if step != nil {
-		result, actions := step.unpack()
-		return result, actions, nil
-	}
-	return assist.Result{State: "等待剧情菜单", Wait: 200 * time.Millisecond}, nil, nil
-}
-
-// dialogUIEvidence 是严格版：要求模板真的命中剧情 UI。
-// storyMenuVisible 在"没配置菜单区域"时恒为真，那是给绝区零这类有菜单按钮的
-// 画面留的默认值；字幕式对话不能用它，否则大世界的白字会被当成剧情。
-func (s *Session) dialogUIEvidence(frame assist.Frame) bool {
+// storyEntryStrict 是严格版：必须真有模板命中剧情 UI。
+// storyMenuVisible 在没配置菜单区域时恒为真，那是给绝区零留的默认值，
+// 字幕式对话（鸣潮）不能用它，否则大世界的白字会被当成剧情。
+func (s *Session) storyEntryStrict(frame assist.Frame) bool {
 	if len(s.spec.StoryMenuAreas) > 0 && s.storyMenuVisible(frame) {
 		return true
 	}
 	return s.storySkipVisible(frame)
+}
+
+// mode 返回当前游戏的画面判读实现。
+func (s *Session) mode() DialogMode {
+	if s.spec.Mode != nil {
+		return s.spec.Mode
+	}
+	return MaskMode{}
 }
 
 // fastStory 用便宜的灰底 + 白色文字行判断剧情，不跑 OCR，用于快速触发。
@@ -432,35 +364,9 @@ func (s *Session) fastStory(frame assist.Frame) (bool, error) {
 	return s.fastDialog(frame)
 }
 
-// fastDialog 只判断灰底 + 白色正文，不要求剧情菜单模板；
-// 用于没有“跳过”按钮、只能点击推进的对话。
+// fastDialog 交给各游戏的判读实现（绝区零看灰底，鸣潮看字幕行）。
 func (s *Session) fastDialog(frame assist.Frame) (bool, error) {
-	area, err := s.area(s.spec.Screen, s.spec.DialogArea)
-	if err != nil {
-		return false, err
-	}
-	if s.spec.DialogStyle == DialogText {
-		// 大世界底部也有白字（交互提示、任务提示），光看字幕会误判；
-		// 必须同时存在剧情 UI（跳过图标）才算在剧情对话里。
-		return s.subtitleVisible(frame, *area) && s.dialogUIEvidence(frame), nil
-	}
-	stats, err := s.rt.ColorStats(frame, *area)
-	if err != nil {
-		return false, err
-	}
-	if stats.GrayMaskPercent <= s.spec.GrayMaskThreshold {
-		return false, nil
-	}
-	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{
-		ColorRange: &[2][3]uint8{{170, 170, 170}, {255, 255, 255}},
-		MinHeight:  8,
-	})
-	for _, band := range bands {
-		if band.X2-band.X1 >= 20 {
-			return true, nil
-		}
-	}
-	return false, nil
+	return s.mode().FastDialog(s, frame)
 }
 
 // stepFastPad 是游戏手柄的快速固定序列：激活 → + → A → A。
@@ -633,7 +539,7 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 
 // retrySkip 在确认框还没出现时补点一次跳过图标，节流到 skipRetryInterval。
 func (s *Session) retrySkip(frame assist.Frame) ([]assist.Action, bool, error) {
-	if s.cfg.gamepad || s.spec.OpenMenuKey != "" || s.lastSkipAt.IsZero() || s.skipRetries >= skipRetryLimit {
+	if s.cfg.gamepad || s.lastSkipAt.IsZero() || s.skipRetries >= skipRetryLimit {
 		return nil, false, nil
 	}
 	if frame.At.Sub(s.lastSkipAt) < skipRetryInterval {
@@ -704,11 +610,6 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 				if match, ok, err := s.matchFirst(frame, s.spec.Screen, name); err != nil {
 					return nil, false, err
 				} else if ok {
-					// 鸣潮这类没有可点跳过图标的界面：先按键叫出剧情菜单，
-					// 菜单里才有“跳过剧情”按钮。
-					if s.spec.OpenMenuKey != "" {
-						return s.openStoryMenu(frame), true, nil
-					}
 					s.menuClickedAt = frame.At
 					s.lastSkipAt = frame.At
 					s.skipRetries = 0
@@ -725,7 +626,7 @@ func (s *Session) handleStoryBar(frame assist.Frame) (*actionStep, bool, error) 
 				}
 			}
 		}
-		if s.spec.DisableStoryOCR {
+		if s.mode().SkipStoryBarOCR() {
 			return nil, false, nil
 		}
 		// 先按原始画面 OCR 找“菜单/跳过/自动”，不能只看白色文字行：
@@ -930,40 +831,9 @@ func (s *Session) hitGuard(frame assist.Frame) (string, time.Duration, bool, err
 	return "", 0, false, nil
 }
 
+// inDialog 交给各游戏的判读实现。
 func (s *Session) inDialog(frame assist.Frame) (bool, error) {
-	area, err := s.area(s.spec.Screen, s.spec.DialogArea)
-	if err != nil {
-		return false, err
-	}
-	hash := areaHash(frame.Image, area.Rect)
-	if s.cfg.mode == ModeSkip && s.dialogCached && hash == s.dialogHash && !frame.At.Before(s.dialogAt) {
-		return s.dialogIn, nil
-	}
-	if s.spec.DialogStyle == DialogText {
-		return s.subtitleVisible(frame, *area), nil
-	}
-	stats, err := s.rt.ColorStats(frame, *area)
-	if err != nil {
-		return false, fmt.Errorf("统计对话框颜色: %w", err)
-	}
-	if stats.GrayMaskPercent <= s.spec.GrayMaskThreshold {
-		s.storeDialogResult(frame.At, hash, false)
-		return false, nil
-	}
-	// 上游 _check_dialog：灰底遮罩后还必须有中文正文。
-	// 只靠遮罩会把 CG/过场/动画里的深色区域误判成对话框。
-	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, 300*time.Millisecond)
-	if err != nil {
-		return false, fmt.Errorf("识别对话内容: %w", err)
-	}
-	for _, block := range blocks {
-		if containsChinese(block.Text) {
-			s.storeDialogResult(frame.At, hash, true)
-			return true, nil
-		}
-	}
-	s.storeDialogResult(frame.At, hash, false)
-	return false, nil
+	return s.mode().InDialog(s, frame)
 }
 
 // 字幕行的形态范围：1080p 下一行字幕约 20-26 像素高，
@@ -1014,7 +884,11 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 	now := frame.At
 	// 字幕式对话（鸣潮）没有灰底可判，只要画面里没有剧情 UI 就什么都不点，
 	// 否则大世界的任务提示、交互提示都会被当成对话。
-	if s.spec.DialogStyle == DialogText && !s.dialogUIEvidence(frame) {
+	if story, err := s.mode().StoryEntry(s, frame); err != nil {
+		return nil, err
+	} else if !story && !s.mode().AllowOptions(false, false) {
+		// 字幕式对话没有灰底可判，画面里没有剧情 UI 时什么都不点，
+		// 否则大世界的任务提示、交互提示都会被当成对话。
 		return nil, nil
 	}
 	inDialog, err := s.inDialog(frame)
@@ -1071,7 +945,7 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 
 	if inDialog || (s.cfg.mode != ModeSkip && storyVisible) {
 		s.recentClicks = s.spec.RecentClickLimit
-		actions, err := s.dialogClick(frame)
+		actions, err := s.mode().Advance(s, frame)
 		if err != nil {
 			return nil, err
 		}
@@ -1080,7 +954,7 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 
 	if s.recentClicks > 0 {
 		s.recentClicks--
-		actions, err := s.dialogClick(frame)
+		actions, err := s.mode().Advance(s, frame)
 		if err != nil {
 			return nil, err
 		}
@@ -1091,24 +965,9 @@ func (s *Session) doDialogClick(frame assist.Frame, storyVisible bool) (*actionS
 
 // dialogClick 返回推进对话的点击动作；配置了 DialogClickArea 时点它的中心，
 // 否则沿用点击当前光标（绝区零的对话可以点屏幕任意位置推进）。
-func (s *Session) dialogClick(frame assist.Frame) ([]assist.Action, error) {
-	if s.spec.DialogClickArea == "" {
-		return clickCurrent(), nil
-	}
-	area, err := s.area(s.spec.Screen, s.spec.DialogClickArea)
-	if err != nil {
-		return nil, err
-	}
-	return []assist.Action{{Kind: assist.ActionClick, Point: area.Rect.Center()}}, nil
-}
-
-// optionAllowed 判断当前能不能点选项：字幕式对话框（鸣潮）没有灰底，
-// 只有确实在剧情里（有字幕或跳过按钮）才点，避免在菜单界面误点。
+// optionAllowed 交给各游戏的判读实现。
 func (s *Session) optionAllowed(inDialog, storyVisible bool) bool {
-	if s.spec.DialogStyle != DialogText {
-		return true
-	}
-	return inDialog || storyVisible
+	return s.mode().AllowOptions(inDialog, storyVisible)
 }
 
 // clickOptionArea 用白色文字行定位选项，不跑 OCR；灰色选项不会被选中。
@@ -1234,8 +1093,6 @@ func (s *Session) resetAfterConfirm() {
 	s.menuClickedAt = time.Time{}
 	s.lastSkipAt = time.Time{}
 	s.skipRetries = 0
-	s.menuOpen = false
-	s.menuOpenAt = time.Time{}
 	s.confirmUntil = time.Time{}
 	s.padPhase = padPhaseNone
 	s.padAt = time.Time{}

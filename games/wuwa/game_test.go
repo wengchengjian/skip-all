@@ -51,8 +51,8 @@ func TestAssetsLoadStoryScreen(t *testing.T) {
 
 func TestStorySkipSpecUsesTextDialog(t *testing.T) {
 	spec := storySkipSpec()
-	if spec.DialogStyle != storyskip.DialogText {
-		t.Fatalf("DialogStyle = %v", spec.DialogStyle)
+	if _, ok := spec.Mode.(storyskip.TextMode); !ok {
+		t.Fatalf("Mode = %T, want storyskip.TextMode", spec.Mode)
 	}
 	if len(spec.StorySkipAreas) == 0 {
 		t.Fatal("缺少剧情跳过模板区域")

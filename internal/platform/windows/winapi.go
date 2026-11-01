@@ -14,6 +14,14 @@ var (
 	gdi32  = windows.NewLazySystemDLL("gdi32.dll")
 )
 
+var (
+	procScreenToClient   = user32.NewProc("ScreenToClient")
+	procGetWindowRect    = user32.NewProc("GetWindowRect")
+	procEnumChildWindows = user32.NewProc("EnumChildWindows")
+	procIsWindowVisible  = user32.NewProc("IsWindowVisible")
+	procMapVirtualKey    = user32.NewProc("MapVirtualKeyW")
+)
+
 // winRect 对应 Win32 RECT。
 type winRect struct {
 	Left   int32

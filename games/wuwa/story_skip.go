@@ -24,11 +24,10 @@ func storySkipSpec() storyskip.Spec {
 		MiddleOptionArea: "中间选项区域",
 		// 鸣潮的“跳过”是左上角的图标，没有文字，只能靠模板：
 		// 过场剧情在左侧偏下，普通剧情对话在左上角、图标更小。
-		StorySkipAreas:  []string{"剧情跳过", "剧情跳过-对话"},
-		DialogStyle:     storyskip.DialogText,
+		StorySkipAreas: []string{"剧情跳过", "剧情跳过-对话"},
+		// 字幕式界面：没有对话框底板，靠白色字幕行 + 剧情 UI 模板判断。
+		Mode:            storyskip.TextMode{},
 		DialogClickArea: "对话内容",
-		// 纯模板判定，不为了剧情栏加载 OCR；只有确认框出现时才用 OCR。
-		DisableStoryOCR: true,
 		// 鸣潮的手柄跳过按键没有实测过，先固定用鼠标/后台点击。
 		IgnoreGamepad: true,
 		// 字幕是带描边的白字，亮度到不了纯白，白色文字行要放宽下限。
