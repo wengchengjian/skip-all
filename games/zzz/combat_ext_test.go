@@ -20,34 +20,42 @@ func (f fakeRuntime) MatchTemplate(_ assist.Frame, area screen.Area, ref vision.
 	return f.matches[ref.ID], nil
 }
 
-func TestDodgeFlashExtension(t *testing.T) {
-	ext := &zzzDodgeExt{
-		Rect:     geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840},
-		Ratio:    0.03,
-		Key:      "shift",
-		Interval: time.Second,
-		Colors:   [][2][3]uint8{{{225, 195, 60}, {255, 255, 165}}},
+func newTestDodgeExt() *zzzDodgeExt {
+	return &zzzDodgeExt{
+		Rect:        geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840},
+		Yellow:      [2][3]uint8{{225, 195, 60}, {255, 255, 165}},
+		Red:         [2][3]uint8{{215, 35, 35}, {255, 110, 110}},
+		Ratio:       0.03,
+		DodgeKey:    "shift",
+		AttackPoint: geom.Point{X: 960, Y: 540},
+		Interval:    time.Second,
 	}
+}
+
+func TestDodgeFlashExtension(t *testing.T) {
+	ext := newTestDodgeExt()
 	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
 	for y := 300; y < 800; y++ {
 		for x := 600; x < 1320; x++ {
 			img.SetRGBA(x, y, color.RGBA{250, 220, 90, 255})
 		}
 	}
+	// 认不出后台角色时，黄光就按闪避处理。
 	action, state, ok, err := ext.Step(fakeRuntime{}, assist.Frame{Image: img, At: time.Now()})
-	if err != nil || !ok || state != "闪避-闪光" || action.Key != "shift" {
-		t.Fatalf("黄光应当触发闪避: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	if err != nil || !ok || state != "闪避" || action.Key != "shift" {
+		t.Fatalf("没有可格挡目标时应当闪避: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
 	}
-	// 间隔内不重复触发。
+	// 队列里的补普攻会先出，之后间隔内不再触发。
+	if _, _, ok, _ := ext.Step(fakeRuntime{}, assist.Frame{Image: img, At: time.Now()}); !ok {
+		t.Fatal("闪避后应补一次普攻")
+	}
 	if _, _, ok, _ := ext.Step(fakeRuntime{}, assist.Frame{Image: img, At: time.Now()}); ok {
 		t.Fatal("闪避间隔内不该重复触发")
 	}
 	// 没有闪光不触发。
 	empty := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
-	ext2 := &zzzDodgeExt{Rect: geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840}, Ratio: 0.03, Key: "shift", Interval: time.Second,
-		Colors: [][2][3]uint8{{{225, 195, 60}, {255, 255, 165}}}}
-	if _, _, ok, _ := ext2.Step(fakeRuntime{}, assist.Frame{Image: empty, At: time.Now()}); ok {
-		t.Fatal("没有闪光不该触发闪避")
+	if _, _, ok, _ := newTestDodgeExt().Step(fakeRuntime{}, assist.Frame{Image: empty, At: time.Now()}); ok {
+		t.Fatal("没有闪光不该触发")
 	}
 }
 
@@ -460,5 +468,60 @@ func TestTeamScanIsBatchedPerFrame(t *testing.T) {
 	}
 	if team.learnedAt.IsZero() {
 		t.Fatal("多帧之后应当完成一轮学习")
+	}
+}
+
+func TestDodgeParryPicksStunSlot(t *testing.T) {
+	slots := []geom.Rect{
+		{X1: 104, Y1: 40, X2: 274, Y2: 110},
+		{X1: 559, Y1: 40, X2: 662, Y2: 91},
+		{X1: 741, Y1: 40, X2: 844, Y2: 91},
+	}
+	ext := &zzzDodgeExt{
+		Rect:        geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840},
+		Yellow:      [2][3]uint8{{225, 195, 60}, {255, 255, 165}},
+		Red:         [2][3]uint8{{215, 35, 35}, {255, 110, 110}},
+		Ratio:       0.03,
+		DodgeKey:    "shift",
+		Slots:       slots,
+		Keys:        []string{"1", "2", "3"},
+		KnownIDs:    func() []string { return []string{"lycaon", "ellen", "anby"} },
+		AttackPoint: geom.Point{X: 960, Y: 540},
+		Interval:    time.Second,
+	}
+	// 黄光：后台两位分别是艾莲(强攻)和安比(击破) -> 应当切安比(3)。
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 300; y < 700; y += 2 {
+		for x := 600; x < 1300; x += 2 {
+			img.SetRGBA(x, y, color.RGBA{245, 220, 90, 255})
+		}
+	}
+	rt := &mutableAreaFake{byRect: map[geom.Rect]map[string]float64{
+		slots[1]: {"ellen": 0.95},
+		slots[2]: {"anby": 0.95},
+	}}
+	action, state, ok, err := ext.Step(rt, assist.Frame{Image: img, At: time.Now()})
+	if err != nil || !ok || state != "格挡-切人" || action.Key != "3" {
+		t.Fatalf("黄光应当切击破位: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	}
+	// 队列里还有一次普攻。
+	queued, _, ok, _ := ext.Step(rt, assist.Frame{Image: img, At: time.Now()})
+	if !ok || queued.Kind != assist.ActionClick {
+		t.Fatalf("格挡换人后应补普攻: %+v", queued)
+	}
+
+	// 红光：闪避 + 普攻。
+	ext2 := &zzzDodgeExt{Rect: ext.Rect, Yellow: ext.Yellow, Red: ext.Red, Ratio: 0.03,
+		DodgeKey: "shift", Slots: slots, Keys: []string{"1", "2", "3"},
+		KnownIDs: ext.KnownIDs, AttackPoint: ext.AttackPoint, Interval: time.Second}
+	redImg := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 300; y < 700; y += 2 {
+		for x := 600; x < 1300; x += 2 {
+			redImg.SetRGBA(x, y, color.RGBA{230, 60, 60, 255})
+		}
+	}
+	action, state, ok, err = ext2.Step(rt, assist.Frame{Image: redImg, At: time.Now()})
+	if err != nil || !ok || state != "闪避" || action.Key != "shift" {
+		t.Fatalf("红光应当闪避: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
 	}
 }

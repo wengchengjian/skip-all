@@ -10,36 +10,122 @@ import (
 	"github.com/wengchengjian/skip-all/pkg/vision"
 )
 
-// zzzDodgeExt 是绝区零的闪光闪避。
-// 上游用 YOLO 模型分类红光/黄光（auto_battle_dodge_context.check_dodge_flash），
-// 这里用颜色占比近似：屏幕中央出现大片黄/红闪光就按闪避键。
+// zzzDodgeExt 是绝区零的闪避/格挡，照上游 config/dodge/智能格挡.sample.yml：
+//   - 黄光：切到"支援攻击"优先级最高的后台角色做格挡，再补普攻
+//     （上游优先级：特殊情况 > 击破 > 命破 > 防护 > 异常 > 下一个）；
+//   - 红光：闪避，再补普攻（闪A）。
+//
+// 上游把这两段写成 triggers -> operations，这里压成一个小队列，每次 Step 出一手。
 type zzzDodgeExt struct {
-	Rect   geom.Rect
-	Colors [][2][3]uint8
-	Ratio  float64
-	Key    string
+	Rect     geom.Rect
+	Yellow   [2][3]uint8
+	Red      [2][3]uint8
+	Ratio    float64
+	DodgeKey string
+	// Slots 是三位角色的头像区域，用来认清后台有谁；Keys 是对应槽位键。
+	Slots []geom.Rect
+	Keys  []string
+	// KnownIDs 返回已认出的代理人模板：有白名单就只比这几张，不扫 71 张。
+	KnownIDs    func() []string
+	AttackPoint geom.Point
 	// Interval 是两次闪避之间的最小间隔，避免同一段闪光连按。
 	Interval time.Duration
 	last     time.Time
+	queue    []assist.Action
 }
 
 func (d *zzzDodgeExt) Name() string { return "dodge_flash" }
 
-func (d *zzzDodgeExt) Step(_ combat.Runtime, frame assist.Frame) (assist.Action, string, bool, error) {
+func (d *zzzDodgeExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Action, string, bool, error) {
 	now := frame.At
 	if now.IsZero() {
 		now = time.Now()
 	}
+	// 队列里还有后续动作（格挡换人后的普攻）就先打完。
+	if len(d.queue) > 0 {
+		action := d.queue[0]
+		d.queue = d.queue[1:]
+		return action, "格挡-连招", true, nil
+	}
 	if !d.last.IsZero() && now.Sub(d.last) < d.Interval {
 		return assist.Action{}, "", false, nil
 	}
-	for _, c := range d.Colors {
-		if vision.ColorRatio(frame.Image, d.Rect, c) >= d.Ratio {
-			d.last = now
-			return assist.Action{Kind: assist.ActionKeyTap, Key: d.Key}, "闪避-闪光", true, nil
+	ratio := d.Ratio
+	if ratio <= 0 {
+		ratio = 0.03
+	}
+	yellow := vision.ColorRatio(frame.Image, d.Rect, d.Yellow) >= ratio
+	red := vision.ColorRatio(frame.Image, d.Rect, d.Red) >= ratio
+	if !yellow && !red {
+		return assist.Action{}, "", false, nil
+	}
+	d.last = now
+	attack := assist.Action{Kind: assist.ActionClick, Point: d.AttackPoint}
+	if yellow {
+		// 黄光是格挡时机：按"支援攻击"优先级挑一个后台角色换上来。
+		if key := d.parryTarget(rt, frame); key != "" {
+			d.queue = append(d.queue, attack)
+			return assist.Action{Kind: assist.ActionKeyTap, Key: key}, "格挡-切人", true, nil
 		}
 	}
-	return assist.Action{}, "", false, nil
+	d.queue = append(d.queue, attack)
+	return assist.Action{Kind: assist.ActionKeyTap, Key: d.DodgeKey}, "闪避", true, nil
+}
+
+// parryTarget 按上游"支援攻击"的定位优先级挑后台角色，返回它的槽位键。
+func (d *zzzDodgeExt) parryTarget(rt combat.Runtime, frame assist.Frame) string {
+	if len(d.Slots) == 0 || len(d.Keys) == 0 {
+		return ""
+	}
+	best := ""
+	bestScore := -1
+	candidates := avatarIDs("avatar1")
+	if d.KnownIDs != nil {
+		if known := d.KnownIDs(); len(known) > 0 {
+			candidates = known
+		}
+	}
+	ids := make([]string, len(d.Slots))
+	for i, slot := range d.Slots {
+		bestConf, bestID := 0.0, ""
+		for _, id := range candidates {
+			matches, err := rt.MatchTemplate(frame, screen.Area{Name: "角色头像", Rect: slot}, vision.TemplateRef{SubDir: "avatar1", ID: id}, 0.78)
+			if err != nil {
+				continue
+			}
+			if len(matches) > 0 && matches[0].Confidence > bestConf {
+				bestConf, bestID = matches[0].Confidence, id
+			}
+		}
+		ids[i] = bestID
+	}
+	for i := 1; i < len(ids) && i < len(d.Keys); i++ { // 后台两位
+		score := parryScore(ids[i])
+		if score > bestScore {
+			bestScore, best = score, d.Keys[i]
+		}
+	}
+	if bestScore < 0 {
+		return ""
+	}
+	return best
+}
+
+// parryScore 是上游 支援攻击模板 的定位优先级：击破 > 命破 > 防护 > 异常 > 其它。
+func parryScore(id string) int {
+	switch {
+	case agentsByType[AgentTypeStun][id]:
+		return 5
+	case agentsByType[AgentTypeRupture][id]:
+		return 4
+	case agentsByType[AgentTypeDefense][id]:
+		return 3
+	case agentsByType[AgentTypeAnomaly][id]:
+		return 2
+	case id != "":
+		return 1
+	}
+	return 0
 }
 
 // zzzQuickAssistExt 是绝区零的快速支援/招架支援。
@@ -249,13 +335,19 @@ func zzzExtensions(team *zzzTeam) []combat.Extension {
 		&zzzDodgeExt{
 			// 闪光出现在角色周围，取屏幕中央一块；比值是经验值，实机可调。
 			Rect:     geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840},
+			Yellow:   [2][3]uint8{{225, 195, 60}, {255, 255, 165}},
+			Red:      [2][3]uint8{{215, 35, 35}, {255, 110, 110}},
 			Ratio:    0.03,
-			Key:      "shift",
-			Interval: 600 * time.Millisecond,
-			Colors: [][2][3]uint8{
-				{{225, 195, 60}, {255, 255, 165}}, // 黄光
-				{{215, 35, 35}, {255, 110, 110}},  // 红光
+			DodgeKey: "shift",
+			Slots: []geom.Rect{
+				{X1: 104, Y1: 40, X2: 274, Y2: 110},
+				{X1: 559, Y1: 40, X2: 662, Y2: 91},
+				{X1: 741, Y1: 40, X2: 844, Y2: 91},
 			},
+			Keys:        []string{"1", "2", "3"},
+			KnownIDs:    team.LearnedIDs,
+			AttackPoint: geom.Point{X: 960, Y: 540},
+			Interval:    600 * time.Millisecond,
 		},
 		&zzzChainExt{
 			Bar:       geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900},
