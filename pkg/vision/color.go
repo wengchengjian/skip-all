@@ -159,3 +159,29 @@ func inRange(r, g, b uint8, colorRange [2][3]uint8) bool {
 	lo, hi := colorRange[0], colorRange[1]
 	return r >= lo[0] && r <= hi[0] && g >= lo[1] && g <= hi[1] && b >= lo[2] && b <= hi[2]
 }
+
+// ColorRatio 统计区域里落在颜色范围内的像素比例。
+// 上游大量状态判定都是"颜色占比"（如闪光、技能可用高亮）。
+func ColorRatio(img *image.RGBA, rect geom.Rect, colorRange [2][3]uint8) float64 {
+	if img == nil {
+		return 0
+	}
+	r := image.Rect(rect.X1, rect.Y1, rect.X2, rect.Y2).Intersect(img.Bounds())
+	if r.Empty() {
+		return 0
+	}
+	hit, total := 0, 0
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			total++
+			c := img.RGBAAt(x, y)
+			if inRange(c.R, c.G, c.B, colorRange) {
+				hit++
+			}
+		}
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(hit) / float64(total)
+}

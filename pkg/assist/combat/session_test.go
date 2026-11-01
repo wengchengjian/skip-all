@@ -388,3 +388,58 @@ func TestConcertoFullSwitchesCharacter(t *testing.T) {
 		t.Fatalf("切人动作 = %+v", actions)
 	}
 }
+
+type stubExtension struct {
+	name  string
+	state string
+	key   string
+	calls int
+}
+
+func (s *stubExtension) Name() string { return s.name }
+
+func (s *stubExtension) Step(Runtime, assist.Frame) (assist.Action, string, bool, error) {
+	s.calls++
+	if s.state == "" {
+		return assist.Action{}, "", false, nil
+	}
+	return assist.Action{Kind: assist.ActionKeyTap, Key: s.key}, s.state, true, nil
+}
+
+type combatRuntimeOnly struct{}
+
+func (combatRuntimeOnly) MatchTemplate(assist.Frame, screen.Area, vision.TemplateRef, float64) ([]vision.Match, error) {
+	return nil, nil
+}
+
+func TestExtensionRunsBeforePlan(t *testing.T) {
+	ext := &stubExtension{name: "dodge", state: "扩展-闪避", key: "shift"}
+	spec := testSpec()
+	spec.Extensions = []Extension{ext}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	result, actions := step(t, session, frameAt(time.Now()))
+	if result.State != "扩展-闪避" || len(actions) != 1 || actions[0].Key != "shift" {
+		t.Fatalf("扩展应当先于连招生效: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestExtensionCanBeDisabledBySettings(t *testing.T) {
+	ext := &stubExtension{name: "dodge", state: "扩展-闪避", key: "shift"}
+	spec := testSpec()
+	spec.Extensions = []Extension{ext}
+	feature := NewFeature(spec)
+	settings := feature.DefaultSettings()
+	settings[SettingExtPrefix+"dodge"] = false
+	cfg, err := parseSettings(settings, feature.spec)
+	if err != nil {
+		t.Fatalf("解析设置失败: %v", err)
+	}
+	session := newSession(testRuntime(true), feature.spec, cfg)
+	result, _ := step(t, session, frameAt(time.Now()))
+	if result.State == "扩展-闪避" {
+		t.Fatal("关掉开关后扩展不该生效")
+	}
+	if ext.calls != 0 {
+		t.Fatalf("关掉后不该被调用, calls = %d", ext.calls)
+	}
+}

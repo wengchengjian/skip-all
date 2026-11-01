@@ -68,6 +68,12 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{State: "战斗前切治疗", Wait: s.spec.Interval},
 			[]assist.Action{{Kind: assist.ActionKeyTap, Key: s.spec.HealerKey}}, nil
 	}
+	// 游戏专属能力优先：闪光闪避、快速支援这类要抢在连招前面。
+	if action, state, ok, err := s.runExtensions(frame); err != nil {
+		return assist.Result{}, nil, err
+	} else if ok {
+		return assist.Result{State: state, Wait: s.spec.Interval}, []assist.Action{action}, nil
+	}
 	// 协奏值满了就切人（上游 switch_next_char 的核心判据）。
 	if action, ok := s.concertoSwitch(frame, now); ok {
 		return assist.Result{State: "协奏满切人", Wait: s.spec.Interval}, []assist.Action{action}, nil
@@ -177,6 +183,27 @@ func (s *Session) nextAction() (assist.Action, string, bool) {
 		}
 	}
 	return assist.Action{}, "", false
+}
+
+// runExtensions 依次询问各扩展，第一个认领的生效。
+func (s *Session) runExtensions(frame assist.Frame) (assist.Action, string, bool, error) {
+	if len(s.spec.Extensions) == 0 {
+		return assist.Action{}, "", false, nil
+	}
+	rt := runtimeAdapter{rt: s.rt}
+	for _, ext := range s.spec.Extensions {
+		if s.cfg.disabledExt(ext.Name()) {
+			continue
+		}
+		action, state, ok, err := ext.Step(rt, frame)
+		if err != nil {
+			return assist.Action{}, "", false, fmt.Errorf("扩展 %s: %w", ext.Name(), err)
+		}
+		if ok {
+			return action, state, true, nil
+		}
+	}
+	return assist.Action{}, "", false, nil
 }
 
 // hasTarget 判断当前是否已经锁定目标：has_target / no_target 两张模板比分数。

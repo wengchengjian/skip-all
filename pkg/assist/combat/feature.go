@@ -16,8 +16,10 @@ const (
 	SettingUseDodge      = "use_dodge"
 	SettingSwitchHealer  = "switch_healer"
 	SettingUseConcerto   = "use_concerto_switch"
-	SettingInterval      = "interval"
-	SettingHold          = "hold"
+	// SettingExtPrefix 是游戏专属能力开关的前缀，后面接 Extension.Name()。
+	SettingExtPrefix = "ext_"
+	SettingInterval  = "interval"
+	SettingHold      = "hold"
 )
 
 // Feature 是自动战斗功能。
@@ -52,7 +54,7 @@ func (f *Feature) MinFPS() int { return 10 }
 
 // DefaultSettings 返回默认设置。
 func (f *Feature) DefaultSettings() assist.Settings {
-	return assist.Settings{
+	settings := assist.Settings{
 		SettingUseLiberation: true,
 		SettingUseEcho:       true,
 		SettingUseDodge:      true,
@@ -61,6 +63,10 @@ func (f *Feature) DefaultSettings() assist.Settings {
 		SettingInterval:      f.spec.Interval.Seconds(),
 		SettingHold:          f.spec.Hold.Seconds(),
 	}
+	for _, ext := range f.spec.Extensions {
+		settings[SettingExtPrefix+ext.Name()] = true
+	}
+	return settings
 }
 
 // Validate 校验功能设置。
@@ -91,6 +97,12 @@ type sessionSettings struct {
 	noDodge      bool
 	noHealer     bool
 	noConcerto   bool
+	extOff       map[string]bool
+}
+
+// disabledExt 报告某个游戏专属能力是否被设置关掉。
+func (c sessionSettings) disabledExt(name string) bool {
+	return c.extOff[name]
 }
 
 func parseSettings(settings assist.Settings, spec Spec) (sessionSettings, error) {
@@ -112,6 +124,14 @@ func parseSettings(settings assist.Settings, spec Spec) (sessionSettings, error)
 	}
 	if value, ok := boolSetting(settings, SettingUseConcerto); ok {
 		cfg.noConcerto = !value
+	}
+	if spec.Extensions != nil {
+		cfg.extOff = make(map[string]bool, len(spec.Extensions))
+		for _, ext := range spec.Extensions {
+			if value, ok := boolSetting(settings, SettingExtPrefix+ext.Name()); ok && !value {
+				cfg.extOff[ext.Name()] = true
+			}
+		}
 	}
 	if value, ok := floatSetting(settings, SettingInterval); ok {
 		if value <= 0 {

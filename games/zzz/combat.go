@@ -7,9 +7,9 @@ import (
 )
 
 // CombatFeature 创建绝区零自动战斗功能。
-func CombatFeature() assist.Feature {
-	return combat.NewFeature(combatSpec())
-}
+func CombatFeature() assist.Feature { return combatFeature() }
+
+func combatFeature() *combat.Feature { return combat.NewFeature(combatSpec()) }
 
 // combatSpec 的按键与判据来自上游 ZenlessZoneZero-OneDragon：
 // 普通攻击 = 鼠标左键，闪避 = Shift，特殊攻击 = E，终结技 = Q，
@@ -28,6 +28,8 @@ func combatSpec() combat.Spec {
 			Dodge:      "shift",
 			Switch:     []string{"space"},
 		},
+		// 绝区零专属能力：闪光闪避、快速支援（通用流程先问它们，再走连招）。
+		Extensions: zzzExtensions(),
 		Plan: []combat.Step{
 			{Kind: combat.StepAttack},
 			{Kind: combat.StepAttack},
