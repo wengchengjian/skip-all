@@ -36,6 +36,8 @@
 ```text
 flying 22   is_con_full 10   check_outro 8   still_in_liberation 5   has_intro 7   can_resonance_step2 1
 ```
+> 口径：上面是生成脚本的统计（57 个角色、`do_perform()` 一层内联）；全量 `src/char/*.py` 的 if 行更多（审计：flying 45、check_outro 10、still_in_liberation 8），差异来自跨方法（`do_perform_interlock`、`wait_for_accelerate_ready`）与 `get_switch_priority` 等不在提取范围的分支。
+
 | `check_outro()` 的分支 | 10 个角色 | 检测已做会话记账（`CombatState.LastOutro` + `延奏=` 原子）；10 个分支全是循环时长/收尾序列的修饰，不产生单步动作，因此不进规则表 |
 | `get_switch_priority()` 重写 | 26 个角色 | 同上；其中**可机械提取的那一类"在场是谁则必须切我"已经做了**（`SwitchSynergy`，10 对） |
 | `need_fast_perform()` | 6 个角色 | 判据就是"队友的 `get_switch_priority` 是否 MUST"，自身没有独立语义 |
