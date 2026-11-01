@@ -63,11 +63,14 @@ func testRuntime(hit bool) *fakeRuntime {
 
 func testSpec() Spec {
 	return Spec{
-		Screen:         "测试战斗",
-		DetectAreas:    []string{"锁定"},
-		HealthBarArea:  "血条",
-		HealthBarRange: [2][3]uint8{{174, 55, 55}, {225, 85, 76}},
-		HealthBarRatio: 0.02,
+		Screen:      "测试战斗",
+		DetectAreas: []string{"锁定"},
+		HealthBar: &HealthBar{
+			Color:     [2][3]uint8{{174, 55, 55}, {225, 85, 76}},
+			MinWidth:  50,
+			MinHeight: 5,
+			MaxHeight: 14,
+		},
 		Keys: Keys{
 			Skill: "e", Echo: "q", Liberation: "r", Dodge: "lshift",
 			Switch: []string{"1", "2"},
@@ -215,10 +218,10 @@ func TestFeatureRequestsHigherFrameRate(t *testing.T) {
 
 func TestHealthBarEvidence(t *testing.T) {
 	session := newSession(testRuntime(false), testSpec().withDefaults(), sessionSettings{})
-	// 血条区域刷成上游的红色区间：应当判成战斗。
+	// 画一条上游规格的敌人血条（120x8，填充率 1.0）：应当判成战斗。
 	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
-	for y := 100; y < 120; y++ {
-		for x := 700; x < 1200; x++ {
+	for y := 100; y < 108; y++ {
+		for x := 700; x < 820; x++ {
 			img.SetRGBA(x, y, color.RGBA{200, 70, 60, 255})
 		}
 	}

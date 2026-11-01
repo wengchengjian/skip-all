@@ -25,6 +25,10 @@ const form = reactive({
   cursorMode: "auto",
   ocrGpu: "auto",
   gamepad: false,
+  useLiberation: true,
+  useEcho: true,
+  useDodge: true,
+  combatInterval: 0.15,
   excludedGames: [] as string[],
   hotkeyToggle: "F9",
   hotkeyPanic: "F10",
@@ -46,6 +50,12 @@ watch(
     form.dialogClickInterval = toNumber(settings.dialog_click_interval, 0.5);
     form.optionClickInterval = toNumber(settings.option_click_interval, 0.1);
     form.sleepAfterEmpty = toNumber(settings.sleep_after_empty, 0.5);
+    const combat = config.games?.[props.selectedGameId]?.Features?.["auto_combat"];
+    const combatSettings = combat?.Settings ?? {};
+    form.useLiberation = combatSettings.use_liberation ?? true;
+    form.useEcho = combatSettings.use_echo ?? true;
+    form.useDodge = combatSettings.use_dodge ?? true;
+    form.combatInterval = toNumber(combatSettings.interval, 0.15);
     form.pauseWhenBackground = config.app.Input.PauseWhenBackground;
     form.captureMethod = config.app.Capture.Method || "auto";
     form.inputMode = config.app.Input.Mode || "background";
@@ -94,6 +104,14 @@ function save() {
       dialog_click_interval: form.dialogClickInterval,
       option_click_interval: form.optionClickInterval,
       sleep_after_empty: form.sleepAfterEmpty,
+    };
+    const combatFeature = (features["auto_combat"] ??= { Enabled: true, Settings: {} });
+    combatFeature.Settings = {
+      ...(combatFeature.Settings ?? {}),
+      use_liberation: form.useLiberation,
+      use_echo: form.useEcho,
+      use_dodge: form.useDodge,
+      interval: form.combatInterval,
     };
   }
   emit("save", view);
@@ -153,7 +171,29 @@ function save() {
       </section>
 
       <section class="settings-section">
-        <div class="section-title"><span>02</span><h3>运行时</h3></div>
+        <div class="section-title"><span>02</span><h3>自动战斗</h3></div>
+        <div class="form-grid">
+          <label class="field field-switch">
+            <span>使用爆发 / LIBERATION</span>
+            <input v-model="form.useLiberation" type="checkbox" />
+          </label>
+          <label class="field field-switch">
+            <span>使用装备技能 / ECHO</span>
+            <input v-model="form.useEcho" type="checkbox" />
+          </label>
+          <label class="field field-switch">
+            <span>使用闪避 / DODGE</span>
+            <input v-model="form.useDodge" type="checkbox" />
+          </label>
+          <label class="field">
+            <span>出招间隔（秒） / INTERVAL</span>
+            <input v-model.number="form.combatInterval" type="number" step="0.05" min="0.05" />
+          </label>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <div class="section-title"><span>03</span><h3>运行时</h3></div>
         <div class="form-grid">
           <label class="field">
             <span>截图方式 / CAPTURE</span>
@@ -199,7 +239,7 @@ function save() {
       </section>
 
       <section class="settings-section">
-        <div class="section-title"><span>03</span><h3>启动范围</h3></div>
+        <div class="section-title"><span>04</span><h3>启动范围</h3></div>
         <p class="form-hint">默认自动启动全部游戏；取消勾选即可排除该游戏。</p>
         <div class="form-grid">
           <label v-for="game in games" :key="game.id" class="checkbox-field">

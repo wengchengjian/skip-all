@@ -63,31 +63,15 @@ func TestStorySkipSpecUsesTextDialog(t *testing.T) {
 	}
 }
 
-func TestAssetsLoadCombatScreen(t *testing.T) {
-	game := New()
-	set, err := screen.LoadFS(game.Assets(), "screens")
-	if err != nil {
-		t.Fatalf("加载画面失败: %v", err)
-	}
-	combat, ok := set.Get("鸣潮战斗")
-	if !ok {
-		t.Fatal("缺少 鸣潮战斗 画面")
-	}
-	area, ok := combat.Area("敌人血条")
-	if !ok {
-		t.Fatal("缺少 敌人血条 区域")
-	}
-	if area.Rect.X2 <= area.Rect.X1 || area.Rect.Y2 <= area.Rect.Y1 {
-		t.Fatalf("敌人血条 区域未解析: %+v", area.Rect)
-	}
-}
-
 func TestCombatSpecUsesUpstreamKeys(t *testing.T) {
 	spec := combatSpec()
 	if spec.Keys.Skill != "e" || spec.Keys.Echo != "q" || spec.Keys.Liberation != "r" || spec.Keys.Dodge != "lshift" {
 		t.Fatalf("按键绑定 = %+v", spec.Keys)
 	}
-	if spec.HealthBarArea == "" || spec.HealthBarRange != ([2][3]uint8{{174, 55, 55}, {225, 85, 76}}) {
-		t.Fatalf("血条证据 = %q %v", spec.HealthBarArea, spec.HealthBarRange)
+	if spec.HealthBar == nil || spec.HealthBar.Color != ([2][3]uint8{{174, 55, 55}, {225, 85, 76}}) {
+		t.Fatalf("血条证据 = %+v", spec.HealthBar)
+	}
+	if spec.HealthBar.MinWidth != 50 || spec.HealthBar.MaxHeight != 14 {
+		t.Fatalf("血条尺寸阈值 = %+v", spec.HealthBar)
 	}
 }

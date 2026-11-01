@@ -12,11 +12,13 @@ import (
 // 加进 Features()；在此之前不注册，避免用户看到一个无法生效的功能。
 func combatSpec() combat.Spec {
 	return combat.Spec{
-		Screen:         "绝区零战斗",
-		HealthBarArea:  "敌人血条",
-		HealthBarRange: [2][3]uint8{{174, 55, 55}, {225, 85, 76}},
-		HealthBarRatio: 0.02,
-		AttackPoint:    geom.Point{X: 960, Y: 540},
+		HealthBar: &combat.HealthBar{
+			Color:     [2][3]uint8{{174, 55, 55}, {225, 85, 76}},
+			MinWidth:  50,
+			MinHeight: 5,
+			MaxHeight: 14,
+		},
+		AttackPoint: geom.Point{X: 960, Y: 540},
 		Keys: combat.Keys{
 			Skill:      "e",
 			Liberation: "q",
