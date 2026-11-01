@@ -58,8 +58,9 @@ func (e *wuwaForteExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Actio
 }
 
 // wuwaExtensions 返回鸣潮专属的战斗能力。
-func wuwaExtensions() []combat.Extension {
+func wuwaExtensions(team combat.Team) []combat.Extension {
 	return []combat.Extension{
+		&wuwaJinhsiExt{team: team, skillKey: "e", echoKey: "q"},
 		&wuwaForteExt{
 			Area:        screen.Area{Name: "回路提示", Rect: geom.Rect{X1: 1080, Y1: 950, X2: 1220, Y2: 1045}},
 			SubDir:      "forte",
@@ -71,4 +72,65 @@ func wuwaExtensions() []combat.Extension {
 			Interval:    500 * time.Millisecond,
 		},
 	}
+}
+
+// wuwaJinhsiExt 移植上游 Jinhsi.handle_incarnation() 的形态：
+// 场上交替"普攻 / 共鸣技能"，一旦角色离场（共鸣解放动画期间队伍数字不可辨）就记下，
+// 等重新出场后放声骸（没有声骸就普攻）收尾，最长 6 秒。
+type wuwaJinhsiExt struct {
+	team       combat.Team
+	alt        bool
+	offField   bool
+	startedAt  time.Time
+	lastAction time.Time
+	echoKey    string
+	skillKey   string
+}
+
+func (e *wuwaJinhsiExt) Name() string { return "jinhsi" }
+
+func (e *wuwaJinhsiExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Action, string, bool, error) {
+	if e.team == nil {
+		return assist.Action{}, "", false, nil
+	}
+	agent, ok, err := e.team.Agent(rt, frame)
+	if err != nil || !ok || agent != "char_jinhsi" {
+		e.offField, e.alt, e.startedAt = false, false, time.Time{}
+		return assist.Action{}, "", false, nil
+	}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if e.startedAt.IsZero() {
+		e.startedAt = now
+	}
+	if now.Sub(e.startedAt) > 6*time.Second {
+		e.startedAt = time.Time{}
+		return assist.Action{}, "", false, nil
+	}
+	if _, ok, err := e.team.Current(rt, frame); err != nil || !ok {
+		// 认不出当前角色 = 动画/离场期间，不出手。
+		e.offField = true
+		return assist.Action{}, "", false, nil
+	}
+	if e.offField {
+		e.offField = false
+		e.startedAt = time.Time{}
+		e.lastAction = now
+		if e.echoKey != "" {
+			return assist.Action{Kind: assist.ActionKeyTap, Key: e.echoKey}, "今汐-收尾", true, nil
+		}
+		return assist.Action{Kind: assist.ActionClick, Point: geom.Point{X: 960, Y: 540}}, "今汐-收尾", true, nil
+	}
+	if !e.lastAction.IsZero() && now.Sub(e.lastAction) < 200*time.Millisecond {
+		return assist.Action{}, "", false, nil
+	}
+	e.lastAction = now
+	if e.alt {
+		e.alt = false
+		return assist.Action{Kind: assist.ActionKeyTap, Key: e.skillKey}, "今汐-共鸣", true, nil
+	}
+	e.alt = true
+	return assist.Action{Kind: assist.ActionClick, Point: geom.Point{X: 960, Y: 540}}, "今汐-普攻", true, nil
 }

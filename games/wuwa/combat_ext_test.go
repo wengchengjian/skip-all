@@ -1,6 +1,7 @@
 package wuwa
 
 import (
+	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"image"
 	"testing"
 	"time"
@@ -55,5 +56,64 @@ func TestForteExtensionPriority(t *testing.T) {
 	ext3.last = time.Time{}
 	if _, _, ok, _ := ext3.Step(forteFake{hit: map[string]bool{}}, frame); ok {
 		t.Fatal("没有回路提示时不该出手")
+	}
+}
+
+// jinhsiTeam 模拟"当前角色是今汐"的队伍；offField 时认不出当前角色（动画期间）。
+type jinhsiTeam struct {
+	agent    string
+	offField bool
+}
+
+func (j *jinhsiTeam) Agent(combat.Runtime, assist.Frame) (string, bool, error) {
+	return j.agent, j.agent != "", nil
+}
+
+func (j *jinhsiTeam) Current(combat.Runtime, assist.Frame) (int, bool, error) {
+	if j.offField {
+		return -1, false, nil
+	}
+	return 0, true, nil
+}
+
+func TestJinhsiAlternatesAndFinishes(t *testing.T) {
+	team := &jinhsiTeam{agent: "char_jinhsi"}
+	ext := &wuwaJinhsiExt{team: team, skillKey: "e", echoKey: "q"}
+	rt := &teamFakeRuntime{}
+	base := time.Now()
+
+	// 第一次出手：普攻。
+	action, state, ok, err := ext.Step(rt, assist.Frame{Image: benchFrame(), At: base})
+	if err != nil || !ok || state != "今汐-普攻" || action.Kind != assist.ActionClick {
+		t.Fatalf("首次应当普攻: state=%q action=%+v ok=%v err=%v", state, action, ok, err)
+	}
+	// 200ms 节流内不出手。
+	if _, _, ok, _ := ext.Step(rt, assist.Frame{Image: benchFrame(), At: base.Add(100 * time.Millisecond)}); ok {
+		t.Fatal("节流窗口内不该再出手")
+	}
+	// 300ms 后：共鸣技能。
+	action, state, ok, _ = ext.Step(rt, assist.Frame{Image: benchFrame(), At: base.Add(300 * time.Millisecond)})
+	if !ok || state != "今汐-共鸣" || action.Key != "e" {
+		t.Fatalf("应当交替到共鸣技能: state=%q action=%+v", state, action)
+	}
+
+	// 动画期间（认不出当前角色）：不出手，但被记下。
+	team.offField = true
+	if _, _, ok, _ := ext.Step(rt, assist.Frame{Image: benchFrame(), At: base.Add(400 * time.Millisecond)}); ok {
+		t.Fatal("动画期间不该出手")
+	}
+	// 重新出场：声骸收尾。
+	team.offField = false
+	action, state, ok, _ = ext.Step(rt, assist.Frame{Image: benchFrame(), At: base.Add(700 * time.Millisecond)})
+	if !ok || state != "今汐-收尾" || action.Key != "q" {
+		t.Fatalf("动画结束后应当声骸收尾: state=%q action=%+v", state, action)
+	}
+}
+
+func TestJinhsiExtensionIgnoresOtherCharacters(t *testing.T) {
+	team := &jinhsiTeam{agent: "char_aalto"}
+	ext := &wuwaJinhsiExt{team: team, skillKey: "e", echoKey: "q"}
+	if _, _, ok, _ := ext.Step(&teamFakeRuntime{}, assist.Frame{Image: benchFrame(), At: time.Now()}); ok {
+		t.Fatal("不是今汐时不该接管")
 	}
 }

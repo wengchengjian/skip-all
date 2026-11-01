@@ -23,6 +23,8 @@ func CombatSpec() combat.Spec { return combatSpec() }
 // 上游在未进入战斗时用 min_width=50（100/3840），进入后放宽到 6；这里保持 50，
 // 靠 Hold 把证据间断连起来，避免开放世界里把红色 UI 当血条。
 func combatSpec() combat.Spec {
+	// 队伍识别既给通用流程用，也给今汐特化扩展用，所以只建一次。
+	team := newWuwaTeam()
 	return combat.Spec{
 		// 画面配置：assets/games/wuwa/screens/combat.yml（含"中断提示"区域）。
 		Screen: "鸣潮战斗",
@@ -73,7 +75,7 @@ func combatSpec() combat.Spec {
 		// 没锁住目标时多久按一次中键。
 		LockInterval: time.Second,
 		// 当前角色判读照上游 in_team()：找缺失的键位数字。
-		Team:        newWuwaTeam(),
+		Team:        team,
 		AttackPoint: geom.Point{X: 960, Y: 540},
 		Keys: combat.Keys{
 			Skill:      "e",
@@ -134,7 +136,7 @@ func combatSpec() combat.Spec {
 		AbortArea:  "中断提示",
 		AbortTexts: []string{"复活", "失败", "重新挑战", "挑战失败"},
 		// 鸣潮专属能力：共鸣回路提示（强化 E / 重击）。
-		Extensions: wuwaExtensions(),
+		Extensions: wuwaExtensions(team),
 		Plan: []combat.Step{
 			{Kind: combat.StepAttack},
 			{Kind: combat.StepSkill},
