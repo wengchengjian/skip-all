@@ -54,6 +54,25 @@ type UltReadyCheck struct {
 	Bonus     float64
 }
 
+// ForteCheck 是"共鸣回路是否已满"的判据：上游 BaseChar.is_forte_full() 在
+// (2251,1993)-(2311,2016)（4K）里数接近纯白的像素占比，超过 0.08 就算满。
+type ForteCheck struct {
+	Area       geom.Rect
+	ColorRange [2][3]uint8
+	MinRatio   float64
+}
+
+// ForteNeed 表示某个角色的技能要等回路"满"还是"未满"。
+// 上游不同角色写法相反（忌炎要未满才放，布兰特要满才放），所以按角色分别配。
+type ForteNeed string
+
+const (
+	// ForteNeedFull 表示技能要等回路满。
+	ForteNeedFull ForteNeed = "full"
+	// ForteNeedNotFull 表示技能要等回路未满。
+	ForteNeedNotFull ForteNeed = "not_full"
+)
+
 // HealthBar 是敌人血条的判据，对应上游 has_health_bar()：
 // 在整帧里找颜色、尺寸、填充率都对得上的实心矩形。
 type HealthBar struct {
@@ -126,6 +145,8 @@ type Spec struct {
 	AbortArea    string                  // 中断检测的 OCR 区域名（画面配置里），留空不检测
 	AbortTexts   []string                // 命中这些文字说明战斗被打断（复活/失败界面），暂停出招
 	UltReady     *UltReadyCheck          // 后台角色大招就绪判据，命中给切人加分
+	ForteFull    *ForteCheck             // 共鸣回路是否已满的判据（鸣潮）
+	ForteGate    map[string]ForteNeed    // 哪些角色的技能要等回路状态，对应上游 is_forte_full()
 	Roles        map[string]Role         // 角色定位，切人时用来打分
 	Switch       *SwitchPolicy           // 切人规则，留空用默认间隔
 	Interval     time.Duration           // 每步之间的间隔

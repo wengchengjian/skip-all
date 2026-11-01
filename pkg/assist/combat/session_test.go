@@ -803,3 +803,58 @@ func TestHealerLockoutAfterSwitch(t *testing.T) {
 		t.Fatalf("锁定结束后应当能再切治疗, actions = %+v", actions)
 	}
 }
+
+// forteFrame 造一帧：共鸣回路区域要么是白点（满），要么是暗色（未满）。
+func forteFrame(full bool) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	area := geom.Rect{X1: 1125, Y1: 996, X2: 1156, Y2: 1008}
+	c := color.RGBA{20, 20, 20, 255}
+	if full {
+		c = color.RGBA{252, 252, 252, 255}
+	}
+	for y := area.Y1; y < area.Y2; y++ {
+		for x := area.X1; x < area.X2; x++ {
+			img.SetRGBA(x, y, c)
+		}
+	}
+	return img
+}
+
+func TestForteGateBlocksSkill(t *testing.T) {
+	newSpec := func(need ForteNeed) Spec {
+		spec := testSpec()
+		spec.Keys.Skill = "e"
+		spec.Plan = []Step{{Kind: StepSkill}, {Kind: StepAttack}}
+		spec.ForteFull = &ForteCheck{
+			Area:       geom.Rect{X1: 1125, Y1: 996, X2: 1156, Y2: 1008},
+			ColorRange: [2][3]uint8{{244, 246, 250}, {255, 255, 255}},
+			MinRatio:   0.08,
+		}
+		spec.ForteGate = map[string]ForteNeed{"agent-x": need}
+		return spec
+	}
+	team := stubTeam{}
+
+	// 需要"满"：未满时跳过技能，直接普攻。
+	spec := newSpec(ForteNeedFull)
+	spec.Team = team
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	if result, actions := step(t, session, assist.Frame{Image: forteFrame(false), At: time.Now()}); result.State != "连招-普攻" {
+		t.Fatalf("回路未满时应当跳过技能: state=%q actions=%+v", result.State, actions)
+	}
+	// 满了之后放技能。
+	spec2 := newSpec(ForteNeedFull)
+	spec2.Team = team
+	session2 := newSession(testRuntime(true), spec2.withDefaults(), sessionSettings{})
+	if result, _ := step(t, session2, assist.Frame{Image: forteFrame(true), At: time.Now()}); result.State != "连招-技能" {
+		t.Fatalf("回路满了应当放技能: state=%q", result.State)
+	}
+
+	// 需要"未满"：满时反而跳过。
+	spec3 := newSpec(ForteNeedNotFull)
+	spec3.Team = team
+	session3 := newSession(testRuntime(true), spec3.withDefaults(), sessionSettings{})
+	if result, _ := step(t, session3, assist.Frame{Image: forteFrame(true), At: time.Now()}); result.State != "连招-普攻" {
+		t.Fatalf("要求未满时，满了应当跳过技能: state=%q", result.State)
+	}
+}

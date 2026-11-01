@@ -241,8 +241,19 @@ func parseCooldownSeconds(text string) (float64, bool) {
 // currentPlan 返回当前角色专属的连招，没有就用默认连招。
 // 角色识别按 agentTTL 缓存，避免每帧都跑一遍模板匹配。
 func (s *Session) currentPlan(frame assist.Frame) []Step {
-	if len(s.spec.PlansByAgent) == 0 || s.spec.Team == nil {
+	if len(s.spec.PlansByAgent) == 0 {
 		return s.spec.Plan
+	}
+	if plan, ok := s.spec.PlansByAgent[s.currentAgent(frame)]; ok && len(plan) > 0 {
+		return plan
+	}
+	return s.spec.Plan
+}
+
+// currentAgent 返回当前角色模板 id（按 agentTTL 缓存）。
+func (s *Session) currentAgent(frame assist.Frame) string {
+	if s.spec.Team == nil {
+		return ""
 	}
 	now := frame.At
 	if now.IsZero() {
@@ -256,10 +267,7 @@ func (s *Session) currentPlan(frame assist.Frame) []Step {
 			s.agentID = ""
 		}
 	}
-	if plan, ok := s.spec.PlansByAgent[s.agentID]; ok && len(plan) > 0 {
-		return plan
-	}
-	return s.spec.Plan
+	return s.agentID
 }
 
 // checkAbort 看画面上是否出现中断提示（复活/失败）。
@@ -325,7 +333,7 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 		}
 		return assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}, "普攻", true
 	case StepSkill:
-		if s.spec.Keys.Skill == "" || !s.ready(frame, StepSkill) {
+		if s.spec.Keys.Skill == "" || !s.ready(frame, StepSkill) || !s.forteAllows(frame) {
 			return assist.Action{}, "", false
 		}
 		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Skill}, "技能", true
@@ -609,6 +617,32 @@ func (s *Session) noteSwitch(frame assist.Frame, now time.Time) {
 	s.agentID = ""
 	s.introLeft = append([]Step(nil), s.spec.IntroSteps...)
 	_ = frame
+}
+
+// forteAllows 判断当前角色的技能是否可以放：上游部分角色要等共鸣回路满/未满。
+// 没配判据、认不出角色、或该角色不在门控表里都直接放行。
+func (s *Session) forteAllows(frame assist.Frame) bool {
+	if s.spec.ForteFull == nil || len(s.spec.ForteGate) == 0 {
+		return true
+	}
+	agent := s.currentAgent(frame)
+	if agent == "" {
+		return true
+	}
+	need, ok := s.spec.ForteGate[agent]
+	if !ok {
+		return true
+	}
+	ratio := vision.ColorRatio(frame.Image, s.spec.ForteFull.Area, s.spec.ForteFull.ColorRange)
+	minRatio := s.spec.ForteFull.MinRatio
+	if minRatio <= 0 {
+		minRatio = 0.08
+	}
+	full := ratio >= minRatio
+	if need == ForteNeedNotFull {
+		return !full
+	}
+	return full
 }
 
 // healerKey 返回治疗位按键：能识别出队伍里的治疗就按它的槽位键，否则用配置的固定键。

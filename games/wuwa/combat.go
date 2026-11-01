@@ -105,6 +105,15 @@ func combatSpec() combat.Spec {
 			Threshold: 0.8,
 			Bonus:     15,
 		},
+		// 共鸣回路是否已满：上游 BaseChar.is_forte_full()，4K (2251,1993)-(2311,2016) 折半，
+		// 近白像素（244-255/246-255/250-255）占比 > 0.08 视为满。
+		ForteFull: &combat.ForteCheck{
+			Area:       geom.Rect{X1: 1125, Y1: 996, X2: 1156, Y2: 1008},
+			ColorRange: [2][3]uint8{{244, 246, 250}, {255, 255, 255}},
+			MinRatio:   0.08,
+		},
+		// 上游只有少数角色的技能明确等回路状态，其余角色不门控。
+		ForteGate: agentForteGate,
 		// 角色定位（上游 char_type）与大招就绪一起决定协奏满切谁。
 		Roles:  agentRoles,
 		Switch: &combat.SwitchPolicy{MinInterval: 3 * time.Second},
