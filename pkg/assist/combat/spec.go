@@ -23,6 +23,8 @@ const (
 	StepLiberation StepKind = "liberation"
 	// StepDodge 是闪避。
 	StepDodge StepKind = "dodge"
+	// StepKey 是直接按某个键（规则里出现"切换角色-下一个/上一个"这类动作时用）。
+	StepKey StepKind = "key"
 	// StepSwitch 是切换角色，Index 指向 Keys.Switch 的下标。
 	StepSwitch StepKind = "switch"
 )
@@ -31,6 +33,7 @@ const (
 type Step struct {
 	Kind  StepKind
 	Index int
+	Key   string
 }
 
 // ReadyCheck 是"这个动作现在能不能用"的判据，对应上游的 available()：

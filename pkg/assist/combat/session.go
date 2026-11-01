@@ -343,6 +343,11 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 			return assist.Action{}, "", false
 		}
 		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Dodge}, "闪避", true
+	case StepKey:
+		if step.Key == "" {
+			return assist.Action{}, "", false
+		}
+		return assist.Action{Kind: assist.ActionKeyTap, Key: step.Key}, "按键", true
 	case StepSwitch:
 		if step.Index < 0 || step.Index >= len(s.spec.Keys.Switch) {
 			return assist.Action{}, "", false

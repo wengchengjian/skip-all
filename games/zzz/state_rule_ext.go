@@ -77,7 +77,10 @@ func (e *zzzStateRuleExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Ac
 	} else {
 		e.agentID = ""
 	}
-	rules := agentRules[e.agentID]
+	// 先跑整队节奏规则（专属配队），再跑这个角色自己的规则。
+	rules := make([]StateRule, 0, len(teamRules[e.agentID])+len(agentRules[e.agentID]))
+	rules = append(rules, teamRules[e.agentID]...)
+	rules = append(rules, agentRules[e.agentID]...)
 	for _, rule := range rules {
 		if !e.eval(rt, frame, rule.Cond) || len(rule.Ops) == 0 {
 			continue
@@ -387,6 +390,11 @@ func ruleAction(step combat.Step) (assist.Action, bool) {
 		return assist.Action{Kind: assist.ActionKeyTap, Key: "q"}, true
 	case combat.StepDodge:
 		return assist.Action{Kind: assist.ActionKeyTap, Key: "shift"}, true
+	case combat.StepKey:
+		if step.Key == "" {
+			return assist.Action{}, false
+		}
+		return assist.Action{Kind: assist.ActionKeyTap, Key: step.Key}, true
 	}
 	return assist.Action{}, false
 }
@@ -401,6 +409,8 @@ func ruleState(step combat.Step) string {
 		return "终结技"
 	case combat.StepDodge:
 		return "闪避"
+	case combat.StepKey:
+		return "按键"
 	}
 	return "动作"
 }
