@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	wuwaassets "github.com/wengchengjian/skip-all/assets/games/wuwa"
-	"github.com/wengchengjian/skip-all/pkg/geom"
 	"github.com/wengchengjian/skip-all/pkg/vision"
 )
 
@@ -49,7 +48,7 @@ func BenchmarkWuwaAvatarBatch(b *testing.B) {
 		masks = append(masks, mask)
 	}
 	img := benchFrame()
-	area := geom.Rect{X1: 1750, Y1: 205, X2: 1900, Y2: 305}
+	area := newWuwaTeam().avatarSlots[0].Rect
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for slot := 0; slot < 3; slot++ {

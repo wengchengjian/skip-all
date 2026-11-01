@@ -36,10 +36,13 @@ type wuwaTeam struct {
 
 func newWuwaTeam() *wuwaTeam {
 	return &wuwaTeam{
+		// 槽位区域按模板实际尺寸收紧：上游头像模板约 70x65，记录位置在
+		// 4K (3554,464)/(3537,723)/(3545,986) —— 折半后左上角在 x≈1770、y≈232/361/493。
+		// 区域比模板留一点余量即可，别用整条右边栏（那会让匹配慢一倍、也更容易误匹配）。
 		avatarSlots: []screen.Area{
-			{Name: "角色1头像", Rect: geom.Rect{X1: 1750, Y1: 205, X2: 1900, Y2: 305}},
-			{Name: "角色2头像", Rect: geom.Rect{X1: 1750, Y1: 335, X2: 1900, Y2: 435}},
-			{Name: "角色3头像", Rect: geom.Rect{X1: 1750, Y1: 465, X2: 1900, Y2: 565}},
+			{Name: "角色1头像", Rect: geom.Rect{X1: 1760, Y1: 225, X2: 1850, Y2: 305}},
+			{Name: "角色2头像", Rect: geom.Rect{X1: 1760, Y1: 355, X2: 1850, Y2: 435}},
+			{Name: "角色3头像", Rect: geom.Rect{X1: 1760, Y1: 487, X2: 1850, Y2: 567}},
 		},
 		avatarIDs:       agentPlanIDs(),
 		healerIDs:       healerIDs(),
