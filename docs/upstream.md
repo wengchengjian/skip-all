@@ -337,3 +337,11 @@
 上游 `update_lib_portrait_icon()` 在 `lib_mark_char_1..3` 这些盒子里找 `lib_ready_<元素>` 模板（阈值 0.8）。
 模板记录在 4K 的 `(3653,475)`、`(3654,742)`、`(3653,1003)` 三处，说明就是队伍栏三个槽位；折半后是 `(1826,237)`、`(1827,371)`、`(1826,501)`，模板本身只有约 12×13 像素。
 本项目的槽位取 `(1800,210)-(1900,265)` / `(1800,340)-(1900,400)` / `(1800,470)-(1900,530)`，完全覆盖这三个图标位置，并由 `TestUltimateSlotsCoverUpstreamIcons` 锁住。
+
+## 逐角色条件规则（鸣潮）
+
+上游 48 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**115 条规则覆盖 37 个角色**。
+
+可表达原子：`技能可用`（上游 `resonance_available`）、`声骸可用`、`解放可用`、`回路满`/`回路未满`（`is_forte_full`）。
+
+提取不了的（内部计时器、`flying`、`check_outro`）不计入条件——那条分支会退化成无条件规则，宁可粗略也不伪造精确。生成脚本：`.research/wuwa_rules.py`。

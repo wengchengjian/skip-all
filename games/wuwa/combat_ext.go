@@ -61,6 +61,17 @@ func (e *wuwaForteExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Actio
 func wuwaExtensions(team combat.Team) []combat.Extension {
 	return []combat.Extension{
 		&wuwaJinhsiExt{team: team, skillKey: "e", echoKey: "q"},
+		// 逐角色条件规则（从上游 do_perform 条件分支机械提取）
+		&wuwaRuleExt{
+			Team:       team,
+			Skill:      geom.Rect{X1: 1592, Y1: 938, X2: 1660, Y2: 995},
+			Echo:       geom.Rect{X1: 1685, Y1: 938, X2: 1753, Y2: 996},
+			Liberation: geom.Rect{X1: 1786, Y1: 938, X2: 1849, Y2: 995},
+			Forte:      geom.Rect{X1: 1125, Y1: 996, X2: 1156, Y2: 1008},
+			Ready:      [2][3]uint8{{253, 253, 253}, {255, 255, 255}},
+			ForteRGB:   [2][3]uint8{{244, 246, 250}, {255, 255, 255}},
+			Rules:      agentRules,
+		},
 		&wuwaForteExt{
 			Area:        screen.Area{Name: "回路提示", Rect: geom.Rect{X1: 1080, Y1: 950, X2: 1220, Y2: 1045}},
 			SubDir:      "forte",

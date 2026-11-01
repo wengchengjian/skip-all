@@ -24,5 +24,16 @@ func CombatStats() map[string]int {
 		"forte_gate": len(agentForteGate),
 		"synergy":    pairs,
 		"heavy":      heavy,
+		"rules":      ruleCount(agentRules),
+		"rule_chars": len(agentRules),
 	}
+}
+
+// ruleCount 统计所有角色的规则条目数。
+func ruleCount(rules map[string][]wuwaRule) int {
+	n := 0
+	for _, rs := range rules {
+		n += len(rs)
+	}
+	return n
 }

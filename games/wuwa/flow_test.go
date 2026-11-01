@@ -199,8 +199,10 @@ func TestCombatFlowAfterSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("切人确认帧出错: %v", err)
 	}
-	if result.State != "切人未生效" {
-		t.Fatalf("队伍数字没变应当判定切人未生效, got %q", result.State)
+	// 规则引擎接管时会是 规则-*（内容就是继续出手/普攻），没人接管时是 切人未生效。
+	// 两者都是"没切过去就别站着"的兜底行为。
+	if result.State != "切人未生效" && !strings.HasPrefix(result.State, "规则-") {
+		t.Fatalf("队伍数字没变应当继续出手, got %q", result.State)
 	}
 }
 
