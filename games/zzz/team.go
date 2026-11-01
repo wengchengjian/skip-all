@@ -3,6 +3,8 @@ package zzz
 import (
 	"io/fs"
 	"sort"
+	"sync"
+	"time"
 
 	zzzassets "github.com/wengchengjian/skip-all/assets/games/zzz"
 	"github.com/wengchengjian/skip-all/pkg/assist"
@@ -23,6 +25,11 @@ type zzzTeam struct {
 	frontIDs  []string
 	backIDs   []string
 	threshold float64
+	// frontLearned/backLearned 是本场认出来的代理人模板白名单，认出来后只比这几张。
+	mu           sync.Mutex
+	frontLearned []string
+	backLearned  []string
+	learnedAt    time.Time
 }
 
 func newZZZTeam() *zzzTeam {
@@ -75,8 +82,61 @@ func (t *zzzTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error)
 	return ids, nil
 }
 
+// zzzTeamRefreshTTL 之后重新全量认一次。
+const zzzTeamRefreshTTL = 10 * time.Second
+
+// candidates 取某个模板族这一轮要比对的 id；learning=true 表示这次是全量扫描。
+func (t *zzzTeam) candidates(now time.Time, subDir string) ([]string, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	fresh := len(t.frontLearned) > 0 && now.Sub(t.learnedAt) < zzzTeamRefreshTTL
+	if !fresh {
+		return nil, true
+	}
+	if subDir == "avatar1" {
+		return t.frontLearned, false
+	}
+	if len(t.backLearned) > 0 {
+		return t.backLearned, false
+	}
+	return nil, true
+}
+
+// learn 记住某个模板族本轮认出来的 id。
+func (t *zzzTeam) learn(now time.Time, subDir, id string) {
+	if id == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if subDir == "avatar1" {
+		t.frontLearned = []string{id}
+	} else {
+		found := append([]string(nil), t.backLearned...)
+		exists := false
+		for _, existing := range found {
+			if existing == id {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			found = append(found, id)
+		}
+		t.backLearned = found
+	}
+	t.learnedAt = now
+}
+
 // matchIn 在一个区域里逐个模板比对，返回分数最高的模板 id。
 func (t *zzzTeam) matchIn(rt combat.Runtime, frame assist.Frame, area screen.Area, ids []string, subDir string) (string, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if candidates, learning := t.candidates(now, subDir); !learning {
+		ids = candidates
+	}
 	best, bestID := 0.0, ""
 	for _, id := range ids {
 		matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: subDir, ID: id}, t.threshold)
@@ -86,6 +146,9 @@ func (t *zzzTeam) matchIn(rt combat.Runtime, frame assist.Frame, area screen.Are
 		if len(matches) > 0 && matches[0].Confidence > best {
 			best, bestID = matches[0].Confidence, id
 		}
+	}
+	if bestID != "" {
+		t.learn(now, subDir, bestID)
 	}
 	return bestID, nil
 }

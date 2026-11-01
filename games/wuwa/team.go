@@ -1,6 +1,9 @@
 package wuwa
 
 import (
+	"sync"
+	"time"
+
 	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"github.com/wengchengjian/skip-all/pkg/geom"
@@ -21,6 +24,11 @@ type wuwaTeam struct {
 	avatarIDs       []string
 	healerIDs       []string
 	avatarThreshold float64
+	// learned 是本场战斗认出来的角色模板白名单：认出来之后只比对这几张，
+	// 不必每帧扫几十张头像。
+	mu        sync.Mutex
+	learned   []string
+	learnedAt time.Time
 }
 
 func newWuwaTeam() *wuwaTeam {
@@ -49,9 +57,14 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 	if err != nil || !ok || index >= len(t.avatarSlots) {
 		return "", false, nil
 	}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	candidates, learning := t.candidates(now)
 	area := t.avatarSlots[index]
 	best, bestID := 0.0, ""
-	for _, id := range t.avatarIDs {
+	for _, id := range candidates {
 		matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: "team", ID: id}, t.avatarThreshold)
 		if err != nil {
 			return "", false, err
@@ -63,15 +76,56 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 	if bestID == "" {
 		return "", false, nil
 	}
+	if learning {
+		t.learn([]string{bestID}, now)
+	}
 	return bestID, true, nil
 }
 
 // Slots 列出三个槽位上的角色 id（认不出留空），切人打分用。
+// teamRefreshTTL 之后会重新全量认一次，队伍变了也能跟上。
+const teamRefreshTTL = 10 * time.Second
+
+// candidates 返回这一轮要比对的模板：白名单还新鲜就只比那几张。
+func (t *wuwaTeam) candidates(now time.Time) (ids []string, learning bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.learned) > 0 && now.Sub(t.learnedAt) < teamRefreshTTL {
+		return t.learned, false
+	}
+	return t.avatarIDs, true
+}
+
+// learn 记住本轮认出来的角色。
+func (t *wuwaTeam) learn(ids []string, now time.Time) {
+	found := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		found = append(found, id)
+	}
+	if len(found) == 0 {
+		return
+	}
+	t.mu.Lock()
+	t.learned = found
+	t.learnedAt = now
+	t.mu.Unlock()
+}
+
 func (t *wuwaTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	candidates, learning := t.candidates(now)
 	ids := make([]string, 0, len(t.avatarSlots))
 	for _, area := range t.avatarSlots {
 		best, bestID := 0.0, ""
-		for _, id := range t.avatarIDs {
+		for _, id := range candidates {
 			matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: "team", ID: id}, t.avatarThreshold)
 			if err != nil {
 				return nil, err
@@ -81,6 +135,9 @@ func (t *wuwaTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error
 			}
 		}
 		ids = append(ids, bestID)
+	}
+	if learning {
+		t.learn(ids, now)
 	}
 	return ids, nil
 }
