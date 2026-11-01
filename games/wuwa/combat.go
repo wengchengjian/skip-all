@@ -66,7 +66,9 @@ func combatSpec() combat.Spec {
 		},
 		// 没锁住目标时多久按一次中键。
 		LockInterval: time.Second,
-		AttackPoint:  geom.Point{X: 960, Y: 540},
+		// 当前角色判读照上游 in_team()：找缺失的键位数字。
+		Team:        newWuwaTeam(),
+		AttackPoint: geom.Point{X: 960, Y: 540},
 		Keys: combat.Keys{
 			Skill:      "e",
 			Echo:       "q",

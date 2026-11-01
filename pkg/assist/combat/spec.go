@@ -92,6 +92,7 @@ type Spec struct {
 	Concerto     *Concerto     // 协奏值能量环，满了优先切人
 	HealerKey    string        // 治疗位按键，战斗开始与结束时各按一次
 	Extensions   []Extension   // 游戏专属战斗能力，先于通用连招执行
+	Team         Team          // 当前角色判读，留空表示不识别
 	Target       *Target       // 是否已锁定目标的判据，留空表示不做目标识别
 	LockInterval time.Duration // 没锁住目标时按中键的间隔，0 表示不锁定
 	AttackPoint  geom.Point    // 普攻的点击位置

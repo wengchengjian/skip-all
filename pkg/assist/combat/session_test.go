@@ -443,3 +443,34 @@ func TestExtensionCanBeDisabledBySettings(t *testing.T) {
 		t.Fatalf("关掉后不该被调用, calls = %d", ext.calls)
 	}
 }
+
+type stubTeam struct{ index int }
+
+func (s stubTeam) Current(Runtime, assist.Frame) (int, bool, error) { return s.index, true, nil }
+
+func TestConcertoSwitchUsesCurrentSlot(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = stubTeam{index: 1}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.8,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 0; y < 63; y++ {
+		for x := 0; x < 63; x++ {
+			d := math.Hypot(float64(x)+0.5-31.5, float64(y)+0.5-31.5)
+			if d >= 22.1 && d <= 26.6 {
+				img.SetRGBA(700+x, 960+y, color.RGBA{220, 205, 110, 255})
+			}
+		}
+	}
+	_, actions := step(t, session, assist.Frame{Image: img, At: time.Now()})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("2 号位在场上时应当按 3 号键, actions = %+v", actions)
+	}
+}

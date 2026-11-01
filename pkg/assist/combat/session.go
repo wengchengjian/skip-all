@@ -270,7 +270,21 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 		return assist.Action{}, false
 	}
 	s.switchAt = now
-	return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Switch[0]}, true
+	return assist.Action{Kind: assist.ActionKeyTap, Key: s.nextSwitchKey(frame)}, true
+}
+
+// nextSwitchKey 选下一个角色的按键：识别得到当前槽位就按下一个，否则用第一个键。
+func (s *Session) nextSwitchKey(frame assist.Frame) string {
+	keys := s.spec.Keys.Switch
+	if len(keys) == 0 {
+		return ""
+	}
+	if s.spec.Team != nil {
+		if idx, ok, err := s.spec.Team.Current(runtimeAdapter{rt: s.rt}, frame); err == nil && ok && len(keys) > 1 {
+			return keys[(idx+1)%len(keys)]
+		}
+	}
+	return keys[0]
 }
 
 func (s *Session) area(name string) (*screen.Area, error) {
