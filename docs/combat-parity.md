@@ -51,8 +51,8 @@
 | 角色识别（`avatar_1_*` / `avatar_2_*`） | 71 + 71 套头像模板，前台/后台分别匹配 | 已移植 |
 | 代理人定位（`AgentTypeEnum`） | 54 条，`agent_roles.go` | 已移植 |
 | 代理人连招 | 54 个代理人，`agent_plans.go`（全部按角色模板汇总推导） | 近似 |
-| `state_handler` 条件→动作规则 | 54 个代理人 / 369 条规则，`state_rules.go` + `zzzStateRuleExt` | 已提取，300/369 条条件可完全判定（81%） |
-| 整队节奏规则（专属配队） | 41 条，`team_rules.go` | 已提取，14/41 条条件可判定 |
+| `state_handler` 条件→动作规则 | 54 个代理人 / 369 条规则，`state_rules.go` + `zzzStateRuleExt` | 已提取，303/369 条条件可完全判定（82%） |
+| 整队节奏规则（专属配队） | 41 条，`team_rules.go` | 已提取，26/41 条条件可判定（63%） |
 | 能量条识别 | `vision.GrayRunLength` + 上游 `energy_3_N` 模板 | 已移植（量程 0-120 近似） |
 | 角色状态检测（`AgentStateDef`） | 17 条颜色判定，按 `AgentStateCheckWay` 分派 | 已移植 |
 | 技能可用性（按角色属性判色域） | 按钮亮起近似 | 近似 |

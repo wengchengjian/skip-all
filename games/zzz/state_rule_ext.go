@@ -43,6 +43,12 @@ type zzzStateRuleExt struct {
 	stunAt    time.Time
 	// energyThreshold 是能量条模板的匹配阈值。
 	energyThreshold float64
+	// AssistArea/AssistIDs 是快速支援按钮，用来判定 [自定义-快速支援换人]。
+	AssistArea geom.Rect
+	AssistIDs  []string
+	assistAt   time.Time
+	parryAt    time.Time
+	dodgeAt    time.Time
 }
 
 func (e *zzzStateRuleExt) Name() string { return "state_rules" }
@@ -63,6 +69,23 @@ func (e *zzzStateRuleExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Ac
 	if now.IsZero() {
 		now = time.Now()
 	}
+	// 支援/格挡/闪避的时间戳：上游这些也是状态机内部变量，这里用画面特征打点。
+	if e.AssistArea.X2 > e.AssistArea.X1 && len(e.AssistIDs) > 0 {
+		for _, id := range e.AssistIDs {
+			matches, err := rt.MatchTemplate(frame, screen.Area{Name: "快速支援", Rect: e.AssistArea}, vision.TemplateRef{SubDir: "combat", ID: id}, 0.85)
+			if err == nil && len(matches) > 0 {
+				e.assistAt = now
+				break
+			}
+		}
+	}
+	if e.flash(frame, 0) {
+		e.parryAt = now
+	}
+	if e.flash(frame, 1) {
+		e.dodgeAt = now
+	}
+
 	// 连携条可见 = 敌人失衡中，刷新失衡时间戳。
 	if vision.ColorRatio(frame.Image, e.ChainBar, e.ChainRGB) >= e.chainRate() {
 		e.stunAt = now
@@ -213,6 +236,16 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 	if kind, index, ok := parseBackSlot(name); ok {
 		return e.backSlotHasKind(rt, frame, index, kind)
 	}
+	// [自定义-招架支援] / [自定义-闪避] / [自定义-快速支援换人]：用画面特征打点后判时间窗。
+	if name == "自定义-招架支援" {
+		return e.sinceWithin(e.parryAt, raw, frame)
+	}
+	if name == "自定义-闪避" {
+		return e.sinceWithin(e.dodgeAt, raw, frame)
+	}
+	if name == "自定义-快速支援换人" {
+		return e.sinceWithin(e.assistAt, raw, frame)
+	}
 	// [自定义-终结技被强制释放]：上游在前台角色终结技可用时打这个标记
 	// （auto_battle_agent_context.py 的自动终结技逻辑），这里等价成"终结技可用"。
 	if name == "自定义-终结技被强制释放" {
@@ -352,6 +385,23 @@ func (e *zzzStateRuleExt) energyValue(rt combat.Runtime, frame assist.Frame, slo
 		return 0, false
 	}
 	return vision.GrayRunLength(frame.Image, matches[0].Rect, energyGrayLower, energyGrayUpper), true
+}
+
+// sinceWithin 判断"某个事件是否发生在条件给的时间窗内"。
+func (e *zzzStateRuleExt) sinceWithin(at time.Time, raw string, frame assist.Frame) bool {
+	if at.IsZero() {
+		return false
+	}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	lo, hi, ok := parseWindow(raw)
+	if !ok {
+		return true
+	}
+	elapsed := now.Sub(at).Seconds()
+	return elapsed >= lo && elapsed <= hi
 }
 
 // parseBackSlot 解析 "后台-1-击破" 这类条件。
