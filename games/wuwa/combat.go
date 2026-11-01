@@ -25,6 +25,14 @@ func combatSpec() combat.Spec {
 			MinHeight: 5,
 			MaxHeight: 14,
 		},
+		// Boss 血条：上游 is_boss() 的区域 (1269/3840, 58/2160)-(2533/3840, 200/2160)，
+		// 颜色 boss_health_color R245-255 / G30-185 / B4-75，要求区域内恰好一条。
+		BossBar: &combat.BossBar{
+			Color:     [2][3]uint8{{245, 30, 4}, {255, 185, 75}},
+			Rect:      geom.Rect{X1: 634, Y1: 29, X2: 1266, Y2: 100},
+			MinWidth:  50,
+			MinHeight: 6,
+		},
 		AttackPoint: geom.Point{X: 960, Y: 540},
 		Keys: combat.Keys{
 			Skill:      "e",

@@ -95,5 +95,7 @@
 | `AutoCombatTask.run`：`in_team_and_world` 直接返回，否则 `while in_combat(): char.perform()` | `pkg/assist/combat`：检测战斗 -> 按连招序列出招 -> 脱离战斗复位 | 流程只有一份，游戏只给数据 |
 | 每角色一个 char 模块（CD OCR、协奏、闪避判定） | 数据驱动的连招序列 `Spec.Plan` | 先把骨架做对，角色特化后续按需补 |
 | 按键：共鸣技能 E、声骸 Q、共鸣解放 R、闪避 左 Shift、切换 1/2/3 | 同上游 `config.py` 的默认值 | 见 `games/wuwa/combat.go` |
-| 战斗判据：`has_health_bar()` 用 `find_color_rectangles` 在整帧找敌人血条（`enemy_health_color_red` R174-225/G55-85/B55-76，宽≥50、高 5-14、填充率≥0.95） | `pkg/vision` 的 `FindColorRectangles` + `Spec.HealthBar`，同样是整帧扫，不需要固定区域 | 上游 `target_enemy()` 的中键锁定与 `is_boss()` 的 Boss 血条识别未做 |
+| 战斗判据：`check_health_bar()` = `has_health_bar()` 扫敌人血条 + `is_boss()` 扫 Boss 血条 | `pkg/vision.FindColorRectangles` + `Spec.HealthBar` / `Spec.BossBar` | 两个判据都是上游的颜色区间与尺寸参数，整帧扫不需要固定区域 |
+| `is_boss()`：区域 (1269/3840, 58/2160)-(2533/3840, 200/2160) 里恰好一条 `boss_health_color`（R245-255/G30-185/B4-75） | `Spec.BossBar{Color, Rect, MinWidth, MinHeight}`，1080p 换算成 (634,29)-(1266,100)，同样要求恰好一条 | 与上游一致 |
+| `target_enemy()`：没锁定时反复中键锁定敌人 | 未实现 | 需要给输入层加中键动作，等实机确认是否必要 |
 | `Use Liberation` / `Switch to Healer` 等开关 | `use_liberation` / `use_echo` / `use_dodge` / `interval` / `hold` | 未做切治疗、超时重开等上游特化能力 |

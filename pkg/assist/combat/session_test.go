@@ -71,6 +71,12 @@ func testSpec() Spec {
 			MinHeight: 5,
 			MaxHeight: 14,
 		},
+		BossBar: &BossBar{
+			Color:     [2][3]uint8{{245, 30, 4}, {255, 185, 75}},
+			Rect:      geom.Rect{X1: 634, Y1: 29, X2: 1266, Y2: 100},
+			MinWidth:  50,
+			MinHeight: 6,
+		},
 		Keys: Keys{
 			Skill: "e", Echo: "q", Liberation: "r", Dodge: "lshift",
 			Switch: []string{"1", "2"},
@@ -234,5 +240,37 @@ func TestHealthBarEvidence(t *testing.T) {
 	result, actions = step(t, session, assist.Frame{Image: black, At: time.Now().Add(10 * time.Second)})
 	if result.State != "等待战斗" || len(actions) != 0 {
 		t.Fatalf("没有血条时不应出招: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestBossBarEvidence(t *testing.T) {
+	session := newSession(testRuntime(false), testSpec().withDefaults(), sessionSettings{})
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	// 屏幕上方居中的橙色 Boss 血条：900x30
+	for y := 40; y < 70; y++ {
+		for x := 700; x < 1600; x++ {
+			img.SetRGBA(x, y, color.RGBA{250, 100, 30, 255})
+		}
+	}
+	result, actions := step(t, session, assist.Frame{Image: img, At: time.Now()})
+	if result.State != "连招-普攻" || len(actions) != 1 {
+		t.Fatalf("有 Boss 血条时应当出招: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestBossBarRequiresExactlyOne(t *testing.T) {
+	// 上游要求区域内恰好一条，两条时不算，避免把红色 UI 误判成 Boss 血条。
+	session := newSession(testRuntime(false), testSpec().withDefaults(), sessionSettings{})
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for _, row := range [][2]int{{40, 60}, {70, 90}} {
+		for y := row[0]; y < row[1]; y++ {
+			for x := 700; x < 1100; x++ {
+				img.SetRGBA(x, y, color.RGBA{250, 100, 30, 255})
+			}
+		}
+	}
+	result, actions := step(t, session, assist.Frame{Image: img, At: time.Now()})
+	if result.State != "等待战斗" || len(actions) != 0 {
+		t.Fatalf("两条血条不该判成 Boss 战: state = %q actions = %+v", result.State, actions)
 	}
 }

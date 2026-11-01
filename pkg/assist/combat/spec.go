@@ -42,6 +42,15 @@ type HealthBar struct {
 	MaxHeight int
 }
 
+// BossBar 是 Boss 血条的判据，对应上游 is_boss()：
+// 在屏幕上方居中的固定区域里找一条颜色对得上的实心矩形，且只能有一条。
+type BossBar struct {
+	Color     [2][3]uint8
+	Rect      geom.Rect // 1080p 逻辑像素
+	MinWidth  int
+	MinHeight int
+}
+
 // Keys 是技能按键绑定，留空的按键表示该游戏没有这个动作。
 type Keys struct {
 	Attack     string // 普通攻击的按键；留空表示用鼠标点击
@@ -59,6 +68,7 @@ type Spec struct {
 	Screen      string        // 画面配置名，只有用模板证据时才需要
 	DetectAreas []string      // 战斗证据区域（模板），任意一个命中即认为在战斗
 	HealthBar   *HealthBar    // 敌人血条证据，留空表示不用它
+	BossBar     *BossBar      // Boss 血条证据，留空表示不用它
 	AttackPoint geom.Point    // 普攻的点击位置
 	Keys        Keys          // 按键绑定
 	Plan        []Step        // 连招序列，循环执行
@@ -103,8 +113,11 @@ func (s Spec) validate() error {
 	if len(s.DetectAreas) > 0 && s.Screen == "" {
 		return errors.New("自动战斗用模板证据时必须给画面配置名")
 	}
-	if len(s.DetectAreas) == 0 && s.HealthBar == nil {
+	if len(s.DetectAreas) == 0 && s.HealthBar == nil && s.BossBar == nil {
 		return errors.New("自动战斗缺少战斗证据")
+	}
+	if s.BossBar != nil && (s.BossBar.MinWidth <= 0 || s.BossBar.MinHeight <= 0) {
+		return errors.New("自动战斗的 Boss 血条证据缺少尺寸阈值")
 	}
 	if s.HealthBar != nil && (s.HealthBar.MinWidth <= 0 || s.HealthBar.MinHeight <= 0) {
 		return errors.New("自动战斗的血条证据缺少尺寸阈值")

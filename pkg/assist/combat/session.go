@@ -69,6 +69,13 @@ func (s *Session) inCombat(frame assist.Frame) (bool, error) {
 			return true, nil
 		}
 	}
+	if boss := s.spec.BossBar; boss != nil {
+		// 上游 is_boss() 要求这个区域里恰好只有一条，避免把别的红色 UI 当成 Boss 血条。
+		if rects := vision.FindColorRectangles(frame.Image, boss.Rect, boss.Color,
+			boss.MinWidth, boss.MinHeight, 0, healthBarFillRatio); len(rects) == 1 {
+			return true, nil
+		}
+	}
 	for _, name := range s.spec.DetectAreas {
 		area, err := s.area(name)
 		if err != nil {
