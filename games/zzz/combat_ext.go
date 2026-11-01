@@ -221,8 +221,15 @@ func (a *zzzQuickAssistExt) assistTarget(frame assist.Frame) string {
 }
 
 // zzzExtensions 返回绝区零专属的战斗能力。
-func zzzExtensions() []combat.Extension {
+func zzzExtensions(team *zzzTeam) []combat.Extension {
 	return []combat.Extension{
+		// 上游 state_handler 的"条件 -> 动作"规则，优先于通用连招。
+		&zzzStateRuleExt{
+			Team:      team,
+			SkillArea: geom.Rect{X1: 1620, Y1: 917, X2: 1720, Y2: 1017},
+			UltArea:   geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876},
+			Threshold: 0.05,
+		},
 		&zzzDodgeExt{
 			// 闪光出现在角色周围，取屏幕中央一块；比值是经验值，实机可调。
 			Rect:     geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840},

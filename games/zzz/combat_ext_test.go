@@ -71,7 +71,7 @@ func TestQuickAssistExtension(t *testing.T) {
 
 func TestCombatFeatureHasExtensions(t *testing.T) {
 	spec := combatSpec()
-	if len(spec.Extensions) != 4 {
+	if len(spec.Extensions) != 5 {
 		t.Fatalf("扩展数量 = %d", len(spec.Extensions))
 	}
 	feature := combatFeature()
@@ -262,5 +262,58 @@ func TestQuickAssistTargetsLitSlot(t *testing.T) {
 	action, _, ok, _ = ext2.Step(rt, assist.Frame{Image: empty, At: time.Now()})
 	if !ok || action.Key != "space" {
 		t.Fatalf("认不出槽位时应退回兜底键: action=%+v ok=%v", action, ok)
+	}
+}
+
+func TestStateRuleFiresWhenUltReady(t *testing.T) {
+	front := geom.Rect{X1: 104, Y1: 40, X2: 274, Y2: 110}
+	ultArea := geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876}
+	skillArea := geom.Rect{X1: 1620, Y1: 917, X2: 1720, Y2: 1017}
+	team := &zzzTeam{
+		front:     screen.Area{Name: "前台头像", Rect: front},
+		frontIDs:  []string{"grace"},
+		threshold: 0.8,
+	}
+	ext := &zzzStateRuleExt{Team: team, SkillArea: skillArea, UltArea: ultArea, Threshold: 0.05}
+
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	// 终结技按钮亮起
+	for y := 790; y < 860; y++ {
+		for x := 1740; x < 1814; x++ {
+			img.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+		}
+	}
+	rt := areaFake{byRect: map[geom.Rect]map[string]float64{front: {"grace": 0.95}}}
+	action, state, ok, err := ext.Step(rt, assist.Frame{Image: img, At: time.Now()})
+	if err != nil || !ok || state != "规则-终结技" || action.Key != "q" {
+		t.Fatalf("终结技可用时应当按规则放终结技: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	}
+
+	// 按钮不亮 -> 终结技规则不成立（该角色还配了"特殊技不可用"这样的反向规则，属正常）。
+	ext2 := &zzzStateRuleExt{Team: team, SkillArea: skillArea, UltArea: ultArea, Threshold: 0.05}
+	dark := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	if _, state, ok, _ := ext2.Step(rt, assist.Frame{Image: dark, At: time.Now()}); ok && state == "规则-终结技" {
+		t.Fatal("按钮没亮时不该命中终结技规则")
+	}
+}
+
+func TestExtractedRulesShape(t *testing.T) {
+	if len(agentRules) < 20 {
+		t.Fatalf("规则数量太少: %d 个代理人", len(agentRules))
+	}
+	total := 0
+	for id, rules := range agentRules {
+		if len(rules) == 0 {
+			t.Fatalf("%s 没有规则", id)
+		}
+		for _, rule := range rules {
+			if rule.Cond == "" || len(rule.Ops) == 0 {
+				t.Fatalf("%s 有空规则: %+v", id, rule)
+			}
+			total++
+		}
+	}
+	if total < 60 {
+		t.Fatalf("规则总数太少: %d", total)
 	}
 }

@@ -22,6 +22,8 @@ func combatFeature() *combat.Feature { return combat.NewFeature(combatSpec()) }
 // （battle/btn_normal_attack，带 mask）在战斗画面 (1403,916)-(1505,1017)
 // 里匹配到就说明在战斗，阈值 0.9。
 func combatSpec() combat.Spec {
+	// Team 与规则引擎共用同一个实例：规则需要知道当前站场的是谁。
+	team := newZZZTeam()
 	return combat.Spec{
 		Screen:      "绝区零战斗",
 		DetectAreas: []string{"普通攻击按钮"},
@@ -49,10 +51,10 @@ func combatSpec() combat.Spec {
 		Roles:  agentRoles,
 		Switch: &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 认人 + 角色专属连招（模板来自上游 avatar_1_*/avatar_2_*）。
-		Team:         newZZZTeam(),
+		Team:         team,
 		PlansByAgent: agentPlans,
 		// 绝区零专属能力：闪光闪避、快速支援（通用流程先问它们，再走连招）。
-		Extensions: zzzExtensions(),
+		Extensions: zzzExtensions(team),
 		Plan: []combat.Step{
 			{Kind: combat.StepAttack},
 			{Kind: combat.StepAttack},
