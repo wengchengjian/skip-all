@@ -45,6 +45,7 @@ type Session struct {
 	slotSeen   map[int]time.Time
 	switchInAt map[int]time.Time
 	introLeft  []Step
+	introUntil time.Time
 	abortAt    time.Time
 }
 
@@ -302,6 +303,22 @@ func (s *Session) checkAbort(frame assist.Frame) (bool, error) {
 }
 
 func (s *Session) nextAction(frame assist.Frame) (assist.Action, string, bool) {
+	// 入场等待：上游 wait_intro() 期间一直点普攻，直到落地（技能可用）或超时。
+	if !s.introUntil.IsZero() {
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		if now.After(s.introUntil) || s.ready(frame, StepSkill) {
+			s.introUntil = time.Time{}
+		} else {
+			action := assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}
+			if s.spec.Keys.Attack != "" {
+				action = assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Attack}
+			}
+			return action, "入场-落地", true
+		}
+	}
 	// 刚切过人：先把入场技打完（鸣潮的 handle_intro）。
 	if len(s.introLeft) > 0 {
 		step := s.introLeft[0]
@@ -616,6 +633,13 @@ func (s *Session) noteSwitch(frame assist.Frame, now time.Time) {
 	s.agentAt = time.Time{}
 	s.agentID = ""
 	s.introLeft = append([]Step(nil), s.spec.IntroSteps...)
+	if s.spec.Intro != nil {
+		limit := s.spec.Intro.MaxDuration
+		if limit <= 0 {
+			limit = 1200 * time.Millisecond
+		}
+		s.introUntil = now.Add(limit)
+	}
 	_ = frame
 }
 

@@ -119,8 +119,10 @@ func combatSpec() combat.Spec {
 		Switch: &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 角色专属连招（上游 do_perform() 的出手顺序）。
 		PlansByAgent: agentPlans,
-		// 切人后先打入场技：上游 handle_intro() 的通用形态。
-		IntroSteps: []combat.Step{{Kind: combat.StepSkill}, {Kind: combat.StepAttack}},
+		// 入场：上游 wait_down()/wait_intro() —— 有入场技时持续点普攻，
+		// 直到角色落地（用"技能可用"判断），超时 1.2 秒。
+		// 只有今汐（Jinhsi）重写了 handle_intro，属于个例，这里按基类行为实现。
+		Intro: &combat.IntroSpec{MaxDuration: 1200 * time.Millisecond},
 		// 复活/失败界面出现时停手。
 		AbortArea:  "中断提示",
 		AbortTexts: []string{"复活", "失败", "重新挑战", "挑战失败"},

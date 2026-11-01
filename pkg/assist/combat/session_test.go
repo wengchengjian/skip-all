@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -856,5 +857,56 @@ func TestForteGateBlocksSkill(t *testing.T) {
 	session3 := newSession(testRuntime(true), spec3.withDefaults(), sessionSettings{})
 	if result, _ := step(t, session3, assist.Frame{Image: forteFrame(true), At: time.Now()}); result.State != "连招-普攻" {
 		t.Fatalf("要求未满时，满了应当跳过技能: state=%q", result.State)
+	}
+}
+
+func TestIntroWaitsForLanding(t *testing.T) {
+	spec := testSpec()
+	spec.Plan = []Step{{Kind: StepAttack}, {Kind: StepSkill}, {Kind: StepAttack}}
+	spec.Keys.Attack = ""
+	spec.AttackPoint = geom.Point{X: 960, Y: 540}
+	spec.Intro = &IntroSpec{MaxDuration: 1200 * time.Millisecond}
+	spec.Ready = map[StepKind]ReadyCheck{
+		StepSkill: {Area: geom.Rect{X1: 10, Y1: 10, X2: 60, Y2: 60}, ColorRange: [2][3]uint8{{253, 253, 253}, {255, 255, 255}}, MinRatio: 0.05},
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+
+	// 模拟一次切人：进入入场等待。
+	session.noteSwitch(assist.Frame{}, base)
+
+	dark := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	result, actions := step(t, session, assist.Frame{Image: dark, At: base.Add(100 * time.Millisecond)})
+	if result.State != "入场-落地" || len(actions) != 1 || actions[0].Kind != assist.ActionClick {
+		t.Fatalf("入场等待期间应当点普攻: state=%q actions=%+v", result.State, actions)
+	}
+
+	// 技能变可用 = 落地，回到连招。
+	lit := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 10; y < 60; y++ {
+		for x := 10; x < 60; x++ {
+			lit.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+		}
+	}
+	result, _ = step(t, session, assist.Frame{Image: lit, At: base.Add(300 * time.Millisecond)})
+	if !strings.HasPrefix(result.State, "连招-") {
+		t.Fatalf("落地后应当回到连招, state=%q", result.State)
+	}
+	if !session.introUntil.IsZero() {
+		t.Fatal("落地后入场等待应当结束")
+	}
+}
+
+func TestIntroTimesOut(t *testing.T) {
+	spec := testSpec()
+	spec.Intro = &IntroSpec{MaxDuration: 500 * time.Millisecond}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	session.noteSwitch(assist.Frame{}, base)
+	dark := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	// 超过 MaxDuration 后不再处于入场等待。
+	step(t, session, assist.Frame{Image: dark, At: base.Add(600 * time.Millisecond)})
+	if !session.introUntil.IsZero() {
+		t.Fatal("超时后应当结束入场等待")
 	}
 }

@@ -54,6 +54,14 @@ type UltReadyCheck struct {
 	Bonus     float64
 }
 
+// IntroSpec 描述"入场动画期间该做什么"。
+// 上游 BaseChar.wait_down()/wait_intro()：有入场技时持续点普攻，直到角色落地
+// （落地用"技能可用"判断），超时 1.2 秒。
+type IntroSpec struct {
+	// MaxDuration 是入场等待的上限，超时就直接进入连招。
+	MaxDuration time.Duration
+}
+
 // ForteCheck 是"共鸣回路是否已满"的判据：上游 BaseChar.is_forte_full() 在
 // (2251,1993)-(2311,2016)（4K）里数接近纯白的像素占比，超过 0.08 就算满。
 type ForteCheck struct {
@@ -141,7 +149,8 @@ type Spec struct {
 	PlansByAgent map[string][]Step       // 角色专属连招；识别到当前角色时优先用
 	Ready        map[StepKind]ReadyCheck // 技能可用性判据，没配的动作照旧放
 	Cooldowns    map[StepKind]geom.Rect  // 技能冷却数字的区域，OCR 到正数就不放
-	IntroSteps   []Step                  // 切人后插入的一小段（鸣潮的入场技），打完再接主连招
+	IntroSteps   []Step                  // 切人后插入的一小段（固定序列，留空则用 Intro）
+	Intro        *IntroSpec              // 入场等待：切人后点普攻直到"落地"，对应上游 wait_down/wait_intro
 	AbortArea    string                  // 中断检测的 OCR 区域名（画面配置里），留空不检测
 	AbortTexts   []string                // 命中这些文字说明战斗被打断（复活/失败界面），暂停出招
 	UltReady     *UltReadyCheck          // 后台角色大招就绪判据，命中给切人加分
