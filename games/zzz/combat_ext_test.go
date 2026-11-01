@@ -346,3 +346,50 @@ func TestStateCheckAtomUsesColorRange(t *testing.T) {
 		t.Fatal("没有色块时不该成立")
 	}
 }
+
+// mutableAreaFake 允许中途换命中结果，用来模拟"站场角色变了"。
+type mutableAreaFake struct {
+	byRect map[geom.Rect]map[string]float64
+}
+
+func (f *mutableAreaFake) MatchTemplate(_ assist.Frame, area screen.Area, ref vision.TemplateRef, _ float64) ([]vision.Match, error) {
+	if score, ok := f.byRect[area.Rect][ref.ID]; ok && score > 0 {
+		return []vision.Match{{Rect: area.Rect, Confidence: score}}, nil
+	}
+	return nil, nil
+}
+
+func TestSwitchEventAtom(t *testing.T) {
+	front := geom.Rect{X1: 104, Y1: 40, X2: 274, Y2: 110}
+	team := &zzzTeam{
+		front:     screen.Area{Name: "前台头像", Rect: front},
+		frontIDs:  []string{"ellen", "grace"},
+		threshold: 0.8,
+	}
+	e := &zzzStateRuleExt{Team: team, SkillArea: geom.Rect{X1: 1620, Y1: 917, X2: 1720, Y2: 1017}, UltArea: geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876}}
+	rt := &mutableAreaFake{byRect: map[geom.Rect]map[string]float64{front: {"ellen": 0.95}}}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	base := time.Now()
+
+	// 第一帧：还认不出变化，切人时间戳为空。
+	e.Step(rt, assist.Frame{Image: img, At: base})
+	if !e.switchedAt.IsZero() {
+		t.Fatal("第一帧不该记为切人")
+	}
+
+	// 第二帧：站场角色变成 grace -> 记录切人时间。
+	rt.byRect[front] = map[string]float64{"grace": 0.95}
+	e.Step(rt, assist.Frame{Image: img, At: base.Add(time.Second)})
+	if e.switchedAt.IsZero() {
+		t.Fatal("站场角色变化应当记为切人")
+	}
+
+	// 0.5 秒后：[按键-切换角色-下一个, 0, 1] 成立。
+	if !e.atom(rt, assist.Frame{Image: img, At: base.Add(1500 * time.Millisecond)}, "按键-切换角色-下一个, 0, 1") {
+		t.Fatal("1 秒内的切人应当满足时间窗")
+	}
+	// 3 秒后：不成立。
+	if e.atom(rt, assist.Frame{Image: img, At: base.Add(4 * time.Second)}, "按键-切换角色-下一个, 0, 1") {
+		t.Fatal("超出时间窗不该成立")
+	}
+}

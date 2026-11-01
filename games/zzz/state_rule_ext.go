@@ -1,6 +1,7 @@
 package zzz
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,9 @@ type zzzStateRuleExt struct {
 	queue   []combat.Step
 	agentID string
 	agentAt time.Time
+	// 站场角色变了就说明刚切过人，用来判定 [按键-切换角色-下一个/上一个, 0, N]。
+	lastAgent  string
+	switchedAt time.Time
 }
 
 func (e *zzzStateRuleExt) Name() string { return "state_rules" }
@@ -50,13 +54,17 @@ func (e *zzzStateRuleExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Ac
 	if now.IsZero() {
 		now = time.Now()
 	}
-	if e.agentAt.IsZero() || now.Sub(e.agentAt) >= 2*time.Second {
-		e.agentAt = now
-		if id, ok, err := e.Team.Agent(rt, frame); err == nil && ok {
-			e.agentID = id
-		} else {
-			e.agentID = ""
+	// 每帧确认站场角色：白名单学习过之后只比一两张模板，开销很小；
+	// 角色变化本身就是"刚切过人"的证据。
+	if id, ok, err := e.Team.Agent(rt, frame); err == nil && ok {
+		if e.lastAgent != "" && id != e.lastAgent {
+			e.switchedAt = now
 		}
+		e.lastAgent = id
+		e.agentID = id
+		e.agentAt = now
+	} else {
+		e.agentID = ""
 	}
 	rules := agentRules[e.agentID]
 	for _, rule := range rules {
@@ -179,6 +187,15 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 	if strings.HasSuffix(name, "-终结技可用") {
 		return e.lit(frame, e.UltArea)
 	}
+	// [按键-切换角色-下一个/上一个, 0, N]：站场角色刚换过就算成立
+	// （本项目分不出是"下一个"还是"上一个"，两者按同一件事处理）。
+	if strings.HasPrefix(name, "按键-切换角色") {
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		return e.switchedWithin(raw, now)
+	}
 	// 闪避闪光：黄光是切人时机，红光是闪避时机。
 	switch name {
 	case "自定义-黄光切人":
@@ -187,6 +204,33 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 		return e.flash(frame, 1)
 	}
 	return false
+}
+
+// switchedWithin 判断"最近一次切人"是否落在条件给的时间窗内。
+func (e *zzzStateRuleExt) switchedWithin(raw string, now time.Time) bool {
+	if e.switchedAt.IsZero() {
+		return false
+	}
+	lo, hi, ok := parseWindow(raw)
+	if !ok {
+		return true
+	}
+	elapsed := now.Sub(e.switchedAt).Seconds()
+	return elapsed >= lo && elapsed <= hi
+}
+
+// parseWindow 解析 "[原子, 0, 1.5]" 里的时间窗部分。
+func parseWindow(raw string) (float64, float64, bool) {
+	parts := strings.Split(raw, ",")
+	if len(parts) < 3 {
+		return 0, 0, false
+	}
+	lo, err1 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	hi, err2 := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return lo, hi, true
 }
 
 // flash 判定闪避闪光：0 黄光、1 红光。
@@ -204,12 +248,22 @@ func (e *zzzStateRuleExt) matchState(frame assist.Frame, check StateCheck) bool 
 	if area.X2 <= area.X1 || area.Y2 <= area.Y1 {
 		return false
 	}
-	required := check.Connect
-	if required < 1 {
-		required = 1
+	colors := [2][3]uint8{check.Lower, check.Upper}
+	switch check.Way {
+	case "COLOR_RANGE_CONNECT", "COLOR_CHANNEL_EQUAL_RANGE_CONNECT":
+		required := check.Connect
+		if required < 1 {
+			required = 1
+		}
+		return len(vision.FindColorRectangles(frame.Image, area, colors, 2, 2, 200, 0.9)) >= required
+	case "COLOR_RANGE_EXIST", "COLOR_CHANNEL_MAX_RANGE_EXIST",
+		"FOREGROUND_COLOR_RANGE_LENGTH", "BACKGROUND_COLOR_RANGE_LENGTH",
+		"FOREGROUND_GRAY_RANGE_LENGTH", "BACKGROUND_GRAY_RANGE_LENGTH",
+		"COLOR_CHANNEL_EQUAL_RANGE_EXIST":
+		// 这几类上游量的是"长度/是否存在"，这里统一按颜色占比是否大于 0 近似。
+		return vision.ColorRatio(frame.Image, area, colors) > 0
 	}
-	rects := vision.FindColorRectangles(frame.Image, area, [2][3]uint8{check.Lower, check.Upper}, 2, 2, 200, 0.9)
-	return len(rects) >= required
+	return false
 }
 
 func (e *zzzStateRuleExt) lit(frame assist.Frame, rect geom.Rect) bool {

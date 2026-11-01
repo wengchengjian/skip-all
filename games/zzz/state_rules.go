@@ -10,12 +10,13 @@ type StateRule struct {
 	Ops  []combat.Step // 命中的按键序列
 }
 
-// StateCheck 是上游 agent.py 里的状态检测定义（颜色范围 + 连通块数量）。
+// StateCheck 是上游 agent.py 里的状态检测定义。
 type StateCheck struct {
 	TemplateID string
 	Lower      [3]uint8
 	Upper      [3]uint8
 	Connect    int
+	Way        string // 上游 AgentStateCheckWay，决定怎么判
 }
 
 // agentRules 是从上游 ZenlessZoneZero-OneDragon 的
@@ -149,12 +150,21 @@ var agentRules = map[string][]StateRule{
 // agentStateChecks 是从上游 src/zzz_od/game_data/agent.py 的 AgentStateDef 提取的
 // 状态检测（颜色范围 + 连通块数量），用于判定 [<角色>-<状态>] 这类条件。
 var agentStateChecks = map[string]StateCheck{
-	"伊芙琳-燎索点": {TemplateID: "", Lower: [3]uint8{70, 70, 70}, Upper: [3]uint8{255, 255, 255}, Connect: 5},
-	"朱鸢-子弹数":  {TemplateID: "zhu_yuan", Lower: [3]uint8{240, 60, 0}, Upper: [3]uint8{255, 180, 20}, Connect: 5},
-	"柚叶-甜度点":  {TemplateID: "", Lower: [3]uint8{221, 107, 113}, Upper: [3]uint8{255, 255, 255}, Connect: 6},
-	"波可娜-猎步":  {TemplateID: "", Lower: [3]uint8{200, 120, 30}, Upper: [3]uint8{255, 255, 255}, Connect: 1},
-	"艾莲-急冻充能": {TemplateID: "ellen", Lower: [3]uint8{200, 245, 250}, Upper: [3]uint8{255, 255, 255}, Connect: 2},
-	"苍角-涡流":   {TemplateID: "soukaku", Lower: [3]uint8{0, 220, 220}, Upper: [3]uint8{175, 255, 255}, Connect: 15},
-	"薇薇安-护羽":  {TemplateID: "", Lower: [3]uint8{170, 170, 200}, Upper: [3]uint8{255, 255, 255}, Connect: 5},
-	"薇薇安-飞羽":  {TemplateID: "", Lower: [3]uint8{150, 110, 170}, Upper: [3]uint8{255, 255, 255}, Connect: 5},
+	"伊芙琳-燎火":     {TemplateID: "", Lower: [3]uint8{70, 70, 70}, Upper: [3]uint8{255, 255, 255}, Connect: 5, Way: "BACKGROUND_GRAY_RANGE_LENGTH"},
+	"伊芙琳-燎索点":    {TemplateID: "", Lower: [3]uint8{70, 70, 70}, Upper: [3]uint8{255, 255, 255}, Connect: 5, Way: "COLOR_RANGE_CONNECT"},
+	"前台-终结技可用":   {TemplateID: "ultimate_3_1", Lower: [3]uint8{250, 150, 20}, Upper: [3]uint8{255, 255, 70}, Connect: 1000, Way: "COLOR_RANGE_CONNECT"},
+	"前台-血量扣减":    {TemplateID: "life_deduction_2_1", Lower: [3]uint8{140, 30, 30}, Upper: [3]uint8{160, 50, 50}, Connect: 10000, Way: "FOREGROUND_COLOR_RANGE_LENGTH"},
+	"后台-1-终结技可用": {TemplateID: "ultimate_2_2", Lower: [3]uint8{250, 150, 20}, Upper: [3]uint8{255, 255, 70}, Connect: 5, Way: "COLOR_RANGE_EXIST"},
+	"后台-2-终结技可用": {TemplateID: "ultimate_3_3", Lower: [3]uint8{250, 150, 20}, Upper: [3]uint8{255, 255, 70}, Connect: 5, Way: "COLOR_RANGE_EXIST"},
+	"扳机-绝意":      {TemplateID: "", Lower: [3]uint8{0, 50, 0}, Upper: [3]uint8{255, 255, 255}, Connect: 1, Way: "FOREGROUND_COLOR_RANGE_LENGTH"},
+	"朱鸢-子弹数":     {TemplateID: "zhu_yuan", Lower: [3]uint8{240, 60, 0}, Upper: [3]uint8{255, 180, 20}, Connect: 5, Way: "COLOR_RANGE_CONNECT"},
+	"柚叶-甜度点":     {TemplateID: "alice", Lower: [3]uint8{221, 107, 113}, Upper: [3]uint8{255, 255, 255}, Connect: 6, Way: "COLOR_RANGE_CONNECT"},
+	"波可娜-猎步":     {TemplateID: "", Lower: [3]uint8{200, 120, 30}, Upper: [3]uint8{255, 255, 255}, Connect: 1, Way: "COLOR_RANGE_CONNECT"},
+	"简-狂热心流":     {TemplateID: "jane_red", Lower: [3]uint8{200, 20, 20}, Upper: [3]uint8{255, 255, 255}, Connect: 10, Way: "FOREGROUND_COLOR_RANGE_LENGTH"},
+	"简-萨霍夫跳":     {TemplateID: "jane_attack", Lower: [3]uint8{100, 20, 20}, Upper: [3]uint8{255, 255, 255}, Connect: 20, Way: "COLOR_RANGE_EXIST"},
+	"艾莲-急冻充能":    {TemplateID: "ellen", Lower: [3]uint8{200, 245, 250}, Upper: [3]uint8{255, 255, 255}, Connect: 2, Way: "COLOR_RANGE_CONNECT"},
+	"苍角-涡流":      {TemplateID: "soukaku", Lower: [3]uint8{0, 220, 220}, Upper: [3]uint8{175, 255, 255}, Connect: 15, Way: "COLOR_RANGE_CONNECT"},
+	"薇薇安-护羽":     {TemplateID: "", Lower: [3]uint8{170, 170, 200}, Upper: [3]uint8{255, 255, 255}, Connect: 5, Way: "COLOR_RANGE_CONNECT"},
+	"薇薇安-飞羽":     {TemplateID: "", Lower: [3]uint8{150, 110, 170}, Upper: [3]uint8{255, 255, 255}, Connect: 5, Way: "COLOR_RANGE_CONNECT"},
+	"青衣-电压":      {TemplateID: "qingyi", Lower: [3]uint8{100, 20, 20}, Upper: [3]uint8{255, 255, 255}, Connect: 20, Way: "BACKGROUND_GRAY_RANGE_LENGTH"},
 }
