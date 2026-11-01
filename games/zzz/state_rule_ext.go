@@ -198,6 +198,11 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 	if strings.HasSuffix(name, "-终结技可用") {
 		return e.lit(frame, e.UltArea)
 	}
+	// [自定义-终结技被强制释放]：上游在前台角色终结技可用时打这个标记
+	// （auto_battle_agent_context.py 的自动终结技逻辑），这里等价成"终结技可用"。
+	if name == "自定义-终结技被强制释放" {
+		return e.lit(frame, e.UltArea)
+	}
 	// [自定义-动作不打断]：规则队列里还有动作没打完，等价于"正在出招"。
 	if name == "自定义-动作不打断" {
 		return len(e.queue) > 0
