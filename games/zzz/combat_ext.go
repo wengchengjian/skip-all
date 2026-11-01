@@ -77,6 +77,76 @@ func (a *zzzQuickAssistExt) Step(rt combat.Runtime, frame assist.Frame) (assist.
 	return assist.Action{}, "", false, nil
 }
 
+// zzzChainExt 是绝区零的连携技。
+// 上游：连携条(813,889)-(1098,890) 的 HSV 金色线命中说明进入连携选择，
+// 左右两侧 连携技-1/2 区域里高亮的那一侧对应 按键-连携技-左(q) / 右(e)。
+type zzzChainExt struct {
+	Bar      geom.Rect
+	BarRGB   [2][3]uint8
+	BarRate  float64
+	Left     geom.Rect
+	Right    geom.Rect
+	LeftKey  string
+	RightKey string
+	Interval time.Duration
+	last     time.Time
+}
+
+func (c *zzzChainExt) Name() string { return "chain" }
+
+func (c *zzzChainExt) Step(_ combat.Runtime, frame assist.Frame) (assist.Action, string, bool, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if !c.last.IsZero() && now.Sub(c.last) < c.Interval {
+		return assist.Action{}, "", false, nil
+	}
+	if vision.ColorRatio(frame.Image, c.Bar, c.BarRGB) < c.BarRate {
+		return assist.Action{}, "", false, nil
+	}
+	// 哪一侧更亮就选哪一侧；两侧都暗就默认左边（上游缺省也是左侧优先）。
+	left := vision.ColorRatio(frame.Image, c.Left, brightRange)
+	right := vision.ColorRatio(frame.Image, c.Right, brightRange)
+	key, state := c.LeftKey, "连携技-左"
+	if right > left {
+		key, state = c.RightKey, "连携技-右"
+	}
+	c.last = now
+	return assist.Action{Kind: assist.ActionKeyTap, Key: key}, state, true, nil
+}
+
+// zzzUltimateExt 是绝区零的终结技：只有按钮点亮（可用）时才按。
+// 上游按角色属性分别判定（agent.py 的 ULTIMATE_*），这里统一按按钮亮度近似。
+type zzzUltimateExt struct {
+	Rect      geom.Rect
+	ReadyRGB  [2][3]uint8
+	ReadyRate float64
+	Key       string
+	Interval  time.Duration
+	last      time.Time
+}
+
+func (u *zzzUltimateExt) Name() string { return "ultimate" }
+
+func (u *zzzUltimateExt) Step(_ combat.Runtime, frame assist.Frame) (assist.Action, string, bool, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if !u.last.IsZero() && now.Sub(u.last) < u.Interval {
+		return assist.Action{}, "", false, nil
+	}
+	if vision.ColorRatio(frame.Image, u.Rect, u.ReadyRGB) < u.ReadyRate {
+		return assist.Action{}, "", false, nil
+	}
+	u.last = now
+	return assist.Action{Kind: assist.ActionKeyTap, Key: u.Key}, "终结技", true, nil
+}
+
+// brightRange 是"亮起来"的通用色域（按钮高亮、头像点亮）。
+var brightRange = [2][3]uint8{{210, 200, 180}, {255, 255, 255}}
+
 // zzzExtensions 返回绝区零专属的战斗能力。
 func zzzExtensions() []combat.Extension {
 	return []combat.Extension{
@@ -90,6 +160,23 @@ func zzzExtensions() []combat.Extension {
 				{{225, 195, 60}, {255, 255, 165}}, // 黄光
 				{{215, 35, 35}, {255, 110, 110}},  // 红光
 			},
+		},
+		&zzzChainExt{
+			Bar:      geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900},
+			BarRGB:   [2][3]uint8{{200, 120, 40}, {255, 205, 120}},
+			BarRate:  0.5,
+			Left:     geom.Rect{X1: 479, Y1: 828, X2: 597, Y2: 946},
+			Right:    geom.Rect{X1: 1322, Y1: 828, X2: 1440, Y2: 946},
+			LeftKey:  "q",
+			RightKey: "e",
+			Interval: 900 * time.Millisecond,
+		},
+		&zzzUltimateExt{
+			Rect:      geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876},
+			ReadyRGB:  [2][3]uint8{{200, 200, 200}, {255, 255, 255}},
+			ReadyRate: 0.35,
+			Key:       "q",
+			Interval:  1200 * time.Millisecond,
 		},
 		&zzzQuickAssistExt{
 			Area: screen.Area{

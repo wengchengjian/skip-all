@@ -71,12 +71,76 @@ func TestQuickAssistExtension(t *testing.T) {
 
 func TestCombatFeatureHasExtensions(t *testing.T) {
 	spec := combatSpec()
-	if len(spec.Extensions) != 2 {
+	if len(spec.Extensions) != 4 {
 		t.Fatalf("扩展数量 = %d", len(spec.Extensions))
 	}
 	feature := combatFeature()
 	settings := feature.DefaultSettings()
-	if settings["ext_dodge_flash"] != true || settings["ext_quick_assist"] != true {
-		t.Fatalf("扩展开关默认应当打开: %+v", settings)
+	for _, key := range []string{"ext_dodge_flash", "ext_quick_assist", "ext_chain", "ext_ultimate"} {
+		if settings[key] != true {
+			t.Fatalf("扩展开关 %s 默认应当打开: %+v", key, settings)
+		}
+	}
+}
+
+func TestChainExtension(t *testing.T) {
+	ext := &zzzChainExt{
+		Bar:      geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900},
+		BarRGB:   [2][3]uint8{{200, 120, 40}, {255, 205, 120}},
+		BarRate:  0.5,
+		Left:     geom.Rect{X1: 479, Y1: 828, X2: 597, Y2: 946},
+		Right:    geom.Rect{X1: 1322, Y1: 828, X2: 1440, Y2: 946},
+		LeftKey:  "q",
+		RightKey: "e",
+		Interval: time.Second,
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	// 连携条：金色横线
+	for y := 886; y < 898; y++ {
+		for x := 820; x < 1092; x++ {
+			img.SetRGBA(x, y, color.RGBA{240, 170, 60, 255})
+		}
+	}
+	// 左侧点亮
+	for y := 850; y < 920; y++ {
+		for x := 500; x < 580; x++ {
+			img.SetRGBA(x, y, color.RGBA{250, 250, 240, 255})
+		}
+	}
+	action, state, ok, err := ext.Step(fakeRuntime{}, assist.Frame{Image: img, At: time.Now()})
+	if err != nil || !ok || state != "连携技-左" || action.Key != "q" {
+		t.Fatalf("连携条+左侧高亮应当按 q: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	}
+	// 没有连携条不触发
+	empty := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	ext2 := *ext
+	ext2.last = time.Time{}
+	if _, _, ok, _ := ext2.Step(fakeRuntime{}, assist.Frame{Image: empty, At: time.Now()}); ok {
+		t.Fatal("没有连携条不该触发")
+	}
+}
+
+func TestUltimateExtension(t *testing.T) {
+	ext := &zzzUltimateExt{
+		Rect:      geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876},
+		ReadyRGB:  [2][3]uint8{{200, 200, 200}, {255, 255, 255}},
+		ReadyRate: 0.35,
+		Key:       "q",
+		Interval:  time.Second,
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 790; y < 860; y++ {
+		for x := 1740; x < 1814; x++ {
+			img.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+		}
+	}
+	action, state, ok, err := ext.Step(fakeRuntime{}, assist.Frame{Image: img, At: time.Now()})
+	if err != nil || !ok || state != "终结技" || action.Key != "q" {
+		t.Fatalf("按钮点亮应当按 q: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	}
+	empty := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	ext2 := &zzzUltimateExt{Rect: ext.Rect, ReadyRGB: ext.ReadyRGB, ReadyRate: ext.ReadyRate, Key: "q", Interval: time.Second}
+	if _, _, ok, _ := ext2.Step(fakeRuntime{}, assist.Frame{Image: empty, At: time.Now()}); ok {
+		t.Fatal("按钮没亮不该按终结技")
 	}
 }

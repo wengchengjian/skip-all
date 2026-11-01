@@ -111,8 +111,9 @@
 | --- | --- | --- |
 | `auto_battle_context.check_battle_state`：`is_normal_attack_btn_available` 决定是否在战斗 | `combat.Spec.DetectAreas` 配 `普通攻击按钮` 区域（(1403,916)-(1505,1017)，模板 `combat/btn_normal_attack`，阈值 0.9） | 模板 raw.png + mask.png 直接取自上游 `assets/template/battle/btn_normal_attack` |
 | `_KEY_DEFAULTS`：普通攻击 mouse_left、闪避 shift、特殊攻击 e、终结技 q、角色切换-下一个 space、锁定 mouse_middle | `games/zzz/combat.go` 的 `Keys`：攻击=左键点击、Skill=e、Liberation=q、Dodge=shift、Switch=[space] | 锁定未启用（绝区零默认自动锁定） |
-| 每个代理一套 YAML 招式表（`config/auto_battle/*.yml`） | 一套通用连招 `Spec.Plan`：普攻×2 → 特殊技 → 普攻×2 → 终结技 → 闪避 | 代理专属招式表未移植 |
+| 每个代理一套 YAML 招式表（`config/auto_battle/*.yml`） | 一套通用连招 `Spec.Plan`：普攻×2 → 特殊技 → 普攻×2 → 闪避；终结技由 `zzzUltimateExt` 在按钮可用时补 | 代理专属招式表未移植 |
 | 闪避判定：`auto_battle_dodge_context.check_dodge_flash` 用 YOLO 分类红光/黄光 | `games/zzz/combat_ext.go` 的 `zzzDodgeExt`：屏幕中央黄/红闪光颜色占比超阈值就按闪避键 | 上游是模型，这里是颜色近似；阈值和区域可调 |
 | 快速支援：`按键-快速支援` + `btn_assist_1/2` 支援按钮 | `zzzQuickAssistExt`：支援按钮模板命中就按切换键（space） | 模板直接取上游 `assets/template/battle/btn_assist_*` |
-| 连携技左右（chain_left=q / chain_right=e） | 未做 | 需要连携条状态机 |
+| 连携技：连携条 (813,889)-(1098,890) 的 HSV 金色线 + 左右 连携技-1/2 区域 | `zzzChainExt`：连携条金色占比 >=50% 判为连携选择，比左右两侧亮度，亮的一侧按 q/e | 上游用 HSV+轮廓周长，这里用 RGB 近似 + 亮度比较 |
+| 终结技：按角色属性判定 `前台-终结技可用` | `zzzUltimateExt`：终结技按钮 (1728,778)-(1826,876) 亮起占比 >=35% 才按 q | 上游按元素色域分别判定，这里统一按钮亮度近似 |
 | 游戏专属能力如何接入 | `combat.Spec.Extensions` + `combat.Extension` 接口：通用流程每帧先问扩展，认领就走扩展，否则走连招 | 绝区零专用逻辑全部留在 games/zzz，共享流程不变 |
