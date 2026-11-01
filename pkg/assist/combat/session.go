@@ -39,10 +39,11 @@ type Session struct {
 	agentID    string
 	agentAt    time.Time
 	cdCache    map[StepKind]cdEntry
+	slotSeen   map[int]time.Time
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg, cdCache: make(map[StepKind]cdEntry)}
+	return &Session{rt: rt, spec: spec, cfg: cfg, cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time)}
 }
 
 // cdEntry 是冷却 OCR 的短时缓存，避免每帧都对技能按钮跑 OCR。
@@ -357,7 +358,11 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 		return assist.Action{}, false
 	}
 	// 切人后协奏环会清空，留一点冷却避免连点。
-	if !s.switchAt.IsZero() && now.Sub(s.switchAt) < concertoSwitchCooldown {
+	cooldown := concertoSwitchCooldown
+	if s.spec.Switch != nil && s.spec.Switch.MinInterval > 0 {
+		cooldown = s.spec.Switch.MinInterval
+	}
+	if !s.switchAt.IsZero() && now.Sub(s.switchAt) < cooldown {
 		return assist.Action{}, false
 	}
 	c := s.spec.Concerto
@@ -370,7 +375,110 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 		return assist.Action{}, false
 	}
 	s.switchAt = now
-	return assist.Action{Kind: assist.ActionKeyTap, Key: s.nextSwitchKey(frame)}, true
+	return assist.Action{Kind: assist.ActionKeyTap, Key: s.chooseSwitchKey(frame)}, true
+}
+
+// chooseSwitchKey 选切人按键：能列出各槽位角色时按定位打分，否则退回按顺序切。
+func (s *Session) chooseSwitchKey(frame assist.Frame) string {
+	keys := s.spec.Keys.Switch
+	if len(keys) == 0 {
+		return ""
+	}
+	locator, ok := s.spec.Team.(SlotLocator)
+	if !ok || len(s.spec.Roles) == 0 {
+		return s.nextSwitchKey(frame)
+	}
+	ids, err := locator.Slots(runtimeAdapter{rt: s.rt}, frame)
+	if err != nil || len(ids) == 0 {
+		return s.nextSwitchKey(frame)
+	}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	current := -1
+	if s.spec.Team != nil {
+		if idx, found, err := s.spec.Team.Current(runtimeAdapter{rt: s.rt}, frame); err == nil && found {
+			current = idx
+		}
+	}
+	if current >= 0 && current < len(ids) {
+		s.slotSeen[current] = now
+	}
+	best, bestKey := -1e9, ""
+	currentRole := Role("")
+	if current >= 0 && current < len(ids) {
+		currentRole = s.spec.Roles[ids[current]]
+	}
+	for i, id := range ids {
+		if i == current || i >= len(keys) {
+			continue
+		}
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now)
+		if score > best {
+			best, bestKey = score, keys[i]
+		}
+	}
+	if bestKey == "" {
+		return s.nextSwitchKey(frame)
+	}
+	return bestKey
+}
+
+// staleBonus 给"很久没出场"的槽位加分，对应上游 _oldest_switch_target。
+func (s *Session) staleBonus(slot int, now time.Time) float64 {
+	seen, ok := s.slotSeen[slot]
+	if !ok {
+		return 20
+	}
+	bonus := now.Sub(seen).Seconds()
+	if bonus > 20 {
+		bonus = 20
+	}
+	if bonus < 0 {
+		bonus = 0
+	}
+	return bonus
+}
+
+// roleScore 决定"从当前定位切到目标定位"该给多少分，思路照上游 swap 规则：
+// 主C打完切辅助/治疗，辅助/治疗打完切回主C，同类不优先。
+func roleScore(current, target Role) float64 {
+	if target == "" {
+		return 5
+	}
+	switch current {
+	case RoleMainDPS:
+		switch target {
+		case RoleHealer:
+			return 30
+		case RoleSubDPS:
+			return 20
+		case RoleSupport:
+			return 10
+		}
+	case RoleHealer, RoleSupport:
+		switch target {
+		case RoleMainDPS:
+			return 30
+		case RoleSubDPS:
+			return 20
+		case RoleSupport:
+			return 10
+		}
+	case RoleSubDPS:
+		switch target {
+		case RoleMainDPS:
+			return 30
+		case RoleHealer:
+			return 20
+		case RoleSupport:
+			return 10
+		}
+	default:
+		return 10
+	}
+	return 0
 }
 
 // healerKey 返回治疗位按键：能识别出队伍里的治疗就按它的槽位键，否则用配置的固定键。

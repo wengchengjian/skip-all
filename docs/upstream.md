@@ -153,3 +153,13 @@
 没配判据的动作照旧放（不会因为缺配置停摆）。
 
 冷却另外补了一层：`combat.Spec.Cooldowns` 会 OCR 技能按钮上的剩余秒数（鸣潮 `get_cd` / 绝区零 `has_cd` 的同款判断），读到正数就跳过该动作，结果按 500ms 缓存。
+
+## 切人打分
+
+| 游戏 | 上游 | 本项目 |
+| --- | --- | --- |
+| 鸣潮 | `get_switch_priority()` 返回 0/100/200/300/400，`_choose_switch_target` 取最高分，再按 intro / buff 时间平手判定 | `combat.SwitchPolicy` + `Spec.Roles`：按角色定位打分（主C打完优先治疗/副C，治疗/辅助打完优先主C），再给"很久没出场"的槽位加分，最高分者胜 |
+| 绝区零 | `_choose_switch_target` 按 switch_rule_1/2/3 + `_unbuffed_support_target` + `_oldest_switch_target` | 同一套打分模型（共用 `pkg/assist/combat`） |
+
+角色定位表来自上游：鸣潮 `_char_dict_raw` 的 `char_type`（48 个），绝区零 `agent.py` 的 `AgentTypeEnum`（54 个），分别在 `games/wuwa/agent_roles.go`、`games/zzz/agent_roles.go`。
+认不出定位时退回"按顺序切下一个"，不会停摆。

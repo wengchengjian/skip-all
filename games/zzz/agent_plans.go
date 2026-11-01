@@ -11,7 +11,7 @@ import (
 // 推导方式：统计各按钮出现次数，用得多的排前面，能力之间夹一次普攻。
 // 上游真实逻辑是状态机（可用性、招架支援、连携换人），这里是近似序列。
 var agentPlans = map[string][]combat.Step{
-	"ellen": {{Kind: combat.StepSkill}, {Kind: combat.StepAttack}, {Kind: combat.StepDodge}, {Kind: combat.StepAttack}, {Kind: combat.StepLiberation}, {Kind: combat.StepAttack}},
-	"lycaon": {{Kind: combat.StepSkill}, {Kind: combat.StepAttack}, {Kind: combat.StepDodge}, {Kind: combat.StepAttack}, {Kind: combat.StepLiberation}, {Kind: combat.StepAttack}},
+	"ellen":   {{Kind: combat.StepSkill}, {Kind: combat.StepAttack}, {Kind: combat.StepDodge}, {Kind: combat.StepAttack}, {Kind: combat.StepLiberation}, {Kind: combat.StepAttack}},
+	"lycaon":  {{Kind: combat.StepSkill}, {Kind: combat.StepAttack}, {Kind: combat.StepDodge}, {Kind: combat.StepAttack}, {Kind: combat.StepLiberation}, {Kind: combat.StepAttack}},
 	"lighter": {{Kind: combat.StepSkill}, {Kind: combat.StepAttack}, {Kind: combat.StepDodge}, {Kind: combat.StepAttack}, {Kind: combat.StepLiberation}, {Kind: combat.StepAttack}},
 }

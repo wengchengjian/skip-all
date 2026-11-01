@@ -66,6 +66,25 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 	return bestID, true, nil
 }
 
+// Slots 列出三个槽位上的角色 id（认不出留空），切人打分用。
+func (t *wuwaTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error) {
+	ids := make([]string, 0, len(t.avatarSlots))
+	for _, area := range t.avatarSlots {
+		best, bestID := 0.0, ""
+		for _, id := range t.avatarIDs {
+			matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: "team", ID: id}, t.avatarThreshold)
+			if err != nil {
+				return nil, err
+			}
+			if len(matches) > 0 && matches[0].Confidence > best {
+				best, bestID = matches[0].Confidence, id
+			}
+		}
+		ids = append(ids, bestID)
+	}
+	return ids, nil
+}
+
 // HealerSlot 找队伍里的治疗位：三个槽位头像分别和上游 CharType.HEALER 的角色模板比对。
 func (t *wuwaTeam) HealerSlot(rt combat.Runtime, frame assist.Frame) (int, bool, error) {
 	for i, area := range t.avatarSlots {

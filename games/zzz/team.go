@@ -57,6 +57,39 @@ func avatarIDs(dir string) []string {
 	return ids
 }
 
+// Slots 列出前后台槽位上的代理人 id（认不出留空），切人打分用。
+func (t *zzzTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error) {
+	ids := make([]string, 0, 3)
+	front, err := t.matchIn(rt, frame, t.front, t.frontIDs, "avatar1")
+	if err != nil {
+		return nil, err
+	}
+	ids = append(ids, front)
+	for _, area := range t.backSlots {
+		back, err := t.matchIn(rt, frame, area, t.backIDs, "avatar2")
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, back)
+	}
+	return ids, nil
+}
+
+// matchIn 在一个区域里逐个模板比对，返回分数最高的模板 id。
+func (t *zzzTeam) matchIn(rt combat.Runtime, frame assist.Frame, area screen.Area, ids []string, subDir string) (string, error) {
+	best, bestID := 0.0, ""
+	for _, id := range ids {
+		matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: subDir, ID: id}, t.threshold)
+		if err != nil {
+			return "", err
+		}
+		if len(matches) > 0 && matches[0].Confidence > best {
+			best, bestID = matches[0].Confidence, id
+		}
+	}
+	return bestID, nil
+}
+
 // Current 返回当前角色槽位：绝区零前台固定在第一个槽位。
 func (t *zzzTeam) Current(rt combat.Runtime, frame assist.Frame) (int, bool, error) {
 	if _, ok, err := t.Agent(rt, frame); err != nil || !ok {

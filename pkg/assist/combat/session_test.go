@@ -592,3 +592,67 @@ func TestHealerKeyFromTeamRecognition(t *testing.T) {
 		t.Fatalf("应当按识别到的治疗位按键: state = %q actions = %+v", result.State, actions)
 	}
 }
+
+type slotTeam struct {
+	current int
+	ids     []string
+}
+
+func (s slotTeam) Current(Runtime, assist.Frame) (int, bool, error) { return s.current, true, nil }
+func (s slotTeam) Agent(Runtime, assist.Frame) (string, bool, error) {
+	if s.current < len(s.ids) {
+		return s.ids[s.current], true, nil
+	}
+	return "", false, nil
+}
+func (s slotTeam) Slots(Runtime, assist.Frame) ([]string, error) { return s.ids, nil }
+
+func concertoFullFrame() *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 0; y < 63; y++ {
+		for x := 0; x < 63; x++ {
+			d := math.Hypot(float64(x)+0.5-31.5, float64(y)+0.5-31.5)
+			if d >= 22.1 && d <= 26.6 {
+				img.SetRGBA(700+x, 960+y, color.RGBA{220, 205, 110, 255})
+			}
+		}
+	}
+	return img
+}
+
+func TestSwitchTargetByRole(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"dps", "sub", "healer"}}
+	spec.Roles = map[string]Role{"dps": RoleMainDPS, "sub": RoleSubDPS, "healer": RoleHealer}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.8,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: time.Now()})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("主C在场时应当切给治疗(3), actions = %+v", actions)
+	}
+}
+
+func TestSwitchTargetFallsBackWithoutRoles(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 1, ids: []string{"a", "b", "c"}}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.8,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: time.Now()})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("没有定位信息时按顺序切下一个, actions = %+v", actions)
+	}
+}

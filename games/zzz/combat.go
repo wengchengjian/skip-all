@@ -1,6 +1,8 @@
 package zzz
 
 import (
+	"time"
+
 	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"github.com/wengchengjian/skip-all/pkg/geom"
@@ -40,6 +42,9 @@ func combatSpec() combat.Spec {
 			combat.StepSkill:      {X1: 1620, Y1: 917, X2: 1720, Y2: 1017},
 			combat.StepLiberation: {X1: 1728, Y1: 778, X2: 1826, Y2: 876},
 		},
+		// 代理人定位来自上游 AgentTypeEnum，切人时按定位打分。
+		Roles:  agentRoles,
+		Switch: &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 认人 + 角色专属连招（模板来自上游 avatar_1_*/avatar_2_*）。
 		Team:         newZZZTeam(),
 		PlansByAgent: agentPlans,
