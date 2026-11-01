@@ -115,8 +115,9 @@ func combatSpec() combat.Spec {
 		// 上游只有少数角色的技能明确等回路状态，其余角色不门控。
 		ForteGate: agentForteGate,
 		// 角色定位（上游 char_type）与大招就绪一起决定协奏满切谁。
-		Roles:  agentRoles,
-		Switch: &combat.SwitchPolicy{MinInterval: 3 * time.Second},
+		Roles:     agentRoles,
+		BuffTimes: agentBuffTime,
+		Switch:    &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 角色专属连招（上游 do_perform() 的出手顺序）。
 		PlansByAgent: agentPlans,
 		// 入场：上游 wait_down()/wait_intro() —— 有入场技时持续点普攻，

@@ -955,3 +955,32 @@ func TestIntroBurnMode(t *testing.T) {
 		t.Fatalf("收尾之后应当回到连招: state=%q", result.State)
 	}
 }
+
+func TestBuffExpiredBonusInSwitch(t *testing.T) {
+	two := func(buff time.Duration) Spec {
+		spec := testSpec()
+		spec.Keys.Switch = []string{"1", "2", "3"}
+		spec.Team = slotTeam{current: 0, ids: []string{"dps", "sub", "sub2"}}
+		spec.Roles = map[string]Role{"dps": RoleMainDPS, "sub": RoleSubDPS, "sub2": RoleSubDPS}
+		spec.BuffTimes = map[string]time.Duration{"sub": buff, "sub2": buff}
+		spec.Switch = &SwitchPolicy{MinInterval: time.Millisecond}
+		spec.Concerto = &Concerto{
+			Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+			Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+			Inner:     0.35119,
+			Outer:     0.42261,
+			FullRatio: 0.8,
+		}
+		return spec
+	}
+	// 3 号位的增益已过期：应当优先选它（同为副C，靠 buffBonus 拉开）。
+	spec := two(4 * time.Second)
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	// 让 1 号位先出场过（记录切人时间），3 号位从未出场。
+	session.switchInAt[1] = base.Add(-1 * time.Second)
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("增益已过期的槽位应当被优先选中, actions=%+v", actions)
+	}
+}

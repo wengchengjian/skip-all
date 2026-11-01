@@ -549,7 +549,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.spec.Roles[id] == RoleHealer && s.healerLocked(i, now) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
 		}
@@ -585,6 +585,28 @@ func (s *Session) ultBonus(frame assist.Frame, slot int) float64 {
 		}
 	}
 	return 0
+}
+
+// buffBonus 给"增益已经掉光"的治疗/副C/辅助加分：上游 _unbuffed_support_target()
+// 在候选里优先挑计时增益已过期的治疗与副C，让它们上来补增益。
+func (s *Session) buffBonus(slot int, agent string, now time.Time) float64 {
+	if len(s.spec.BuffTimes) == 0 {
+		return 0
+	}
+	switch s.spec.Roles[agent] {
+	case RoleHealer, RoleSubDPS, RoleSupport:
+	default:
+		return 0
+	}
+	buff, ok := s.spec.BuffTimes[agent]
+	if !ok || buff <= 0 {
+		return 0
+	}
+	lastIn, seen := s.switchInAt[slot]
+	if seen && now.Sub(lastIn) < buff {
+		return 0 // 增益还在，不急
+	}
+	return 8
 }
 
 // healerLocked 判断治疗位是否还在切人冷却里。

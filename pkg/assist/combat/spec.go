@@ -146,35 +146,36 @@ type Keys struct {
 // 共享流程（检测战斗 -> 按连招序列出招 -> 脱离战斗后复位）只有一份，
 // 游戏之间的差异只体现在这里的数据上。
 type Spec struct {
-	Screen       string                  // 画面配置名，只有用模板证据时才需要
-	DetectAreas  []string                // 战斗证据区域（模板），任意一个命中即认为在战斗
-	HealthBar    *HealthBar              // 敌人血条证据，留空表示不用它
-	BossBar      *BossBar                // Boss 血条证据，留空表示不用它
-	Concerto     *Concerto               // 协奏值能量环，满了优先切人
-	HealerKey    string                  // 治疗位按键，战斗开始与结束时各按一次
-	Extensions   []Extension             // 游戏专属战斗能力，先于通用连招执行
-	Team         Team                    // 当前角色判读，留空表示不识别
-	Target       *Target                 // 是否已锁定目标的判据，留空表示不做目标识别
-	LockInterval time.Duration           // 没锁住目标时按中键的间隔，0 表示不锁定
-	AttackPoint  geom.Point              // 普攻的点击位置
-	Keys         Keys                    // 按键绑定
-	Plan         []Step                  // 默认连招序列，循环执行
-	PlansByAgent map[string][]Step       // 角色专属连招；识别到当前角色时优先用
-	Ready        map[StepKind]ReadyCheck // 技能可用性判据，没配的动作照旧放
-	Cooldowns    map[StepKind]geom.Rect  // 技能冷却数字的区域，OCR 到正数就不放
-	IntroSteps   []Step                  // 切人后插入的一小段（固定序列，留空则用 Intro）
-	Intro        *IntroSpec              // 入场等待：切人后点普攻直到"落地"，对应上游 wait_down/wait_intro
-	IntroByAgent map[string]IntroSpec    // 角色专属的入场行为（如今汐的入场爆发）
-	AbortArea    string                  // 中断检测的 OCR 区域名（画面配置里），留空不检测
-	AbortTexts   []string                // 命中这些文字说明战斗被打断（复活/失败界面），暂停出招
-	UltReady     *UltReadyCheck          // 后台角色大招就绪判据，命中给切人加分
-	ForteFull    *ForteCheck             // 共鸣回路是否已满的判据（鸣潮）
-	ForteGate    map[string]ForteNeed    // 哪些角色的技能要等回路状态，对应上游 is_forte_full()
-	Roles        map[string]Role         // 角色定位，切人时用来打分
-	Switch       *SwitchPolicy           // 切人规则，留空用默认间隔
-	Interval     time.Duration           // 每步之间的间隔
-	Hold         time.Duration           // 命中证据后保持战斗态的时间
-	IdleWait     time.Duration           // 不在战斗时的等待
+	Screen       string                   // 画面配置名，只有用模板证据时才需要
+	DetectAreas  []string                 // 战斗证据区域（模板），任意一个命中即认为在战斗
+	HealthBar    *HealthBar               // 敌人血条证据，留空表示不用它
+	BossBar      *BossBar                 // Boss 血条证据，留空表示不用它
+	Concerto     *Concerto                // 协奏值能量环，满了优先切人
+	HealerKey    string                   // 治疗位按键，战斗开始与结束时各按一次
+	Extensions   []Extension              // 游戏专属战斗能力，先于通用连招执行
+	Team         Team                     // 当前角色判读，留空表示不识别
+	Target       *Target                  // 是否已锁定目标的判据，留空表示不做目标识别
+	LockInterval time.Duration            // 没锁住目标时按中键的间隔，0 表示不锁定
+	AttackPoint  geom.Point               // 普攻的点击位置
+	Keys         Keys                     // 按键绑定
+	Plan         []Step                   // 默认连招序列，循环执行
+	PlansByAgent map[string][]Step        // 角色专属连招；识别到当前角色时优先用
+	Ready        map[StepKind]ReadyCheck  // 技能可用性判据，没配的动作照旧放
+	Cooldowns    map[StepKind]geom.Rect   // 技能冷却数字的区域，OCR 到正数就不放
+	IntroSteps   []Step                   // 切人后插入的一小段（固定序列，留空则用 Intro）
+	Intro        *IntroSpec               // 入场等待：切人后点普攻直到"落地"，对应上游 wait_down/wait_intro
+	IntroByAgent map[string]IntroSpec     // 角色专属的入场行为（如今汐的入场爆发）
+	AbortArea    string                   // 中断检测的 OCR 区域名（画面配置里），留空不检测
+	AbortTexts   []string                 // 命中这些文字说明战斗被打断（复活/失败界面），暂停出招
+	UltReady     *UltReadyCheck           // 后台角色大招就绪判据，命中给切人加分
+	ForteFull    *ForteCheck              // 共鸣回路是否已满的判据（鸣潮）
+	ForteGate    map[string]ForteNeed     // 哪些角色的技能要等回路状态，对应上游 is_forte_full()
+	Roles        map[string]Role          // 角色定位，切人时用来打分
+	BuffTimes    map[string]time.Duration // 角色增益持续时间，切人时用来判断"增益是否已掉"
+	Switch       *SwitchPolicy            // 切人规则，留空用默认间隔
+	Interval     time.Duration            // 每步之间的间隔
+	Hold         time.Duration            // 命中证据后保持战斗态的时间
+	IdleWait     time.Duration            // 不在战斗时的等待
 }
 
 // DefaultPlan 是一套通用的连招节奏：普攻起手、夹技能、中间接爆发与闪避。
