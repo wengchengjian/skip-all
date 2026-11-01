@@ -1,6 +1,7 @@
 package wuwa
 
 import (
+	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"testing"
 
 	"github.com/wengchengjian/skip-all/pkg/geom"
@@ -39,5 +40,60 @@ func TestAreasMatchUpstreamCoordinates(t *testing.T) {
 	wantBoss := geom.Rect{X1: 634, Y1: 29, X2: 1266, Y2: 100}
 	if spec.BossBar.Rect != wantBoss {
 		t.Fatalf("首领血条区域 = %+v，应当 = %+v", spec.BossBar.Rect, wantBoss)
+	}
+}
+
+// TestUltimateSlotsCoverUpstreamIcons 用上游模板文件名里的原始坐标锁定后台大招就绪的槽位。
+// 上游 update_lib_portrait_icon() 会去 lib_mark_char_N 里找 lib_ready_<元素> 模板，
+// 模板记录在 4K (3653,475) / (3654,742) / (3653,1003) 附近，折半后必须落在对应槽位里。
+func TestUltimateSlotsCoverUpstreamIcons(t *testing.T) {
+	spec := combatSpec()
+	if spec.UltReady == nil {
+		t.Fatal("没有后台大招就绪判据")
+	}
+	if len(spec.UltReady.Slots) != 3 {
+		t.Fatalf("槽位数量 = %d，应当是 3", len(spec.UltReady.Slots))
+	}
+	// 三个槽位的图标左上角（4K 折半），模板本身约 12x13 像素。
+	icons := []geom.Rect{
+		{X1: 1826, Y1: 237, X2: 1840, Y2: 251}, // wind    (3653,475)
+		{X1: 1827, Y1: 371, X2: 1841, Y2: 385}, // electric (3654,742)
+		{X1: 1826, Y1: 501, X2: 1840, Y2: 515}, // havoc   (3653,1003)
+	}
+	for i, icon := range icons {
+		slot := spec.UltReady.Slots[i]
+		if slot.X1 > icon.X1 || slot.Y1 > icon.Y1 || slot.X2 < icon.X2 || slot.Y2 < icon.Y2 {
+			t.Errorf("第 %d 个槽位 %+v 没覆盖上游图标位置 %+v", i+1, slot, icon)
+		}
+	}
+	// 就绪模板必须覆盖 6 种元素。
+	if len(spec.UltReady.IDs) != 6 {
+		t.Errorf("就绪模板 = %d 个，应当覆盖 6 种元素", len(spec.UltReady.IDs))
+	}
+}
+
+// TestConcertoColorsMatchUpstream 逐项比对上游 con_colors（6 种元素色）。
+func TestConcertoColorsMatchUpstream(t *testing.T) {
+	spec := combatSpec()
+	want := [][2][3]uint8{
+		{{205, 190, 90}, {235, 222, 130}}, // 衍射
+		{{150, 95, 210}, {190, 140, 249}}, // 导电
+		{{200, 100, 75}, {230, 130, 105}}, // 热熔
+		{{60, 150, 210}, {95, 180, 245}},  // 冷凝
+		{{70, 215, 155}, {110, 250, 190}}, // 气动
+		{{190, 65, 145}, {220, 105, 175}}, // 湮灭
+	}
+	if len(spec.Concerto.Colors) != len(want) {
+		t.Fatalf("协奏色数量 = %d，应当 = %d", len(spec.Concerto.Colors), len(want))
+	}
+	for i := range want {
+		if spec.Concerto.Colors[i] != want[i] {
+			t.Errorf("第 %d 组协奏色 = %v，应当 = %v", i, spec.Concerto.Colors[i], want[i])
+		}
+	}
+	// 技能就绪用上游 text_white_color（253-255）。
+	ready := spec.Ready[combat.StepSkill]
+	if ready.ColorRange != [2][3]uint8{{253, 253, 253}, {255, 255, 255}} {
+		t.Errorf("技能就绪色 = %v，应当与上游 text_white_color 一致", ready.ColorRange)
 	}
 }
