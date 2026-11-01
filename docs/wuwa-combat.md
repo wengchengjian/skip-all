@@ -22,7 +22,7 @@
 | 今汐 incarnate | `Jinhsi.handle_incarnation()`：交替普攻/共鸣，动画结束后收尾 | `wuwaJinhsiExt` |
 | 重击 | `heavy_attack(duration=0.6)` / `heavy_click_forte()` | `StepHeavy` → `ActionClickHold` → `Input.ClickHold`（14 个角色用到） |
 | 角色连招 | 各 `do_perform()` 里出手顺序 | `agentPlans`（46 个角色） |
-| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**115 条规则 / 37 个角色**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 |
+| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**135 条规则 / 41 个角色**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 |
 | 角色定位 | `char_type` | `agentRoles`（48 个） |
 
 ## 明确不做
@@ -34,7 +34,7 @@
 机械提取时统计到的"表达不了的条件"出现次数（来自生成脚本输出）：
 
 ```text
-flying 15   is_con_full 5   check_outro 5   still_in_liberation 4   has_intro 2   can_resonance_step2 1
+flying 18   is_con_full 7   check_outro 7   still_in_liberation 5   has_intro 5   can_resonance_step2 1
 ```
 | `check_outro()` 的分支 | 10 个角色 | 检测本身是记账（谁是上一次的延奏来源），价值全在逐角色的 `in {...}` 分支里 |
 | `get_switch_priority()` 重写 | 26 个角色 | 同上；其中**可机械提取的那一类"在场是谁则必须切我"已经做了**（`SwitchSynergy`，10 对） |
