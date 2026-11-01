@@ -55,3 +55,18 @@ func TestTeamCurrentByMissingDigit(t *testing.T) {
 		t.Fatal("什么都看不到时不该判定")
 	}
 }
+
+func TestHealerSlotByAvatar(t *testing.T) {
+	team := newWuwaTeam()
+	rt := teamFakeRuntime{present: map[string]bool{"char_verina": true}}
+	// fake 对所有槽位都返回命中，所以这里只要验证能找到、且下标合法。
+	index, ok, err := team.HealerSlot(rt, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: time.Now()})
+	if err != nil || !ok || index != 0 {
+		t.Fatalf("应当识别到治疗位: index=%d ok=%v err=%v", index, ok, err)
+	}
+	// 队伍里没有治疗 -> 找不到。
+	rt2 := teamFakeRuntime{present: map[string]bool{"char_jinhsi": true}}
+	if _, ok, _ := team.HealerSlot(rt2, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: time.Now()}); ok {
+		t.Fatal("没有治疗时不该识别到治疗位")
+	}
+}

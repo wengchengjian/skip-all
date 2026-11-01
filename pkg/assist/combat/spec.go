@@ -108,6 +108,7 @@ type Spec struct {
 	Plan         []Step                  // 默认连招序列，循环执行
 	PlansByAgent map[string][]Step       // 角色专属连招；识别到当前角色时优先用
 	Ready        map[StepKind]ReadyCheck // 技能可用性判据，没配的动作照旧放
+	Cooldowns    map[StepKind]geom.Rect  // 技能冷却数字的区域，OCR 到正数就不放
 	Interval     time.Duration           // 每步之间的间隔
 	Hold         time.Duration           // 命中证据后保持战斗态的时间
 	IdleWait     time.Duration           // 不在战斗时的等待

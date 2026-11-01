@@ -35,6 +35,11 @@ func combatSpec() combat.Spec {
 			combat.StepSkill:      {Area: geom.Rect{X1: 1620, Y1: 917, X2: 1720, Y2: 1017}, ColorRange: readyBright, MinRatio: 0.05},
 			combat.StepLiberation: {Area: geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876}, ColorRange: readyBright, MinRatio: 0.05},
 		},
+		// 冷却数字：特殊技/终结技按钮上会显示剩余秒数（上游 has_cd 的同款判断）。
+		Cooldowns: map[combat.StepKind]geom.Rect{
+			combat.StepSkill:      {X1: 1620, Y1: 917, X2: 1720, Y2: 1017},
+			combat.StepLiberation: {X1: 1728, Y1: 778, X2: 1826, Y2: 876},
+		},
 		// 认人 + 角色专属连招（模板来自上游 avatar_1_*/avatar_2_*）。
 		Team:         newZZZTeam(),
 		PlansByAgent: agentPlans,

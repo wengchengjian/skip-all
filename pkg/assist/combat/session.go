@@ -3,6 +3,8 @@ package combat
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wengchengjian/skip-all/pkg/assist"
@@ -15,6 +17,9 @@ import (
 // 状态只有两个：在战斗里按连招出招、不在战斗里等。
 // healthBarFillRatio 是上游 find_color_rectangles 的默认填充率阈值。
 const healthBarFillRatio = 0.95
+
+// cooldownOCRTTL 是冷却 OCR 的缓存时间。
+const cooldownOCRTTL = 500 * time.Millisecond
 
 // agentTTL 是角色识别的缓存时间。
 const agentTTL = 2 * time.Second
@@ -33,10 +38,17 @@ type Session struct {
 	switchAt   time.Time
 	agentID    string
 	agentAt    time.Time
+	cdCache    map[StepKind]cdEntry
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg}
+	return &Session{rt: rt, spec: spec, cfg: cfg, cdCache: make(map[StepKind]cdEntry)}
+}
+
+// cdEntry 是冷却 OCR 的短时缓存，避免每帧都对技能按钮跑 OCR。
+type cdEntry struct {
+	at      time.Time
+	cooling bool
 }
 
 // Step 执行一帧。
@@ -59,19 +71,23 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		s.cursor = 0
 		s.lockAt = time.Time{}
 		// 上游在战斗结束后会切回治疗位；这里也是同一件事。
-		if s.healed && s.spec.HealerKey != "" && !s.cfg.noHealer {
-			s.healed = false
-			return assist.Result{State: "战斗结束切治疗", Wait: s.spec.Interval},
-				[]assist.Action{{Kind: assist.ActionKeyTap, Key: s.spec.HealerKey}}, nil
+		if s.healed && !s.cfg.noHealer {
+			if key := s.healerKey(frame); key != "" {
+				s.healed = false
+				return assist.Result{State: "战斗结束切治疗", Wait: s.spec.Interval},
+					[]assist.Action{{Kind: assist.ActionKeyTap, Key: key}}, nil
+			}
 		}
 		s.healed = false
 		return assist.Result{State: "等待战斗", Wait: s.spec.IdleWait}, nil, nil
 	}
 	// 上游在开打前先切到治疗位，保证有人能奶。
-	if s.spec.HealerKey != "" && !s.cfg.noHealer && !s.healed {
-		s.healed = true
-		return assist.Result{State: "战斗前切治疗", Wait: s.spec.Interval},
-			[]assist.Action{{Kind: assist.ActionKeyTap, Key: s.spec.HealerKey}}, nil
+	if !s.cfg.noHealer && !s.healed {
+		if key := s.healerKey(frame); key != "" {
+			s.healed = true
+			return assist.Result{State: "战斗前切治疗", Wait: s.spec.Interval},
+				[]assist.Action{{Kind: assist.ActionKeyTap, Key: key}}, nil
+		}
 	}
 	// 游戏专属能力优先：闪光闪避、快速支援这类要抢在连招前面。
 	if action, state, ok, err := s.runExtensions(frame); err != nil {
@@ -145,13 +161,59 @@ func (s *Session) inCombat(frame assist.Frame) (bool, error) {
 	return false, nil
 }
 
-// ready 判断某个动作现在能不能用；没配判据就当作可用。
+// ready 判断某个动作现在能不能用：先看按钮高亮，再看冷却数字；没配判据就当作可用。
 func (s *Session) ready(frame assist.Frame, kind StepKind) bool {
-	check, ok := s.spec.Ready[kind]
-	if !ok {
-		return true
+	if check, ok := s.spec.Ready[kind]; ok {
+		if vision.ColorRatio(frame.Image, check.Area, check.ColorRange) < check.MinRatio {
+			return false
+		}
 	}
-	return vision.ColorRatio(frame.Image, check.Area, check.ColorRange) >= check.MinRatio
+	if area, ok := s.spec.Cooldowns[kind]; ok {
+		if cooling, err := s.coolingDown(frame, kind, area); err == nil && cooling {
+			return false
+		}
+	}
+	return true
+}
+
+// coolingDown 读技能按钮上的冷却数字：读到正数说明还在冷却。
+// 上游鸣潮用 get_cd、绝区零用 has_cd，都是这条路子。
+func (s *Session) coolingDown(frame assist.Frame, kind StepKind, rect geom.Rect) (bool, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if entry, ok := s.cdCache[kind]; ok && now.Sub(entry.at) < cooldownOCRTTL {
+		return entry.cooling, nil
+	}
+	blocks, err := s.rt.OCR(frame, screen.Area{Name: "技能冷却", Rect: rect}, vision.OCROptions{})
+	if err != nil {
+		return false, err
+	}
+	cooling := false
+	for _, block := range blocks {
+		if seconds, ok := parseCooldownSeconds(block.Text); ok && seconds > 0 {
+			cooling = true
+			break
+		}
+	}
+	s.cdCache[kind] = cdEntry{at: now, cooling: cooling}
+	return cooling, nil
+}
+
+// parseCooldownSeconds 从 OCR 文本里解析冷却秒数，例如 "12"、"3.5"、" 8 "。
+func parseCooldownSeconds(text string) (float64, bool) {
+	cleaned := strings.TrimSpace(text)
+	cleaned = strings.TrimSuffix(cleaned, "s")
+	cleaned = strings.TrimSpace(cleaned)
+	if cleaned == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(cleaned, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
 }
 
 // nextAction 按连招序列取下一条动作，跳过被设置关掉的动作。
@@ -309,6 +371,16 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 	}
 	s.switchAt = now
 	return assist.Action{Kind: assist.ActionKeyTap, Key: s.nextSwitchKey(frame)}, true
+}
+
+// healerKey 返回治疗位按键：能识别出队伍里的治疗就按它的槽位键，否则用配置的固定键。
+func (s *Session) healerKey(frame assist.Frame) string {
+	if locator, ok := s.spec.Team.(HealerLocator); ok {
+		if index, found, err := locator.HealerSlot(runtimeAdapter{rt: s.rt}, frame); err == nil && found && index < len(s.spec.Keys.Switch) {
+			return s.spec.Keys.Switch[index]
+		}
+	}
+	return s.spec.HealerKey
 }
 
 // nextSwitchKey 选下一个角色的按键：识别得到当前槽位就按下一个，否则用第一个键。

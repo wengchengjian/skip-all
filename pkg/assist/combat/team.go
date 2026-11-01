@@ -18,3 +18,9 @@ type Team interface {
 	// Agent 返回当前角色的模板标识（用来选角色专属连招）；ok=false 表示没识别出来。
 	Agent(rt Runtime, frame assist.Frame) (id string, ok bool, err error)
 }
+
+// HealerLocator 是可选接口：游戏能找出队伍里的治疗位时实现它，
+// 开打前的"切治疗"就会按真实槽位按键，而不是固定键。
+type HealerLocator interface {
+	HealerSlot(rt Runtime, frame assist.Frame) (index int, ok bool, err error)
+}

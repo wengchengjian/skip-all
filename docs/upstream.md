@@ -99,7 +99,7 @@
 | `is_boss()`：区域 (1269/3840, 58/2160)-(2533/3840, 200/2160) 里恰好一条 `boss_health_color`（R245-255/G30-185/B4-75） | `Spec.BossBar{Color, Rect, MinWidth, MinHeight}`，1080p 换算成 (634,29)-(1266,100)，同样要求恰好一条 | 与上游一致 |
 | `has_target()`：`has_target` / `no_target` 两张模板在同一区域比分数（阈值 0.6） | `Spec.Target`：帧统一归一化到 1920×1080 后 1:1 比较 | 模板直接取上游 `has_target_3840x2160_2868_1917` / `no_target_3840x2160_2868_1917` |
 | `target_enemy()`：没锁定时反复中键锁定敌人 | `Spec.LockInterval` + 上面的目标识别：只在没锁定目标时按中键（新增 `ActionMiddleClick`，走平台层真实中键） | 与上游一致 |
-| `switch_healer()`：战前战后切治疗位 | `Spec.HealerKey` + 设置 `switch_healer`：开打第一帧与脱战第一帧各按一次 | 上游靠 `is_healer` 角色定义识别，这里用固定槽位键 |
+| `switch_healer()`：战前战后切治疗位 | `Spec.HealerKey` + 设置 `switch_healer`：开打第一帧与脱战第一帧各按一次 | 鸣潮已接 `HealerLocator`：按上游 `CharType.HEALER` 的角色模板（维里奈/守岸人/白芷等）认槽位，认不出才退回固定键 |
 | `switch_next_char()`：协奏满就换人 | `Spec.Concerto` + `vision.RingCoverage`：头像周围能量环覆盖率达阈值就按切换键 | 环的区域与颜色取自上游 `get_con_box()` 与 `con_colors`；阈值是经验值，需实机校准 |
 | `Use Liberation` / `Switch to Healer` 等开关 | `use_liberation` / `use_echo` / `use_dodge` / `interval` / `hold` | 未做切治疗、超时重开等上游特化能力 |
 
@@ -150,4 +150,6 @@
 | 鸣潮 | `available()` → `box_highlighted()`：技能按钮区域里 `text_white_color`（253-255）像素占比 > 0 即可用（另外还有 CD 的 OCR 判断） | `combat.Spec.Ready`：共鸣技能/声骸/共鸣解放三个按钮区域（上游 `box_resonance` / `box_echo` / `box_liberation` 坐标折半），纯白占比 >=0.2%，不用就跳过该动作 |
 | 绝区零 | 按角色属性分别判定特殊技/终结技（`agent.py` 的 `SPECIAL_*` / `ULTIMATE_*` 色域） | 统一按按钮亮度近似：特殊攻击 (1620,917)-(1720,1017)、终结技 (1728,778)-(1826,876)，亮起占比 >=5% 才放 |
 
-没配判据的动作照旧放（不会因为缺配置停摆）。CD 的 OCR 判断两家都还没做。
+没配判据的动作照旧放（不会因为缺配置停摆）。
+
+冷却另外补了一层：`combat.Spec.Cooldowns` 会 OCR 技能按钮上的剩余秒数（鸣潮 `get_cd` / 绝区零 `has_cd` 的同款判断），读到正数就跳过该动作，结果按 500ms 缓存。

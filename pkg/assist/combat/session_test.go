@@ -21,6 +21,7 @@ type fakeRuntime struct {
 	screens *screen.Set
 	hit     bool
 	scores  map[string]float64 // 按模板 id 给分数，决定"是否锁定目标"这类判据
+	ocrText string             // 技能按钮上 OCR 到的文字（冷却数字）
 }
 
 func (f *fakeRuntime) Screen(name string) (*screen.Screen, error) {
@@ -31,8 +32,11 @@ func (f *fakeRuntime) Screen(name string) (*screen.Screen, error) {
 	return sc, nil
 }
 
-func (f *fakeRuntime) OCR(assist.Frame, screen.Area, vision.OCROptions) ([]vision.TextBlock, error) {
-	return nil, nil
+func (f *fakeRuntime) OCR(_ assist.Frame, area screen.Area, _ vision.OCROptions) ([]vision.TextBlock, error) {
+	if f.ocrText == "" {
+		return nil, nil
+	}
+	return []vision.TextBlock{{Text: f.ocrText, Rect: area.Rect, Confidence: 0.9}}, nil
 }
 
 func (f *fakeRuntime) MatchTemplate(_ assist.Frame, area screen.Area, ref vision.TemplateRef, _ float64) ([]vision.Match, error) {
@@ -530,5 +534,61 @@ func TestReadyCheckSkipsUnavailableSkill(t *testing.T) {
 	result, actions = step(t, session2, assist.Frame{Image: lit, At: time.Now()})
 	if result.State != "连招-技能" || actions[0].Key != "e" {
 		t.Fatalf("技能可用时应放技能: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestCooldownSkipsSkill(t *testing.T) {
+	spec := testSpec()
+	spec.Plan = []Step{{Kind: StepSkill}, {Kind: StepAttack}}
+	spec.Cooldowns = map[StepKind]geom.Rect{
+		StepSkill: {X1: 10, Y1: 10, X2: 60, Y2: 60},
+	}
+
+	// 读到冷却数字 -> 跳过技能。
+	rt := testRuntime(true)
+	rt.ocrText = "8"
+	session := newSession(rt, spec.withDefaults(), sessionSettings{})
+	result, _ := step(t, session, frameAt(time.Now()))
+	if result.State != "连招-普攻" {
+		t.Fatalf("技能冷却中应跳过: state = %q", result.State)
+	}
+
+	// 没有数字 -> 放技能。
+	rt2 := testRuntime(true)
+	session2 := newSession(rt2, spec.withDefaults(), sessionSettings{})
+	result, _ = step(t, session2, frameAt(time.Now().Add(time.Second)))
+	if result.State != "连招-技能" {
+		t.Fatalf("技能就绪应放技能: state = %q", result.State)
+	}
+}
+
+func TestParseCooldownSeconds(t *testing.T) {
+	cases := map[string]bool{"12": true, "3.5": true, " 8s ": true, "": false, "x": false}
+	for text, ok := range cases {
+		if _, got := parseCooldownSeconds(text); got != ok {
+			t.Fatalf("%q 解析结果 = %v, want %v", text, got, ok)
+		}
+	}
+}
+
+type healerTeam struct{ slot int }
+
+func (h healerTeam) Current(Runtime, assist.Frame) (int, bool, error) { return 0, true, nil }
+func (h healerTeam) Agent(Runtime, assist.Frame) (string, bool, error) {
+	return "", false, nil
+}
+func (h healerTeam) HealerSlot(Runtime, assist.Frame) (int, bool, error) {
+	return h.slot, true, nil
+}
+
+func TestHealerKeyFromTeamRecognition(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.HealerKey = "3"
+	spec.Team = healerTeam{slot: 1}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	result, actions := step(t, session, frameAt(time.Now()))
+	if result.State != "战斗前切治疗" || actions[0].Key != "2" {
+		t.Fatalf("应当按识别到的治疗位按键: state = %q actions = %+v", result.State, actions)
 	}
 }
