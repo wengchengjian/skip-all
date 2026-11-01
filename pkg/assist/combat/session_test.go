@@ -770,3 +770,36 @@ func TestUltReadyBonusAffectsSwitch(t *testing.T) {
 		t.Fatalf("大招就绪的槽位应当被优先选中, actions = %+v", actions)
 	}
 }
+
+func TestHealerLockoutAfterSwitch(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"dps", "sub", "healer"}}
+	spec.Roles = map[string]Role{"dps": RoleMainDPS, "sub": RoleSubDPS, "healer": RoleHealer}
+	spec.Switch = &SwitchPolicy{MinInterval: time.Millisecond, HealerLockout: 16 * time.Second}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.8,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+
+	// 第一次协奏满：主C在场，应当切治疗(3)。
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("第一次应当切治疗位, actions = %+v", actions)
+	}
+	// 5 秒后再满：治疗位在 16 秒锁内，应当改切副C(2)。
+	_, actions = step(t, session, assist.Frame{Image: concertoFullFrame(), At: base.Add(5 * time.Second)})
+	if len(actions) != 1 || actions[0].Key != "2" {
+		t.Fatalf("治疗位冷却中应当切副C, actions = %+v", actions)
+	}
+	// 17 秒后：治疗位解锁，又能被选中。
+	_, actions = step(t, session, assist.Frame{Image: concertoFullFrame(), At: base.Add(17 * time.Second)})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("锁定结束后应当能再切治疗, actions = %+v", actions)
+	}
+}

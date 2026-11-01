@@ -26,4 +26,10 @@ type SlotLocator interface {
 type SwitchPolicy struct {
 	// MinInterval 是两次切人的最小间隔。
 	MinInterval time.Duration
+	// HealerLockout 是治疗位被协奏切进来之后的冷却：这段时间内不再优先切它，
+	// 对应上游 BaseChar.HEALER_FULL_CON_SWITCH_LOCKOUT = 16 秒。
+	HealerLockout time.Duration
 }
+
+// DefaultHealerLockout 对齐上游 ok-ww 的 16 秒。
+const DefaultHealerLockout = 16 * time.Second

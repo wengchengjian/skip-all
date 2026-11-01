@@ -43,12 +43,13 @@ type Session struct {
 	agentAt    time.Time
 	cdCache    map[StepKind]cdEntry
 	slotSeen   map[int]time.Time
+	switchInAt map[int]time.Time
 	introLeft  []Step
 	abortAt    time.Time
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg, cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time)}
+	return &Session{rt: rt, spec: spec, cfg: cfg, cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
 }
 
 // cdEntry 是冷却 OCR 的短时缓存，避免每帧都对技能按钮跑 OCR。
@@ -482,6 +483,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		s.slotSeen[current] = now
 	}
 	best, bestKey := -1e9, ""
+	bestIndex := -1
 	currentRole := Role("")
 	if current >= 0 && current < len(ids) {
 		currentRole = s.spec.Roles[ids[current]]
@@ -490,14 +492,19 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if i == current || i >= len(keys) {
 			continue
 		}
+		// 治疗位刚被切进来过就跳过（上游 HEALER_FULL_CON_SWITCH_LOCKOUT）。
+		if s.spec.Roles[id] == RoleHealer && s.healerLocked(i, now) {
+			continue
+		}
 		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i)
 		if score > best {
-			best, bestKey = score, keys[i]
+			best, bestKey, bestIndex = score, keys[i], i
 		}
 	}
 	if bestKey == "" {
 		return s.nextSwitchKey(frame)
 	}
+	s.switchInAt[bestIndex] = now
 	return bestKey
 }
 
@@ -525,6 +532,16 @@ func (s *Session) ultBonus(frame assist.Frame, slot int) float64 {
 		}
 	}
 	return 0
+}
+
+// healerLocked 判断治疗位是否还在切人冷却里。
+func (s *Session) healerLocked(slot int, now time.Time) bool {
+	lockout := DefaultHealerLockout
+	if s.spec.Switch != nil && s.spec.Switch.HealerLockout > 0 {
+		lockout = s.spec.Switch.HealerLockout
+	}
+	at, ok := s.switchInAt[slot]
+	return ok && now.Sub(at) < lockout
 }
 
 // staleBonus 给"很久没出场"的槽位加分，对应上游 _oldest_switch_target。
