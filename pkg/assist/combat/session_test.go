@@ -672,7 +672,9 @@ func TestSwitchTargetFallsBackWithoutRoles(t *testing.T) {
 func TestIntroStepsAfterSwitch(t *testing.T) {
 	spec := testSpec()
 	spec.Keys.Switch = []string{"1", "2", "3"}
-	spec.Team = slotTeam{current: 0, ids: []string{"a", "b", "c"}}
+	// 用一个"切过去后 Current 会变"的队伍，避免被切人确认分支拦下。
+	team := &switchVerifyTeam{slot: 0}
+	spec.Team = team
 	spec.Roles = map[string]Role{"a": RoleMainDPS, "b": RoleSubDPS, "c": RoleHealer}
 	spec.IntroSteps = []Step{{Kind: StepSkill}, {Kind: StepAttack}}
 	spec.Concerto = &Concerto{
@@ -688,6 +690,7 @@ func TestIntroStepsAfterSwitch(t *testing.T) {
 	if result, _ := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base}); result.State != "协奏满切人" {
 		t.Fatalf("应当先切人: %q", result.State)
 	}
+	team.verify = 2 // 切人生效
 	// 第 1 帧：入场技（技能），第 2 帧：入场技（普攻），之后才回主连招
 	result, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base.Add(300 * time.Millisecond)})
 	if result.State != "入场-技能" || actions[0].Key != "e" {
