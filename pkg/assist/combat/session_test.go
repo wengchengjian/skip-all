@@ -1028,10 +1028,51 @@ func TestConcertoUsesStrongestElement(t *testing.T) {
 	if _, ok := session.concertoSwitch(assist.Frame{Image: ring(yellow, yellow, false), At: time.Now()}, time.Now()); !ok {
 		t.Fatal("单色铺满环应当判为满")
 	}
-	// 两种颜色各占一半 -> 单个色都不到 0.8，不应切人。
+	// 两种颜色各占一半 -> 单个色都不到门限，不应切人。
 	spec2 := base()
 	session2 := newSession(testRuntime(true), spec2.withDefaults(), sessionSettings{})
 	if _, ok := session2.concertoSwitch(assist.Frame{Image: ring(yellow, blue, true), At: time.Now()}, time.Now()); ok {
 		t.Fatal("两色各占一半不应算满（上游只用当前角色那一色）")
+	}
+}
+
+// TestConcertoRequiresFullRing 验证"差一点满不切"：覆盖率 0.85 不切，0.96 才切。
+func TestConcertoRequiresFullRing(t *testing.T) {
+	// 按"覆盖弧长比例"造环：frac 表示环上有多少比例被点亮。
+	makeRing := func(frac float64) *image.RGBA {
+		img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+		for y := 0; y < 63; y++ {
+			for x := 0; x < 63; x++ {
+				d := math.Hypot(float64(x)+0.5-31.5, float64(y)+0.5-31.5)
+				if d < 22.1 || d > 26.6 {
+					continue
+				}
+				// 用角度决定这一段是否点亮
+				ang := math.Atan2(float64(y)+0.5-31.5, float64(x)+0.5-31.5)
+				if (ang+math.Pi)/(2*math.Pi) <= frac {
+					img.SetRGBA(700+x, 960+y, color.RGBA{220, 205, 110, 255})
+				}
+			}
+		}
+		return img
+	}
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"dps", "sub", "healer"}}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	if _, ok := session.concertoSwitch(assist.Frame{Image: makeRing(0.85), At: time.Now()}, time.Now()); ok {
+		t.Fatal("86% 的环不该判为满")
+	}
+	session2 := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	if _, ok := session2.concertoSwitch(assist.Frame{Image: makeRing(0.98), At: time.Now()}, time.Now()); !ok {
+		t.Fatal("满环应当触发切人")
 	}
 }

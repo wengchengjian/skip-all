@@ -27,6 +27,10 @@ const cooldownOCRTTL = 500 * time.Millisecond
 // agentTTL 是角色识别的缓存时间。
 const agentTTL = 2 * time.Second
 
+// defaultConcertoFullRatio 是协奏环算"满"的默认门限：上游要求正好满（1.0），
+// 留 5% 余量给抗锯齿与颜色容差。
+const defaultConcertoFullRatio = 0.95
+
 // concertoSwitchCooldown 是两次协奏切人之间的最小间隔。
 const concertoSwitchCooldown = 2 * time.Second
 
@@ -504,9 +508,11 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 			coverage = ratio
 		}
 	}
+	// 上游 switch_next_char 里要求 current_con == 1 才切；0.8~0.99 之间会 sleep(0.05)
+	// 再查一次，也就是"差一点没满就再等一帧"。这里用 0.95 作为满的门限。
 	full := c.FullRatio
 	if full <= 0 {
-		full = 0.8
+		full = defaultConcertoFullRatio
 	}
 	if coverage < full {
 		return assist.Action{}, false
