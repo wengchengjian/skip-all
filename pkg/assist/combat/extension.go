@@ -16,6 +16,22 @@ type Extension interface {
 	Step(rt Runtime, frame assist.Frame) (assist.Action, string, bool, error)
 }
 
+// CombatState 是会话算出来、但扩展自己看不到（也没有像素可看）的状态。
+// 实现了 StateAware 的扩展每帧会先拿到它。
+type CombatState struct {
+	// Agent 是当前在场角色的模板 id（识别失败为空）。
+	Agent string
+	// ConcertoFull 表示协奏环是否已满（满环即拥有入场技）。
+	ConcertoFull bool
+	// InIntro 表示还在入场等待期间。
+	InIntro bool
+}
+
+// StateAware 是扩展可选实现的状态回调。
+type StateAware interface {
+	SetCombatState(CombatState)
+}
+
 // Runtime 是扩展可用的运行时能力。
 type Runtime interface {
 	MatchTemplate(frame assist.Frame, area screen.Area, ref vision.TemplateRef, threshold float64) ([]vision.Match, error)

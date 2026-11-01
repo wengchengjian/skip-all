@@ -35,7 +35,13 @@ type wuwaRuleExt struct {
 	lastAt  time.Time
 	queue   []combat.Step
 	agentID string
+
+	// state 是会话推送进来的战斗状态（协奏是否满、是否还在入场）。
+	state combat.CombatState
 }
+
+// SetCombatState 实现 combat.StateAware。
+func (e *wuwaRuleExt) SetCombatState(s combat.CombatState) { e.state = s }
 
 // Name 实现 combat.Extension。
 func (e *wuwaRuleExt) Name() string { return "rules" }
@@ -206,6 +212,10 @@ func (p *wuwaCondParser) parseAtom() bool {
 		return p.ext.forteFull(p.frame)
 	case "回路未满":
 		return !p.ext.forteFull(p.frame)
+	case "协奏满":
+		return p.ext.state.ConcertoFull
+	case "入场中":
+		return p.ext.state.InIntro
 	}
 	p.err = errUnknownAtom(atom)
 	return false

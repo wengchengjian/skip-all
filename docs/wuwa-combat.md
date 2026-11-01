@@ -22,7 +22,7 @@
 | 今汐 incarnate | `Jinhsi.handle_incarnation()`：交替普攻/共鸣，动画结束后收尾 | `wuwaJinhsiExt` |
 | 重击 | `heavy_attack(duration=0.6)` / `heavy_click_forte()` | `StepHeavy` → `ActionClickHold` → `Input.ClickHold`（14 个角色用到） |
 | 角色连招 | 各 `do_perform()` 里出手顺序 | `agentPlans`（46 个角色） |
-| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**135 条角色专属规则（41 个角色）+ BaseChar 回退规则（其余 7 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 |
+| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**135 条角色专属规则（41 个角色）+ BaseChar 回退规则（其余 7 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 |
 | 角色定位 | `char_type` | `agentRoles`（48 个） |
 
 ## 明确不做

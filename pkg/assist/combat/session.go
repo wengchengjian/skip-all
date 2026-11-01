@@ -118,6 +118,8 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		}
 	}
 	// 游戏专属能力优先：闪光闪避、快速支援这类要抢在连招前面。
+	// 先把会话算出来的状态推给需要的扩展（协奏是否满、是否还在入场、当前角色）。
+	s.pushCombatState(frame, now)
 	if action, state, ok, err := s.runExtensions(frame); err != nil {
 		return assist.Result{}, nil, err
 	} else if ok {
@@ -458,6 +460,21 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 }
 
 // runExtensions 依次询问各扩展，第一个认领的生效。
+// pushCombatState 把会话状态交给实现了 StateAware 的扩展。
+func (s *Session) pushCombatState(frame assist.Frame, now time.Time) {
+	for _, e := range s.spec.Extensions {
+		sa, ok := e.(StateAware)
+		if !ok {
+			continue
+		}
+		sa.SetCombatState(CombatState{
+			Agent:        s.currentAgent(frame),
+			ConcertoFull: s.concertoLit(frame),
+			InIntro:      !s.introUntil.IsZero(),
+		})
+	}
+}
+
 func (s *Session) runExtensions(frame assist.Frame) (assist.Action, string, bool, error) {
 	if len(s.spec.Extensions) == 0 {
 		return assist.Action{}, "", false, nil
@@ -524,6 +541,25 @@ func (s *Session) templateScore(frame assist.Frame, t *Target, id string) (float
 }
 
 // concertoSwitch 在协奏值满时返回一次切人动作。
+// concertoLit 只判断协奏环是否算满，不改状态。
+func (s *Session) concertoLit(frame assist.Frame) bool {
+	c := s.spec.Concerto
+	if c == nil {
+		return false
+	}
+	coverage := 0.0
+	for _, ratio := range vision.RingCoverages(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer) {
+		if ratio > coverage {
+			coverage = ratio
+		}
+	}
+	full := c.FullRatio
+	if full <= 0 {
+		full = defaultConcertoFullRatio
+	}
+	return coverage >= full
+}
+
 func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Action, bool) {
 	if s.cfg.noConcerto || s.spec.Concerto == nil || len(s.spec.Keys.Switch) == 0 {
 		return assist.Action{}, false
