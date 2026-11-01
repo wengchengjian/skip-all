@@ -139,7 +139,7 @@
 | 鸣潮 | ok-ww `src/char/<角色>.py` 的 `do_perform()` | 扫描首个出现的 `click_echo / click_liberation / click_resonance / click` 顺序 → 能力之间夹一次普攻 |
 | 绝区零 | OneDragon `config/auto_battle/专属配队-<角色>.yml` 与带 `agent_name` 的块 | 统计各按钮出现次数 → 用得多的排前面，能力之间夹一次普攻 |
 
-生成结果落在 `games/wuwa/agent_plans.go`（46 个角色）与 `games/zzz/agent_plans.go`（3 个代理人：艾莲/莱卡恩/莱特）。
+生成结果落在 `games/wuwa/agent_plans.go`（55 个角色）与 `games/zzz/agent_plans.go`（3 个代理人：艾莲/莱卡恩/莱特）。
 运行时由 `combat.Spec.PlansByAgent` + `combat.Team.Agent()` 选择：认得出当前角色就用专属连招，认不出退回默认连招。
 注意这是**近似序列**——上游真实的 `perform()` / 状态机还带冷却、能量、招架支援、连携判断，本项目没有对应能力。
 
@@ -161,8 +161,10 @@
 | 鸣潮 | `get_switch_priority()` 返回 0/100/200/300/400，`_choose_switch_target` 取最高分，再按 intro / buff 时间平手判定；`_unbuffed_support_target()` 优先挑"增益已掉"的治疗与副C；治疗位有 `HEALER_FULL_CON_SWITCH_LOCKOUT = 16` 秒的换入冷却 | `combat.SwitchPolicy` + `Spec.Roles`：按角色定位打分，再给"很久没出场"的槽位、以及**增益已过期**的治疗/副C/辅助加分；治疗位有 16 秒换入冷却（`SwitchPolicy.HealerLockout`）。增益时长 `Spec.BuffTimes` 取自上游 `CharFactory` 的 `buff_time`（未配置时按 主C 14s / 副C 14s / 治疗 28s）；另有 `Spec.SwitchSynergy` 承载各角色 `get_switch_priority()` 里 "在场是某人时必须切我"（MUST 级）的协同对 |
 | 绝区零 | `_choose_switch_target` 按 switch_rule_1/2/3 + `_unbuffed_support_target` + `_oldest_switch_target` | 同一套打分模型（共用 `pkg/assist/combat`） |
 
-角色定位表来自上游：鸣潮 `_char_dict_raw` 的 `char_type`（48 个），绝区零 `agent.py` 的 `AgentTypeEnum`（54 个），分别在 `games/wuwa/agent_roles.go`、`games/zzz/agent_roles.go`。
+角色定位表来自上游：鸣潮 `_char_dict_raw` 的 `char_type`（57 个），绝区零 `agent.py` 的 `AgentTypeEnum`（54 个），分别在 `games/wuwa/agent_roles.go`、`games/zzz/agent_roles.go`。
 认不出定位时退回"按顺序切下一个"，不会停摆。
+
+鸣潮角色表覆盖上游 CharFactory 全部 **57 个角色**；其中 9 个用元组键注册（如 `(Labels.char_carlotta, Labels.char_carlotta2)`）。早期生成脚本只匹配单标签键，漏了这 9 个角色。现在 `games/wuwa/agent_ids.go` 保存全部头像模板 id 与别名归一表，`wuwaTeam.Agent`/`Slots` 返回 canonical id，规则/连招/定位表只维护一份。
 
 ## 入场技与战斗中断
 
@@ -182,7 +184,7 @@
 
 上游靠 `possible_agents`（按队伍配置裁剪候选）和 `should_check_all_agents` 控制全量识别频率，本项目用同思路：
 
-- 每个战斗会话第一次认人时全量扫模板（鸣潮 62 张 × 3 槽位 = 186 次比对，绝区零 71 × 3 = 213 次）；
+- 每个战斗会话第一次认人时全量扫模板（鸣潮 63 张 × 3 槽位 = 189 次比对，绝区零 71 × 3 = 213 次）；
 - 认出来的角色进白名单，之后只比这几张（鸣潮 3 次、绝区零 ≤5 次），开销降一个量级以上；
 - 10 秒后重新全量一次，换队伍也能跟上。
 
@@ -340,12 +342,12 @@
 
 ## 逐角色条件规则（鸣潮）
 
-上游 48 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**137 条规则覆盖 41 个角色**，其余角色回退到上游 `BaseChar.do_perform()` 的保守动作（声骸→解放→技能→重击）。
+上游 57 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**155 条规则覆盖 49 个角色**，其余 8 个角色回退到上游 `BaseChar.do_perform()` 的保守动作（声骸→解放→技能→重击）。
 
 可表达原子：`技能可用`（上游 `resonance_available`）、`声骸可用`、`解放可用`、`回路满`/`回路未满`（`is_forte_full`）、`协奏满`（`is_con_full`）、`入场中`（`has_intro`）、`延奏=<角色id>`（`check_outro`）。
 
 后三个原子需要**会话状态**（环是否满、是否还在入场窗口、刚切走的队友是谁），扩展自己从像素看不出来，因此加了可选接口 `combat.StateAware`：实现了它的扩展每帧先收到 `combat.CombatState{Agent, ConcertoFull, InIntro, LastOutro}`。
 
-`check_outro()` 在上游是纯记账：取队伍里 `last_switch_time` 最大的队友（即刚放完延奏的人），`has_intro` 为 false 时返回 `'null'`。本项目在切人动作发出时把当前角色记进 `Session.outroAgent`，只有 `InIntro` 窗口内 `延奏=` 原子才成立。上游 10 个 `check_outro()` 分支全是循环时长/收尾序列的修饰（`perform_in_outro`、`do_perform_outro`、timeout 改动等），不产生单步动作，所以**只做记账、不生成规则**；生成脚本已能映射 `check_outro()` 条件，规则条数保持 137。
+`check_outro()` 在上游是纯记账：取队伍里 `last_switch_time` 最大的队友（即刚放完延奏的人），`has_intro` 为 false 时返回 `'null'`。本项目在切人动作发出时把当前角色记进 `Session.outroAgent`，只有 `InIntro` 窗口内 `延奏=` 原子才成立。上游 10 个 `check_outro()` 分支全是循环时长/收尾序列的修饰（`perform_in_outro`、`do_perform_outro`、timeout 改动等），不产生单步动作，所以**只做记账、不生成规则**；生成脚本已能映射 `check_outro()` 条件；本次重生成后规则共 155 条（含 9 个元组键角色的规则）。
 
 提取不了的（内部计时器、`flying`、`still_in_liberation`）不计入条件——那条分支会退化成无条件规则，宁可粗略也不伪造精确。生成脚本：`.research/wuwa_rules.py`。

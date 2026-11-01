@@ -34,6 +34,50 @@ func TestAgentPlansPresent(t *testing.T) {
 	}
 }
 
+// TestCharacterTablesCoverUpstreamRegistry 锁住上游 CharFactory 的角色总数：
+// 57 个角色；assets 里实有 63 个头像模板（其中 6 个双形态别名）。之前生成脚本
+// 只匹配单标签键，漏了 9 个元组键注册的角色（Changli/Carlotta/Jinhsi/Sanhua/Zani/Rover/Chisa/Linnai/Mornye）。
+func TestCharacterTablesCoverUpstreamRegistry(t *testing.T) {
+	if len(agentAvatarIDs) != 63 {
+		t.Fatalf("头像模板 id 应为 63 个（assets 实有），实际 %d", len(agentAvatarIDs))
+	}
+	if len(agentAlias) != 6 {
+		t.Fatalf("别名映射应为 6 个（assets 实有），实际 %d", len(agentAlias))
+	}
+	if len(agentRoles) != 57 {
+		t.Fatalf("角色定位应为 57 个，实际 %d", len(agentRoles))
+	}
+	if len(agentBuffTime) != 57 {
+		t.Fatalf("增益时长应为 57 个，实际 %d", len(agentBuffTime))
+	}
+	if len(agentRules) != 58 { // 57 个角色 + __base__ 回退表
+		t.Fatalf("规则表应覆盖 57 个角色 key + __base__，实际 %d", len(agentRules))
+	}
+	// 元组键注册的角色必须在规则/定位表里有 canonical 条目。
+	for _, id := range []string{"chang_changli", "char_carlotta", "char_chisa", "char_jinhsi", "char_linnai", "char_moning", "char_rover", "char_sanhua", "char_zani"} {
+		if _, ok := agentRoles[id]; !ok {
+			t.Errorf("定位表缺少 %s", id)
+		}
+		if _, ok := agentRules[id]; !ok {
+			t.Errorf("规则表缺少 %s", id)
+		}
+	}
+}
+
+// TestAgentAliasNormalized 验证双形态模板（char_changli2）会被归一成 canonical id，
+// 否则查不到该角色的规则/连招。
+func TestAgentAliasNormalized(t *testing.T) {
+	team := newWuwaTeam()
+	team.avatarIDs = []string{"char_changli2"}
+	rt := &teamFakeRuntime{present: map[string]bool{
+		"char_2_text": true, "char_3_text": true, "char_changli2": true,
+	}}
+	id, ok, err := team.Agent(rt, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: time.Now()})
+	if err != nil || !ok || id != "chang_changli" {
+		t.Fatalf("别名应归一成 chang_changli: id=%q ok=%v err=%v", id, ok, err)
+	}
+}
+
 func TestTeamCurrentByMissingDigit(t *testing.T) {
 	team := newWuwaTeam()
 	frame := assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: time.Now()}

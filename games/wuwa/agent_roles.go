@@ -4,8 +4,10 @@ import (
 	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 )
 
+// agentRoles 是角色定位，来自上游 ok-ww _char_dict_raw 的 char_type。
 var agentRoles = map[string]combat.Role{
 	"Augusta":          "main_dps",
+	"chang_changli":    "main_dps",
 	"char_aalto":       "sub_dps",
 	"char_aemeath":     "main_dps",
 	"char_baizhi":      "healer",
@@ -13,7 +15,9 @@ var agentRoles = map[string]combat.Role{
 	"char_calcharo":    "main_dps",
 	"char_camellya":    "main_dps",
 	"char_cantarella":  "healer",
+	"char_carlotta":    "main_dps",
 	"char_cartethyia":  "main_dps",
+	"char_chisa":       "healer",
 	"char_chixia":      "main_dps",
 	"char_chouyuan":    "sub_dps",
 	"char_ciaccona":    "sub_dps",
@@ -27,19 +31,24 @@ var agentRoles = map[string]combat.Role{
 	"char_iuno":        "sub_dps",
 	"char_jianxin":     "healer",
 	"char_jingran":     "main_dps",
+	"char_jinhsi":      "main_dps",
 	"char_jiyan":       "main_dps",
 	"char_lingyang":    "main_dps",
+	"char_linnai":      "sub_dps",
 	"char_lucilla":     "sub_dps",
 	"char_lucy":        "main_dps",
 	"char_luhesi":      "main_dps",
 	"char_lumi":        "sub_dps",
 	"char_lupa":        "sub_dps",
+	"char_moning":      "healer",
 	"char_mortefi":     "sub_dps",
 	"char_phoebe":      "sub_dps",
 	"char_phrolova":    "main_dps",
 	"char_qingxiao":    "main_dps",
 	"char_rebecca":     "sub_dps",
 	"char_roccia":      "sub_dps",
+	"char_rover":       "main_dps",
+	"char_sanhua":      "sub_dps",
 	"char_shorekeeper": "healer",
 	"char_suisui":      "healer",
 	"char_suoming":     "sub_dps",
@@ -51,6 +60,7 @@ var agentRoles = map[string]combat.Role{
 	"char_yinlin":      "sub_dps",
 	"char_youhu":       "healer",
 	"char_yuanwu":      "sub_dps",
+	"char_zani":        "main_dps",
 	"char_zhezhi":      "sub_dps",
 	"yangyang_sp":      "main_dps",
 }

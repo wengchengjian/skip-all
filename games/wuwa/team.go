@@ -44,7 +44,7 @@ func newWuwaTeam() *wuwaTeam {
 			{Name: "角色2头像", Rect: geom.Rect{X1: 1760, Y1: 355, X2: 1850, Y2: 435}},
 			{Name: "角色3头像", Rect: geom.Rect{X1: 1760, Y1: 487, X2: 1850, Y2: 567}},
 		},
-		avatarIDs:       agentPlanIDs(),
+		avatarIDs:       agentAvatarIDs,
 		healerIDs:       healerIDs(),
 		avatarThreshold: 0.75,
 		slots: []screen.Area{
@@ -90,8 +90,14 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 	if bestID == "" {
 		return "", false, nil
 	}
+	// 双形态模板（如 char_changli2）归一成 canonical id 再查规则/连招表；
+	// 白名单里保留实际匹配到的模板，下一帧才能继续用它比。
+	matched := bestID
+	if canonical, ok := agentAlias[bestID]; ok {
+		bestID = canonical
+	}
 	if learning {
-		t.learn([]string{bestID}, now)
+		t.learn([]string{matched}, now)
 	}
 	return bestID, true, nil
 }
@@ -101,7 +107,7 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 const teamRefreshTTL = 10 * time.Second
 
 // wuwaScanBatch 是一次最多比对的模板数量。鸣潮的头像模板来自 4K 裁剪、比绝区零的大，
-// 单张匹配约 9ms，所以一帧只比 1 张（3 个槽位 ≈ 28ms），62 张约 2 秒扫完一轮。
+// 单张匹配约 9ms，所以一帧只比 1 张（3 个槽位 ≈ 28ms），63 张约 2 秒扫完一轮。
 const wuwaScanBatch = 1
 
 // candidates 返回这一轮要比对的模板：白名单还新鲜就只比那几张，
@@ -181,6 +187,7 @@ func (t *wuwaTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error
 	}
 	candidates, learning := t.candidates(now)
 	ids := make([]string, 0, len(t.avatarSlots))
+	matchedIDs := make([]string, 0, len(t.avatarSlots))
 	for _, area := range t.avatarSlots {
 		best, bestID := 0.0, ""
 		for _, id := range candidates {
@@ -192,10 +199,14 @@ func (t *wuwaTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error
 				best, bestID = matches[0].Confidence, id
 			}
 		}
+		matchedIDs = append(matchedIDs, bestID)
+		if canonical, ok := agentAlias[bestID]; ok {
+			bestID = canonical
+		}
 		ids = append(ids, bestID)
 	}
 	if learning {
-		t.learn(ids, now)
+		t.learn(matchedIDs, now)
 	}
 	return ids, nil
 }
@@ -239,19 +250,11 @@ func (t *wuwaTeam) Current(rt combat.Runtime, frame assist.Frame) (int, bool, er
 	return 0, false, nil
 }
 
-// agentPlanIDs 返回有专属连招的角色模板 id（与 templates 目录一致）。
-func agentPlanIDs() []string {
-	ids := make([]string, 0, len(agentPlans))
-	for id := range agentPlans {
-		ids = append(ids, id)
-	}
-	return ids
-}
-
 // healerIDs 是上游 CharType.HEALER 的角色模板 id（维里奈、守岸人、白芷等）。
 var healerIDs_ = []string{
 	"char_verina", "char_shorekeeper", "char_suisui", "char_taoqi",
 	"char_jianxin", "char_baizhi", "char_youhu", "char_brant",
+	"char_chisa", "char_chisa2", "char_moning", "char_moning_new",
 }
 
 func healerIDs() []string { return healerIDs_ }

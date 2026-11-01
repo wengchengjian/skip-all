@@ -9,7 +9,7 @@
 | 战斗判据 | `has_health_bar()`：整帧找 `enemy_health_color_red`（174-225 / 55-85 / 55-76），宽≥50、高 5-14 | `games/wuwa/combat.go` 的 `HealthBar` |
 | 首领判据 | `is_boss()`：`(1269,58)-(2533,200)`/4K 的 `boss_health_color` 且区域内恰好一条 | `BossBar`（折半 `(634,29)-(1266,100)`） |
 | 协奏满切人 | `get_current_con()` 必须等于 1；`_ensure_ring_index()` 先认同色再单色计数 | `Concerto`（门限 0.95）+ `vision.RingCoverages` |
-| 切人打分 | `get_switch_priority` / `_choose_switch_target` / `_unbuffed_support_target` | `SwitchPolicy` + `Roles` + `BuffTimes`（48 个角色增益时长）+ `SwitchSynergy`（10 个协同对） |
+| 切人打分 | `get_switch_priority` / `_choose_switch_target` / `_unbuffed_support_target` | `SwitchPolicy` + `Roles` + `BuffTimes`（57 个角色增益时长）+ `SwitchSynergy`（10 个协同对） |
 | 治疗位换入冷却 | `HEALER_FULL_CON_SWITCH_LOCKOUT = 16` 秒 | `SwitchPolicy.HealerLockout` |
 | 切人确认 | `switch_next_char` 里循环复查 `in_team()`，没切过去补普攻 | `Session` 的 800ms 复查窗口 |
 | 角色识别 | `in_team()`：队伍栏三个数字标签缺一个即为当前角色 | `wuwaTeam`（模板 69 个） |
@@ -20,10 +20,10 @@
 | 入场等待 | `wait_down()` / `wait_intro()`：点普攻直到技能可用，超时 1.2 秒 | `Spec.Intro` |
 | 今汐入场爆发 | `Jinhsi.handle_intro()`：技能能按就按，进冷却后声骸收尾 | `IntroByAgent["char_jinhsi"]` |
 | 今汐 incarnate | `Jinhsi.handle_incarnation()`：交替普攻/共鸣，动画结束后收尾 | `wuwaJinhsiExt` |
-| 重击 | `heavy_attack(duration=0.6)` / `heavy_click_forte()` | `StepHeavy` → `ActionClickHold` → `Input.ClickHold`（14 个角色用到） |
-| 角色连招 | 各 `do_perform()` 里出手顺序 | `agentPlans`（46 个角色） |
-| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**137 条角色专属规则（41 个角色）+ BaseChar 回退规则（其余 7 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 延奏=<角色id> |
-| 角色定位 | `char_type` | `agentRoles`（48 个） |
+| 重击 | `heavy_attack(duration=0.6)` / `heavy_click_forte()` | `StepHeavy` → `ActionClickHold` → `Input.ClickHold`（16 个角色用到） |
+| 角色连招 | 各 `do_perform()` 里出手顺序 | `agentPlans`（55 个角色） |
+| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**155 条角色专属规则（49 个角色）+ BaseChar 回退规则（其余 8 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 延奏=<角色id> |
+| 角色定位 | `char_type` | `agentRoles`（57 个） |
 
 ## 明确不做
 
@@ -34,7 +34,7 @@
 机械提取时统计到的条件出现次数（来自生成脚本输出；其中 `is_con_full` / `has_intro` / `check_outro` 已映射成规则原子）：
 
 ```text
-flying 18   is_con_full 7   check_outro 7   still_in_liberation 5   has_intro 5   can_resonance_step2 1
+flying 22   is_con_full 10   check_outro 8   still_in_liberation 5   has_intro 7   can_resonance_step2 1
 ```
 | `check_outro()` 的分支 | 10 个角色 | 检测已做会话记账（`CombatState.LastOutro` + `延奏=` 原子）；10 个分支全是循环时长/收尾序列的修饰，不产生单步动作，因此不进规则表 |
 | `get_switch_priority()` 重写 | 26 个角色 | 同上；其中**可机械提取的那一类"在场是谁则必须切我"已经做了**（`SwitchSynergy`，10 对） |
