@@ -163,3 +163,11 @@
 
 角色定位表来自上游：鸣潮 `_char_dict_raw` 的 `char_type`（48 个），绝区零 `agent.py` 的 `AgentTypeEnum`（54 个），分别在 `games/wuwa/agent_roles.go`、`games/zzz/agent_roles.go`。
 认不出定位时退回"按顺序切下一个"，不会停摆。
+
+## 入场技与战斗中断
+
+| 上游 | 本项目 |
+| --- | --- |
+| 鸣潮 `handle_intro()`：切人后先打入场技（多为共鸣技能 + 普攻，条件分支按角色不同） | `combat.Spec.IntroSteps`：切人后插入的一小段（鸣潮配 技能 + 普攻），状态显示 `入场-*`，打完回主连招 |
+| 绝区零无入场技概念 | `IntroSteps` 留空 |
+| 角色死亡 / 复活弹窗：`CharDeadException` 跳出循环，`close_revive_popup` 处理弹窗 | `combat.Spec.AbortArea` + `AbortTexts`：OCR 到"复活/失败/重新挑战"等文字就返回 `战斗中断` 并暂停出招（2 秒缓存） |

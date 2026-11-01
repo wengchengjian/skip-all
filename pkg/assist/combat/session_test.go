@@ -70,6 +70,7 @@ func testRuntime(hit bool) *fakeRuntime {
 		AreaList: []*screen.Area{
 			{Name: "锁定", RectValues: []int{1250, 860, 1640, 1040}, TemplateSubDir: "combat", TemplateID: "target"},
 			{Name: "血条", RectValues: []int{620, 60, 1300, 170}},
+			{Name: "中断", RectValues: []int{560, 360, 1360, 720}},
 		},
 	})
 	return &fakeRuntime{screens: set, hit: hit}
@@ -654,5 +655,48 @@ func TestSwitchTargetFallsBackWithoutRoles(t *testing.T) {
 	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: time.Now()})
 	if len(actions) != 1 || actions[0].Key != "3" {
 		t.Fatalf("没有定位信息时按顺序切下一个, actions = %+v", actions)
+	}
+}
+
+func TestIntroStepsAfterSwitch(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"a", "b", "c"}}
+	spec.Roles = map[string]Role{"a": RoleMainDPS, "b": RoleSubDPS, "c": RoleHealer}
+	spec.IntroSteps = []Step{{Kind: StepSkill}, {Kind: StepAttack}}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.8,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	// 第 0 帧：协奏满 -> 切人
+	if result, _ := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base}); result.State != "协奏满切人" {
+		t.Fatalf("应当先切人: %q", result.State)
+	}
+	// 第 1 帧：入场技（技能），第 2 帧：入场技（普攻），之后才回主连招
+	result, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base.Add(300 * time.Millisecond)})
+	if result.State != "入场-技能" || actions[0].Key != "e" {
+		t.Fatalf("入场技第一步: state=%q actions=%+v", result.State, actions)
+	}
+	result, _ = step(t, session, assist.Frame{Image: concertoFullFrame(), At: base.Add(600 * time.Millisecond)})
+	if result.State != "入场-普攻" {
+		t.Fatalf("入场技第二步: %q", result.State)
+	}
+}
+
+func TestAbortPausesWhenReviveShown(t *testing.T) {
+	spec := testSpec()
+	spec.AbortArea = "中断"
+	spec.AbortTexts = []string{"复活"}
+	rt := testRuntime(true)
+	rt.ocrText = "复活确认"
+	session := newSession(rt, spec.withDefaults(), sessionSettings{})
+	result, actions := step(t, session, frameAt(time.Now()))
+	if result.State != "战斗中断" || len(actions) != 0 {
+		t.Fatalf("出现复活提示时应暂停: state=%q actions=%+v", result.State, actions)
 	}
 }

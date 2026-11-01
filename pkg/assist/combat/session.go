@@ -18,6 +18,9 @@ import (
 // healthBarFillRatio 是上游 find_color_rectangles 的默认填充率阈值。
 const healthBarFillRatio = 0.95
 
+// abortOCRTTL 是中断提示的缓存时间。
+const abortOCRTTL = 2 * time.Second
+
 // cooldownOCRTTL 是冷却 OCR 的缓存时间。
 const cooldownOCRTTL = 500 * time.Millisecond
 
@@ -40,6 +43,8 @@ type Session struct {
 	agentAt    time.Time
 	cdCache    map[StepKind]cdEntry
 	slotSeen   map[int]time.Time
+	introLeft  []Step
+	abortAt    time.Time
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
@@ -113,11 +118,20 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		}
 	}
 
+	// 战斗被打断（复活/失败界面）时先别乱按。
+	if aborted, err := s.checkAbort(frame); err != nil {
+		return assist.Result{}, nil, err
+	} else if aborted {
+		s.cursor = 0
+		s.introLeft = nil
+		return assist.Result{State: "战斗中断", Wait: s.spec.IdleWait}, nil, nil
+	}
+
 	action, state, ok := s.nextAction(frame)
 	if !ok {
 		return assist.Result{State: "等待战斗", Wait: s.spec.IdleWait}, nil, nil
 	}
-	return assist.Result{State: "连招-" + state, Wait: s.spec.Interval}, []assist.Action{action}, nil
+	return assist.Result{State: state, Wait: s.spec.Interval}, []assist.Action{action}, nil
 }
 
 // Close 释放会话。
@@ -242,7 +256,46 @@ func (s *Session) currentPlan(frame assist.Frame) []Step {
 	return s.spec.Plan
 }
 
+// checkAbort 看画面上是否出现中断提示（复活/失败）。
+func (s *Session) checkAbort(frame assist.Frame) (bool, error) {
+	if s.spec.AbortArea == "" || len(s.spec.AbortTexts) == 0 {
+		return false, nil
+	}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if !s.abortAt.IsZero() && now.Sub(s.abortAt) < abortOCRTTL {
+		return true, nil
+	}
+	area, err := s.area(s.spec.AbortArea)
+	if err != nil {
+		return false, err
+	}
+	blocks, err := s.rt.OCR(frame, *area, vision.OCROptions{})
+	if err != nil {
+		return false, fmt.Errorf("识别中断提示: %w", err)
+	}
+	for _, block := range blocks {
+		for _, text := range s.spec.AbortTexts {
+			if text != "" && strings.Contains(block.Text, text) {
+				s.abortAt = now
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (s *Session) nextAction(frame assist.Frame) (assist.Action, string, bool) {
+	// 刚切过人：先把入场技打完（鸣潮的 handle_intro）。
+	if len(s.introLeft) > 0 {
+		step := s.introLeft[0]
+		s.introLeft = s.introLeft[1:]
+		if action, state, ok := s.stepAction(frame, step); ok {
+			return action, "入场-" + state, true
+		}
+	}
 	plan := s.currentPlan(frame)
 	if len(plan) == 0 {
 		return assist.Action{}, "", false
@@ -250,38 +303,46 @@ func (s *Session) nextAction(frame assist.Frame) (assist.Action, string, bool) {
 	for i := 0; i < len(plan); i++ {
 		step := plan[s.cursor%len(plan)]
 		s.cursor++
-		switch step.Kind {
-		case StepAttack:
-			if s.spec.Keys.Attack != "" {
-				return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Attack}, "普攻", true
-			}
-			return assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}, "普攻", true
-		case StepSkill:
-			if s.spec.Keys.Skill == "" || !s.ready(frame, StepSkill) {
-				continue
-			}
-			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Skill}, "技能", true
-		case StepEcho:
-			if s.spec.Keys.Echo == "" || s.cfg.noEcho || !s.ready(frame, StepEcho) {
-				continue
-			}
-			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Echo}, "装备技能", true
-		case StepLiberation:
-			if s.spec.Keys.Liberation == "" || s.cfg.noLiberation || !s.ready(frame, StepLiberation) {
-				continue
-			}
-			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Liberation}, "爆发", true
-		case StepDodge:
-			if s.spec.Keys.Dodge == "" || s.cfg.noDodge {
-				continue
-			}
-			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Dodge}, "闪避", true
-		case StepSwitch:
-			if step.Index < 0 || step.Index >= len(s.spec.Keys.Switch) {
-				continue
-			}
-			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Switch[step.Index]}, "切换角色", true
+		if action, state, ok := s.stepAction(frame, step); ok {
+			return action, "连招-" + state, true
 		}
+	}
+	return assist.Action{}, "", false
+}
+
+// stepAction 把连招里的一步转成实际动作；ok=false 表示这一步被关掉或还没就绪，调用方跳过。
+func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, string, bool) {
+	switch step.Kind {
+	case StepAttack:
+		if s.spec.Keys.Attack != "" {
+			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Attack}, "普攻", true
+		}
+		return assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}, "普攻", true
+	case StepSkill:
+		if s.spec.Keys.Skill == "" || !s.ready(frame, StepSkill) {
+			return assist.Action{}, "", false
+		}
+		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Skill}, "技能", true
+	case StepEcho:
+		if s.spec.Keys.Echo == "" || s.cfg.noEcho || !s.ready(frame, StepEcho) {
+			return assist.Action{}, "", false
+		}
+		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Echo}, "装备技能", true
+	case StepLiberation:
+		if s.spec.Keys.Liberation == "" || s.cfg.noLiberation || !s.ready(frame, StepLiberation) {
+			return assist.Action{}, "", false
+		}
+		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Liberation}, "爆发", true
+	case StepDodge:
+		if s.spec.Keys.Dodge == "" || s.cfg.noDodge {
+			return assist.Action{}, "", false
+		}
+		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Dodge}, "闪避", true
+	case StepSwitch:
+		if step.Index < 0 || step.Index >= len(s.spec.Keys.Switch) {
+			return assist.Action{}, "", false
+		}
+		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Switch[step.Index]}, "切换角色", true
 	}
 	return assist.Action{}, "", false
 }
@@ -375,6 +436,7 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 		return assist.Action{}, false
 	}
 	s.switchAt = now
+	s.introLeft = append([]Step(nil), s.spec.IntroSteps...)
 	return assist.Action{Kind: assist.ActionKeyTap, Key: s.chooseSwitchKey(frame)}, true
 }
 

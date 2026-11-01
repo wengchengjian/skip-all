@@ -42,6 +42,9 @@ func combatSpec() combat.Spec {
 			combat.StepSkill:      {X1: 1620, Y1: 917, X2: 1720, Y2: 1017},
 			combat.StepLiberation: {X1: 1728, Y1: 778, X2: 1826, Y2: 876},
 		},
+		// 复活/失败界面出现时暂停出招（绝区零没有鸣潮那种入场技，IntroSteps 留空）。
+		AbortArea:  "中断提示",
+		AbortTexts: []string{"重新挑战", "挑战失败", "撤退", "复活"},
 		// 代理人定位来自上游 AgentTypeEnum，切人时按定位打分。
 		Roles:  agentRoles,
 		Switch: &combat.SwitchPolicy{MinInterval: 3 * time.Second},
