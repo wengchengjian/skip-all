@@ -22,6 +22,10 @@ func TestDocsMatchCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读 upstream.md: %v", err)
 	}
+	wuwaDoc, err := os.ReadFile(filepath.Join("..", "docs", "wuwa-combat.md"))
+	if err != nil {
+		t.Fatalf("读 wuwa-combat.md: %v", err)
+	}
 	z := zzz.CombatStats()
 	w := wuwa.CombatStats()
 
@@ -37,6 +41,12 @@ func TestDocsMatchCode(t *testing.T) {
 		{"整队规则", string(parity), fmt.Sprintf("%d 条，", z["team_rules"])},
 		{"鸣潮连招", string(upstream), fmt.Sprintf("%d 个角色", w["plans"])},
 		{"鸣潮定位", string(upstream), fmt.Sprintf("%d 个", w["roles"])},
+		{"鸣潮增益时长", string(wuwaDoc), fmt.Sprintf("%d 个角色增益时长", w["buff_times"])},
+		{"鸣潮协同对", string(wuwaDoc), fmt.Sprintf("%d 个协同对", w["synergy"])},
+		{"鸣潮连招(能力表)", string(wuwaDoc), fmt.Sprintf("%d 个角色", w["plans"])},
+		{"鸣潮定位(能力表)", string(wuwaDoc), fmt.Sprintf("%d 个", w["roles"])},
+		{"鸣潮重击角色", string(wuwaDoc), fmt.Sprintf("%d 个角色用到", w["heavy"])},
+		{"鸣潮回路门控", string(wuwaDoc), fmt.Sprintf("%d 个角色", w["forte_gate"])},
 	}
 	for _, e := range expect {
 		if !strings.Contains(e.text, e.want) {
