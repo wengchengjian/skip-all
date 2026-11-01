@@ -47,14 +47,17 @@ type Keys struct {
 // 共享流程（检测战斗 -> 按连招序列出招 -> 脱离战斗后复位）只有一份，
 // 游戏之间的差异只体现在这里的数据上。
 type Spec struct {
-	Screen      string        // 画面配置名，例如 鸣潮战斗
-	DetectAreas []string      // 战斗证据区域，任意一个命中即认为在战斗
-	AttackPoint geom.Point    // 普攻的点击位置
-	Keys        Keys          // 按键绑定
-	Plan        []Step        // 连招序列，循环执行
-	Interval    time.Duration // 每步之间的间隔
-	Hold        time.Duration // 命中证据后保持战斗态的时间
-	IdleWait    time.Duration // 不在战斗时的等待
+	Screen         string        // 画面配置名，例如 鸣潮战斗
+	DetectAreas    []string      // 战斗证据区域（模板），任意一个命中即认为在战斗
+	HealthBarArea  string        // 敌人血条区域名；和 HealthBarRange 一起按颜色比例判断
+	HealthBarRange [2][3]uint8   // 血条颜色范围（含端点）
+	HealthBarRatio float64       // 区域内落在颜色范围里的像素比例达到它就算在战斗
+	AttackPoint    geom.Point    // 普攻的点击位置
+	Keys           Keys          // 按键绑定
+	Plan           []Step        // 连招序列，循环执行
+	Interval       time.Duration // 每步之间的间隔
+	Hold           time.Duration // 命中证据后保持战斗态的时间
+	IdleWait       time.Duration // 不在战斗时的等待
 }
 
 // DefaultPlan 是一套通用的连招节奏：普攻起手、夹技能、中间接爆发与闪避。
@@ -93,8 +96,11 @@ func (s Spec) validate() error {
 	if s.Screen == "" {
 		return errors.New("自动战斗缺少画面配置名")
 	}
-	if len(s.DetectAreas) == 0 {
+	if len(s.DetectAreas) == 0 && s.HealthBarArea == "" {
 		return errors.New("自动战斗缺少战斗证据区域")
+	}
+	if s.HealthBarArea != "" && s.HealthBarRatio <= 0 {
+		return errors.New("自动战斗的血条证据缺少比例阈值")
 	}
 	if s.Keys.Skill == "" && s.Keys.Liberation == "" && s.Keys.Attack == "" {
 		return errors.New("自动战斗缺少按键绑定")

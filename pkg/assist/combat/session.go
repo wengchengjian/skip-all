@@ -3,9 +3,11 @@ package combat
 import (
 	"context"
 	"fmt"
+	"image"
 	"time"
 
 	"github.com/wengchengjian/skip-all/pkg/assist"
+	"github.com/wengchengjian/skip-all/pkg/geom"
 	"github.com/wengchengjian/skip-all/pkg/screen"
 	"github.com/wengchengjian/skip-all/pkg/vision"
 )
@@ -55,8 +57,17 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 // Close 释放会话。
 func (s *Session) Close() error { return nil }
 
-// inCombat 遍历战斗证据区域，命中任意一个即认为在战斗。
+// inCombat 依次看模板证据与血条颜色证据，任一命中即认为在战斗。
 func (s *Session) inCombat(frame assist.Frame) (bool, error) {
+	if s.spec.HealthBarArea != "" {
+		area, err := s.area(s.spec.HealthBarArea)
+		if err != nil {
+			return false, err
+		}
+		if ratioInRange(frame.Image, area.Rect, s.spec.HealthBarRange) >= s.spec.HealthBarRatio {
+			return true, nil
+		}
+	}
 	for _, name := range s.spec.DetectAreas {
 		area, err := s.area(name)
 		if err != nil {
@@ -134,4 +145,33 @@ func (s *Session) area(name string) (*screen.Area, error) {
 		return nil, fmt.Errorf("画面 %s 缺少区域 %s", s.spec.Screen, name)
 	}
 	return area, nil
+}
+
+// ratioInRange 统计区域里落在颜色范围内的像素比例。
+// 上游用同样的思路判断敌人血条（enemy_health_color_red 的 RGB 区间）。
+func ratioInRange(img *image.RGBA, rect geom.Rect, colorRange [2][3]uint8) float64 {
+	if img == nil {
+		return 0
+	}
+	b := img.Bounds()
+	r := image.Rect(rect.X1, rect.Y1, rect.X2, rect.Y2).Intersect(b)
+	if r.Empty() {
+		return 0
+	}
+	hit, total := 0, 0
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			c := img.RGBAAt(x, y)
+			total++
+			if c.R >= colorRange[0][0] && c.R <= colorRange[1][0] &&
+				c.G >= colorRange[0][1] && c.G <= colorRange[1][1] &&
+				c.B >= colorRange[0][2] && c.B <= colorRange[1][2] {
+				hit++
+			}
+		}
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(hit) / float64(total)
 }

@@ -2,23 +2,10 @@ screen_id: wuwa_combat
 screen_name: 鸣潮战斗
 pc_alt: false
 area_list:
-- area_name: 敌人锁定
+- area_name: 敌人血条
   id_mark: false
   pc_rect:
-  - 1250
-  - 860
-  - 1640
-  - 1040
-  template_sub_dir: combat
-  template_id: box_target_enemy
-  template_match_threshold: 0.7
-- area_name: 敌人锁定-内圈
-  id_mark: false
-  pc_rect:
-  - 1250
-  - 860
-  - 1640
-  - 1040
-  template_sub_dir: combat
-  template_id: box_target_enemy_inner
-  template_match_threshold: 0.7
+  - 620
+  - 60
+  - 1300
+  - 170

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/color"
 	"io"
 	"log/slog"
 	"testing"
@@ -54,6 +55,7 @@ func testRuntime(hit bool) *fakeRuntime {
 		Name: "测试战斗",
 		AreaList: []*screen.Area{
 			{Name: "锁定", RectValues: []int{1250, 860, 1640, 1040}, TemplateSubDir: "combat", TemplateID: "target"},
+			{Name: "血条", RectValues: []int{620, 60, 1300, 170}},
 		},
 	})
 	return &fakeRuntime{screens: set, hit: hit}
@@ -61,8 +63,11 @@ func testRuntime(hit bool) *fakeRuntime {
 
 func testSpec() Spec {
 	return Spec{
-		Screen:      "测试战斗",
-		DetectAreas: []string{"锁定"},
+		Screen:         "测试战斗",
+		DetectAreas:    []string{"锁定"},
+		HealthBarArea:  "血条",
+		HealthBarRange: [2][3]uint8{{174, 55, 55}, {225, 85, 76}},
+		HealthBarRatio: 0.02,
 		Keys: Keys{
 			Skill: "e", Echo: "q", Liberation: "r", Dodge: "lshift",
 			Switch: []string{"1", "2"},
@@ -205,5 +210,26 @@ func TestFeatureRequestsHigherFrameRate(t *testing.T) {
 	}
 	if needs.MinFPS() < 10 {
 		t.Fatalf("MinFPS = %d", needs.MinFPS())
+	}
+}
+
+func TestHealthBarEvidence(t *testing.T) {
+	session := newSession(testRuntime(false), testSpec().withDefaults(), sessionSettings{})
+	// 血条区域刷成上游的红色区间：应当判成战斗。
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 100; y < 120; y++ {
+		for x := 700; x < 1200; x++ {
+			img.SetRGBA(x, y, color.RGBA{200, 70, 60, 255})
+		}
+	}
+	result, actions := step(t, session, assist.Frame{Image: img, At: time.Now()})
+	if result.State != "连招-普攻" || len(actions) != 1 {
+		t.Fatalf("有血条时应当出招: state = %q actions = %+v", result.State, actions)
+	}
+	// 换成纯黑画面：不应出招。
+	black := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	result, actions = step(t, session, assist.Frame{Image: black, At: time.Now().Add(10 * time.Second)})
+	if result.State != "等待战斗" || len(actions) != 0 {
+		t.Fatalf("没有血条时不应出招: state = %q actions = %+v", result.State, actions)
 	}
 }

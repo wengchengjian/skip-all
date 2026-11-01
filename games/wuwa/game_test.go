@@ -73,14 +73,12 @@ func TestAssetsLoadCombatScreen(t *testing.T) {
 	if !ok {
 		t.Fatal("缺少 鸣潮战斗 画面")
 	}
-	for _, name := range []string{"敌人锁定", "敌人锁定-内圈"} {
-		area, ok := combat.Area(name)
-		if !ok {
-			t.Fatalf("缺少区域 %s", name)
-		}
-		if area.TemplateID == "" {
-			t.Fatalf("区域 %s 缺少模板", name)
-		}
+	area, ok := combat.Area("敌人血条")
+	if !ok {
+		t.Fatal("缺少 敌人血条 区域")
+	}
+	if area.Rect.X2 <= area.Rect.X1 || area.Rect.Y2 <= area.Rect.Y1 {
+		t.Fatalf("敌人血条 区域未解析: %+v", area.Rect)
 	}
 }
 
@@ -89,7 +87,7 @@ func TestCombatSpecUsesUpstreamKeys(t *testing.T) {
 	if spec.Keys.Skill != "e" || spec.Keys.Echo != "q" || spec.Keys.Liberation != "r" || spec.Keys.Dodge != "lshift" {
 		t.Fatalf("按键绑定 = %+v", spec.Keys)
 	}
-	if len(spec.DetectAreas) == 0 {
-		t.Fatal("缺少战斗证据区域")
+	if spec.HealthBarArea == "" || spec.HealthBarRange != ([2][3]uint8{{174, 55, 55}, {225, 85, 76}}) {
+		t.Fatalf("血条证据 = %q %v", spec.HealthBarArea, spec.HealthBarRange)
 	}
 }
