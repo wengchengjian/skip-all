@@ -558,3 +558,36 @@ func TestDodgeUsesSlotIdsWhenProvided(t *testing.T) {
 		t.Fatalf("应当用槽位结果选击破位: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
 	}
 }
+
+func TestRuleActionThrottle(t *testing.T) {
+	front := geom.Rect{X1: 104, Y1: 40, X2: 274, Y2: 110}
+	ultArea := geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876}
+	team := &zzzTeam{
+		front:     screen.Area{Name: "前台头像", Rect: front},
+		frontIDs:  []string{"grace"},
+		threshold: 0.8,
+	}
+	ext := &zzzStateRuleExt{Team: team, SkillArea: geom.Rect{X1: 1620, Y1: 917, X2: 1720, Y2: 1017}, UltArea: ultArea, Threshold: 0.05}
+
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 790; y < 860; y++ {
+		for x := 1740; x < 1814; x++ {
+			img.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+		}
+	}
+	rt := areaFake{byRect: map[geom.Rect]map[string]float64{front: {"grace": 0.95}}}
+	base := time.Now()
+
+	// 第一帧：命中终结技规则。
+	if _, state, ok, _ := ext.Step(rt, assist.Frame{Image: img, At: base}); !ok || state != "规则-终结技" {
+		t.Fatalf("第一帧应当放终结技, state=%q ok=%v", state, ok)
+	}
+	// 200ms 后（小于 800ms 节流）：不该重复放终结技。
+	if _, state, ok, _ := ext.Step(rt, assist.Frame{Image: img, At: base.Add(200 * time.Millisecond)}); ok && state == "规则-终结技" {
+		t.Fatal("终结技在节流窗口内被重复释放")
+	}
+	// 900ms 后：允许再次释放。
+	if _, state, ok, _ := ext.Step(rt, assist.Frame{Image: img, At: base.Add(900 * time.Millisecond)}); !ok || state != "规则-终结技" {
+		t.Fatalf("超过节流窗口应当可以再次释放, state=%q ok=%v", state, ok)
+	}
+}

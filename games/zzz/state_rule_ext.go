@@ -49,6 +49,8 @@ type zzzStateRuleExt struct {
 	assistAt   time.Time
 	parryAt    time.Time
 	dodgeAt    time.Time
+	// 规则动作节流：同一种按键在短时间内不重复放（上游各 handler 有识别间隔，这里按动作类型给最小间隔）。
+	lastFired map[combat.StepKind]time.Time
 }
 
 func (e *zzzStateRuleExt) Name() string { return "state_rules" }
@@ -111,12 +113,48 @@ func (e *zzzStateRuleExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Ac
 		if !e.eval(rt, frame, rule.Cond) || len(rule.Ops) == 0 {
 			continue
 		}
+		first := rule.Ops[0]
+		if !e.allow(first, now) {
+			continue
+		}
 		e.queue = append([]combat.Step(nil), rule.Ops[1:]...)
-		if action, ok := ruleAction(rule.Ops[0]); ok {
-			return action, "规则-" + ruleState(rule.Ops[0]), true, nil
+		if action, ok := ruleAction(first); ok {
+			e.markFired(first, now)
+			return action, "规则-" + ruleState(first), true, nil
 		}
 	}
 	return assist.Action{}, "", false, nil
+}
+
+// 各动作的最小重复间隔。上游每个 handler 有各自的识别间隔，
+// 这里按动作类型取一个保守值，避免"技能图标一直亮着就每帧都放"。
+var actionThrottle = map[combat.StepKind]time.Duration{
+	combat.StepAttack:     250 * time.Millisecond,
+	combat.StepSkill:      600 * time.Millisecond,
+	combat.StepLiberation: 800 * time.Millisecond,
+	combat.StepDodge:      300 * time.Millisecond,
+	combat.StepKey:        200 * time.Millisecond,
+}
+
+// allow 判断这个动作现在是否允许放。
+func (e *zzzStateRuleExt) allow(step combat.Step, now time.Time) bool {
+	if e.lastFired == nil {
+		return true
+	}
+	gap, ok := actionThrottle[step.Kind]
+	if !ok {
+		return true
+	}
+	last, fired := e.lastFired[step.Kind]
+	return !fired || now.Sub(last) >= gap
+}
+
+// markFired 记录动作放出的时间。
+func (e *zzzStateRuleExt) markFired(step combat.Step, now time.Time) {
+	if e.lastFired == nil {
+		e.lastFired = make(map[combat.StepKind]time.Time)
+	}
+	e.lastFired[step.Kind] = now
 }
 
 // eval 计算条件表达式：支持 ! & | 和括号，原子写在方括号里。
