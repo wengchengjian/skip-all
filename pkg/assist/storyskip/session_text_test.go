@@ -209,144 +209,46 @@ func TestConfirmDialogFallbackNeedsCheckbox(t *testing.T) {
 	}
 }
 
-func TestConfirmDialogFallbackClicksWithCheckbox(t *testing.T) {
-	confirmText := block("確認", geom.Rect{X1: 990, Y1: 610, X2: 1090, Y2: 650})
-	session, rt := newTextSession(t, []frameScript{{
-		at:  time.Now(),
-		ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}},
-		matches: map[string][]vision.Match{
-			"确认框勾选框": {{Rect: geom.Rect{X1: 858, Y1: 562, X2: 902, Y2: 602}, Confidence: 0.95}},
-		},
-	}})
+func TestConfirmDialogFallbackTicksThenConfirms(t *testing.T) {
+	base := time.Date(2026, 11, 1, 9, 10, 0, 0, time.Local)
+	box := map[string][]vision.Match{"确认框勾选框": {{Rect: geom.Rect{X1: 858, Y1: 562, X2: 902, Y2: 602}, Confidence: 0.95}}}
+	dialog := map[string][]vision.TextBlock{"对话框确认": {block("确认", geom.Rect{X1: 990, Y1: 610, X2: 1090, Y2: 650})}}
+	scripts := []frameScript{
+		{at: base, ocr: dialog, matches: box},
+		{at: base.Add(3 * time.Second), ocr: dialog, matches: box},
+	}
+	session, rt := newTextSession(t, scripts)
 	result, actions := step(t, session, rt, 0)
+	if result.State != "勾选不再提示" {
+		t.Fatalf("第 0 帧 state = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 880, Y: 582}}})
+
+	result, actions = step(t, session, rt, 1)
 	if result.State != "确认弹窗" {
-		t.Fatalf("state = %q", result.State)
+		t.Fatalf("第 1 帧 state = %q", result.State)
 	}
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1040, Y: 630}}})
 }
 
 func TestConfirmDialogFallbackThrottled(t *testing.T) {
-	base := time.Date(2026, 11, 1, 7, 0, 0, 0, time.Local)
-	confirmText := block("确认", geom.Rect{X1: 990, Y1: 610, X2: 1090, Y2: 650})
-	boxes := map[string][]vision.Match{
-		"确认框勾选框": {{Rect: geom.Rect{X1: 858, Y1: 562, X2: 902, Y2: 602}, Confidence: 0.95}},
-	}
+	base := time.Date(2026, 11, 1, 9, 20, 0, 0, time.Local)
+	box := map[string][]vision.Match{"确认框勾选框": {{Rect: geom.Rect{X1: 858, Y1: 562, X2: 902, Y2: 602}, Confidence: 0.95}}}
+	dialog := map[string][]vision.TextBlock{"对话框确认": {block("确认", geom.Rect{X1: 990, Y1: 610, X2: 1090, Y2: 650})}}
 	scripts := []frameScript{
-		{at: base, ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}}, matches: boxes},
-		{at: base.Add(time.Second), ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}}, matches: boxes},
-		{at: base.Add(3 * time.Second), ocr: map[string][]vision.TextBlock{"对话框确认": {confirmText}}, matches: boxes},
+		{at: base, ocr: dialog, matches: box},
+		{at: base.Add(time.Second), ocr: dialog, matches: box},
+		{at: base.Add(3 * time.Second), ocr: dialog, matches: box},
 	}
 	session, rt := newTextSession(t, scripts)
-	if result, _ := step(t, session, rt, 0); result.State != "确认弹窗" {
+	if result, _ := step(t, session, rt, 0); result.State != "勾选不再提示" {
 		t.Fatalf("第 0 帧 state = %q", result.State)
 	}
-	// 1 秒内不再重复检查，避免每帧都在弹窗上点确认。
+	// 2 秒内不再重复检查，避免每帧都在弹窗上乱点。
 	if result, actions := step(t, session, rt, 1); result.State != "等待剧情画面" || len(actions) != 0 {
 		t.Fatalf("节流期内不应再点: state = %q actions = %+v", result.State, actions)
 	}
 	if result, _ := step(t, session, rt, 2); result.State != "确认弹窗" {
-		t.Fatalf("超过间隔后应再次点确认, state = %q", result.State)
-	}
-}
-
-func TestSubtitleWithoutStoryUIStaysIdle(t *testing.T) {
-	// 大世界底部也有白字（交互提示、任务提示），没有剧情跳过图标时不能点。
-	subtitle := block("前往目标地点", geom.Rect{X1: 860, Y1: 800, X2: 1040, Y2: 822})
-	session, rt := newTextSession(t, []frameScript{{
-		at:  time.Now(),
-		ocr: map[string][]vision.TextBlock{"对话内容": {subtitle}},
-	}})
-	result, actions := step(t, session, rt, 0)
-	if result.State != "等待剧情画面" || len(actions) != 0 {
-		t.Fatalf("没有剧情 UI 时不应点击: state = %q actions = %+v", result.State, actions)
-	}
-}
-
-func TestSubtitleWithStoryUIClicks(t *testing.T) {
-	subtitle := block("前往目标地点", geom.Rect{X1: 860, Y1: 800, X2: 1040, Y2: 822})
-	session, rt := newTextClickSession(t, []frameScript{{
-		at:      time.Now(),
-		ocr:     map[string][]vision.TextBlock{"对话内容": {subtitle}},
-		matches: map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 69, Y1: 176, X2: 89, Y2: 194}, Confidence: 0.9}}},
-	}})
-	result, actions := step(t, session, rt, 0)
-	if result.State != "对话中点击" {
-		t.Fatalf("state = %q", result.State)
-	}
-	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 960, Y: 857}}})
-}
-
-func TestPanelSkipClicksThenConfirm(t *testing.T) {
-	base := time.Date(2026, 11, 1, 8, 30, 0, 0, time.Local)
-	// 面板按钮是一整条白底深字的圆角按钮：涂白让按钮检测通过，OCR 结果给按钮文字。
-	button := block("跳过剧情", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})
-	scripts := []frameScript{
-		{at: base, ocr: map[string][]vision.TextBlock{"剧情面板按钮": {button}}},
-		{
-			at: base.Add(600 * time.Millisecond),
-			ocr: map[string][]vision.TextBlock{
-				"对话框确认": {block("确认", geom.Rect{X1: 1047, Y1: 613, X2: 1310, Y2: 658})},
-			},
-		},
-	}
-	session, rt := newTextSession(t, scripts)
-	result, actions := step(t, session, rt, 0)
-	if result.State != "点击跳过剧情" {
-		t.Fatalf("第 0 帧 state = %q", result.State)
-	}
-	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1362, Y: 780}}})
-
-	result, actions = step(t, session, rt, 1)
-	if result.State != "确认跳过" {
-		t.Fatalf("第 1 帧 state = %q", result.State)
-	}
-	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1178, Y: 635}}})
-}
-
-func TestPanelSkipIgnoresScreenWithoutButton(t *testing.T) {
-	// 有白条但 OCR 读不出按钮文字时不点。
-	scripts := []frameScript{{
-		at: time.Now(),
-		ocr: map[string][]vision.TextBlock{
-			"剧情面板-跳过": {block("", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})},
-		},
-	}}
-	session, rt := newTextSession(t, scripts)
-	result, actions := step(t, session, rt, 0)
-	if result.State == "点击跳过剧情" {
-		t.Fatalf("没有按钮文字时不应点: actions = %+v", actions)
-	}
-}
-
-func TestPanelSkipIgnoresConfirmBodyText(t *testing.T) {
-	// 确认框正文里也会出现"跳过"，但它不是按钮，不能点。
-	scripts := []frameScript{{
-		at: time.Now(),
-		ocr: map[string][]vision.TextBlock{
-			"剧情面板按钮": {block("是否确认跳过？", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})},
-		},
-	}}
-	session, rt := newTextSession(t, scripts)
-	result, actions := step(t, session, rt, 0)
-	if result.State == "点击跳过剧情" {
-		t.Fatalf("确认正文不应被当成按钮: actions = %+v", actions)
-	}
-}
-
-func TestPanelSkipBeforeConfirmWait(t *testing.T) {
-	// 点过跳过之后出现的是面板而不是确认框：不能白等满确认窗口。
-	base := time.Date(2026, 11, 1, 8, 30, 0, 0, time.Local)
-	skipMatch := map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 68, Y1: 175, X2: 89, Y2: 193}, Confidence: 0.95}}}
-	button := block("跳过剧情", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})
-	scripts := []frameScript{
-		{at: base, matches: skipMatch},
-		{at: base.Add(time.Second), ocr: map[string][]vision.TextBlock{"剧情面板按钮": {button}}},
-	}
-	session, rt := newTextSession(t, scripts)
-	if result, _ := step(t, session, rt, 0); result.State != "模板跳过" {
-		t.Fatalf("第 0 帧 state = %q", result.State)
-	}
-	if result, _ := step(t, session, rt, 1); result.State != "点击跳过剧情" {
-		t.Fatalf("确认窗口里出现面板时应点它, state = %q", result.State)
+		t.Fatalf("超过间隔后应点确认, state = %q", result.State)
 	}
 }

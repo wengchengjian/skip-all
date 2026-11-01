@@ -69,6 +69,7 @@ type Session struct {
 	lastSkipAt     time.Time
 	confirmPollAt  time.Time
 	panelPollAt    time.Time
+	checkTicked    bool
 	skipRetries    int
 	entryVisible   bool
 	// entrySet 只在一次 Step 内有效：每帧开始时清掉，避免跨帧复用旧结论。
@@ -215,6 +216,11 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 
 	// 1. 确认框：只在刚点过跳过/菜单后检查，避免每帧 OCR。
 	if s.confirmPending(frame.At) {
+		if actions, ok, err := s.tickConfirmCheck(frame); err != nil {
+			return assist.Result{}, nil, err
+		} else if ok {
+			return assist.Result{State: "勾选不再提示", Wait: confirmWait}, actions, nil
+		}
 		actions, handled, err := s.clickConfirm(frame)
 		if err != nil {
 			return assist.Result{}, nil, err
@@ -269,10 +275,10 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	// 5. 确认框已经在场（例如程序启动时弹窗就开着）：勾选框 + 确认文案双证才点。
 	// 对应上游 check_skip 在没点过跳过时也调一次 skip_confirm 的兜底。
 	if s.spec.ConfirmCheckArea != "" && !storyVisible {
-		if actions, ok, err := s.pollConfirmDialog(frame); err != nil {
+		if actions, state, ok, err := s.pollConfirmDialog(frame); err != nil {
 			return assist.Result{}, nil, err
 		} else if ok {
-			return assist.Result{State: "确认弹窗", Wait: confirmWait}, actions, nil
+			return assist.Result{State: state, Wait: confirmWait}, actions, nil
 		}
 	}
 
@@ -528,6 +534,20 @@ func (s *Session) confirmBlock(frame assist.Frame) (vision.TextBlock, bool, erro
 	return vision.TextBlock{}, false, nil
 }
 
+// tickConfirmCheck 先点确认弹窗里的"本次登录不再提示"勾选框。
+// 上游 click_skip_dialog_confirm 也是先勾选再点确认，勾选后同类弹窗后续不再出现。
+func (s *Session) tickConfirmCheck(frame assist.Frame) ([]assist.Action, bool, error) {
+	if s.spec.ConfirmCheckArea == "" || s.checkTicked || s.cfg.gamepad {
+		return nil, false, nil
+	}
+	match, ok, err := s.matchFirst(frame, s.spec.Screen, s.spec.ConfirmCheckArea)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	s.checkTicked = true
+	return []assist.Action{{Kind: assist.ActionClick, Point: match.Rect.Center()}}, true, nil
+}
+
 func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error) {
 	if s.spec.ConfirmTemplateArea != "" {
 		if match, ok, err := s.matchFirst(frame, s.spec.Screen, s.spec.ConfirmTemplateArea); err != nil {
@@ -625,28 +645,34 @@ func (s *Session) retrySkip(frame assist.Frame) ([]assist.Action, bool, error) {
 
 // pollConfirmDialog 定期检查"确认框已经开着"：勾选框和确认文案同时命中才点，
 // 避免把设置页、退出确认之类只有「确认」的弹窗当成跳过确认框。
-func (s *Session) pollConfirmDialog(frame assist.Frame) ([]assist.Action, bool, error) {
+func (s *Session) pollConfirmDialog(frame assist.Frame) ([]assist.Action, string, bool, error) {
 	now := frame.At
 	if now.IsZero() {
 		now = time.Now()
 	}
 	if !s.confirmPollAt.IsZero() && now.Sub(s.confirmPollAt) < confirmPollInterval {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
 	s.confirmPollAt = now
+	// 先把"本次登录不再提示"勾上（只勾一次），再点确认。
+	if actions, ok, err := s.tickConfirmCheck(frame); err != nil {
+		return nil, "", false, err
+	} else if ok {
+		return actions, "勾选不再提示", true, nil
+	}
 	if _, ok, err := s.matchFirst(frame, s.spec.Screen, s.spec.ConfirmCheckArea); err != nil {
-		return nil, false, err
+		return nil, "", false, err
 	} else if !ok {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
 	block, ok, err := s.confirmBlock(frame)
 	if err != nil || !ok {
-		return nil, false, err
+		return nil, "", false, err
 	}
 	if s.cfg.gamepad {
-		return []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, true, nil
+		return []assist.Action{{Kind: assist.ActionKeyTap, Key: padConfirmKey}}, "确认弹窗", true, nil
 	}
-	return []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}, true, nil
+	return []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}, "确认弹窗", true, nil
 }
 
 func (s *Session) storyBarVisible(frame assist.Frame) (bool, error) {
@@ -1154,6 +1180,7 @@ func (s *Session) area(screenName, areaName string) (*screen.Area, error) {
 
 func (s *Session) resetAfterConfirm() {
 	s.menuClickedAt = time.Time{}
+	s.checkTicked = false
 	s.lastSkipAt = time.Time{}
 	s.skipRetries = 0
 	s.confirmUntil = time.Time{}
