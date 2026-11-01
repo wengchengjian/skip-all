@@ -26,7 +26,9 @@ type zzzDodgeExt struct {
 	Slots []geom.Rect
 	Keys  []string
 	// KnownIDs 返回已认出的代理人模板：有白名单就只比这几张，不扫 71 张。
-	KnownIDs    func() []string
+	KnownIDs func() []string
+	// SlotIDs 直接返回三个槽位上的代理人（复用队伍识别结果，避免重复扫头像）。
+	SlotIDs     func(rt combat.Runtime, frame assist.Frame) ([]string, error)
 	AttackPoint geom.Point
 	// Interval 是两次闪避之间的最小间隔，避免同一段闪光连按。
 	Interval time.Duration
@@ -79,6 +81,21 @@ func (d *zzzDodgeExt) parryTarget(rt combat.Runtime, frame assist.Frame) string 
 	}
 	best := ""
 	bestScore := -1
+	// 优先复用队伍识别结果（已被缓存），没有再自己扫。
+	if d.SlotIDs != nil {
+		if ids, err := d.SlotIDs(rt, frame); err == nil && len(ids) >= len(d.Keys) {
+			best, bestScore := "", -1
+			for i := 1; i < len(ids) && i < len(d.Keys); i++ {
+				if score := parryScore(ids[i]); score > bestScore {
+					bestScore, best = score, d.Keys[i]
+				}
+			}
+			if bestScore >= 0 {
+				return best
+			}
+			return ""
+		}
+	}
 	candidates := avatarIDs("avatar1")
 	if d.KnownIDs != nil {
 		if known := d.KnownIDs(); len(known) > 0 {
@@ -349,6 +366,7 @@ func zzzExtensions(team *zzzTeam) []combat.Extension {
 			},
 			Keys:        []string{"1", "2", "3"},
 			KnownIDs:    team.LearnedIDs,
+			SlotIDs:     team.Slots,
 			AttackPoint: geom.Point{X: 960, Y: 540},
 			Interval:    600 * time.Millisecond,
 		},

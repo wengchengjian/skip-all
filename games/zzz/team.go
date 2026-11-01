@@ -32,6 +32,9 @@ type zzzTeam struct {
 	learnedAt    time.Time
 	// scanCursor 让"全量认人"分摊到多帧，避免一次扫 71 张头像卡住战斗循环。
 	scanCursor int
+	// 槽位结果短时缓存：一帧里可能有好几个消费者（规则引擎、格挡、连携）都要问"谁在哪"。
+	slotsCache []string
+	slotsAt    time.Time
 }
 
 func newZZZTeam() *zzzTeam {
@@ -68,6 +71,17 @@ func avatarIDs(dir string) []string {
 
 // Slots 列出前后台槽位上的代理人 id（认不出留空），切人打分用。
 func (t *zzzTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	t.mu.Lock()
+	if len(t.slotsCache) > 0 && now.Sub(t.slotsAt) < slotsTTL {
+		cached := append([]string(nil), t.slotsCache...)
+		t.mu.Unlock()
+		return cached, nil
+	}
+	t.mu.Unlock()
 	ids := make([]string, 0, 3)
 	front, err := t.matchIn(rt, frame, t.front, t.frontIDs, "avatar1")
 	if err != nil {
@@ -81,11 +95,18 @@ func (t *zzzTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error)
 		}
 		ids = append(ids, back)
 	}
+	t.mu.Lock()
+	t.slotsCache = append([]string(nil), ids...)
+	t.slotsAt = now
+	t.mu.Unlock()
 	return ids, nil
 }
 
 // zzzTeamRefreshTTL 之后重新全量认一次。
 const zzzTeamRefreshTTL = 10 * time.Second
+
+// slotsTTL 是槽位结果的缓存时间：一帧内多个消费者复用同一次识别。
+const slotsTTL = 500 * time.Millisecond
 
 // scanBatch 是一次最多比对的模板数量。71 张头像全扫约 225ms，
 // 摊到 8 张/帧后每帧约 25ms，1 秒内能扫完一轮。

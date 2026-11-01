@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wengchengjian/skip-all/pkg/assist"
+	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"github.com/wengchengjian/skip-all/pkg/geom"
 	"github.com/wengchengjian/skip-all/pkg/screen"
 	"github.com/wengchengjian/skip-all/pkg/vision"
@@ -523,5 +524,37 @@ func TestDodgeParryPicksStunSlot(t *testing.T) {
 	action, state, ok, err = ext2.Step(rt, assist.Frame{Image: redImg, At: time.Now()})
 	if err != nil || !ok || state != "闪避" || action.Key != "shift" {
 		t.Fatalf("红光应当闪避: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	}
+}
+
+func TestDodgeUsesSlotIdsWhenProvided(t *testing.T) {
+	ext := &zzzDodgeExt{
+		Rect:     geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840},
+		Yellow:   [2][3]uint8{{225, 195, 60}, {255, 255, 165}},
+		Red:      [2][3]uint8{{215, 35, 35}, {255, 110, 110}},
+		Ratio:    0.03,
+		DodgeKey: "shift",
+		Slots: []geom.Rect{
+			{X1: 104, Y1: 40, X2: 274, Y2: 110},
+			{X1: 559, Y1: 40, X2: 662, Y2: 91},
+			{X1: 741, Y1: 40, X2: 844, Y2: 91},
+		},
+		Keys: []string{"1", "2", "3"},
+		SlotIDs: func(rt3 combat.Runtime, frame3 assist.Frame) ([]string, error) {
+			return []string{"ellen", "grace", "anby"}, nil
+		},
+		AttackPoint: geom.Point{X: 960, Y: 540},
+		Interval:    time.Second,
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 300; y < 700; y += 2 {
+		for x := 600; x < 1300; x += 2 {
+			img.SetRGBA(x, y, color.RGBA{245, 220, 90, 255})
+		}
+	}
+	f := assist.Frame{Image: img, At: time.Now()}
+	action, state, ok, err := ext.Step(&mutableAreaFake{byRect: map[geom.Rect]map[string]float64{}}, f)
+	if err != nil || !ok || state != "格挡-切人" || action.Key != "3" {
+		t.Fatalf("应当用槽位结果选击破位: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
 	}
 }
