@@ -2,6 +2,16 @@ screen_id: zzz_combat
 screen_name: 绝区零战斗
 pc_alt: true
 area_list:
+- area_name: 普通攻击按钮
+  id_mark: false
+  pc_rect:
+  - 1403
+  - 916
+  - 1505
+  - 1017
+  template_sub_dir: combat
+  template_id: btn_normal_attack
+  template_match_threshold: 0.9
 - area_name: 中断提示
   id_mark: false
   pc_rect:
