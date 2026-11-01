@@ -350,9 +350,11 @@ func TestStateCheckAtomUsesColorRange(t *testing.T) {
 // mutableAreaFake 允许中途换命中结果，用来模拟"站场角色变了"。
 type mutableAreaFake struct {
 	byRect map[geom.Rect]map[string]float64
+	calls  int
 }
 
 func (f *mutableAreaFake) MatchTemplate(_ assist.Frame, area screen.Area, ref vision.TemplateRef, _ float64) ([]vision.Match, error) {
+	f.calls++
 	if score, ok := f.byRect[area.Rect][ref.ID]; ok && score > 0 {
 		return []vision.Match{{Rect: area.Rect, Confidence: score}}, nil
 	}
@@ -379,6 +381,10 @@ func TestSwitchEventAtom(t *testing.T) {
 
 	// 第二帧：站场角色变成 grace -> 记录切人时间。
 	rt.byRect[front] = map[string]float64{"grace": 0.95}
+	id, ok, err := team.Agent(rt, assist.Frame{Image: img, At: base.Add(time.Second)})
+	if err != nil || !ok || id != "grace" {
+		t.Fatalf("第二轮认人应当是 grace: id=%q ok=%v err=%v learned=%v", id, ok, err, team.frontLearned)
+	}
 	e.Step(rt, assist.Frame{Image: img, At: base.Add(time.Second)})
 	if e.switchedAt.IsZero() {
 		t.Fatal("站场角色变化应当记为切人")
@@ -432,5 +438,27 @@ func TestStunWindowFromChainBar(t *testing.T) {
 	empty := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
 	if e.atom(rt, assist.Frame{Image: empty, At: base.Add(20 * time.Second)}, "自定义-失衡时间, 0, 10") {
 		t.Fatal("超出窗口不该成立")
+	}
+}
+
+func TestTeamScanIsBatchedPerFrame(t *testing.T) {
+	front := geom.Rect{X1: 104, Y1: 40, X2: 274, Y2: 110}
+	team := newZZZTeam()
+	team.front = screen.Area{Name: "前台头像", Rect: front}
+	rt := &mutableAreaFake{byRect: map[geom.Rect]map[string]float64{front: {}}}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+
+	// 每帧调用一次，比对的模板数不应超过 scanBatch。
+	before := rt.calls
+	team.Agent(rt, assist.Frame{Image: img, At: time.Now()})
+	if got := rt.calls - before; got > scanBatch {
+		t.Fatalf("单帧比对模板数 %d 超过上限 %d", got, scanBatch)
+	}
+	// 多帧之后应该能扫完一整轮。
+	for i := 0; i < len(team.frontIDs)/scanBatch+2; i++ {
+		team.Agent(rt, assist.Frame{Image: img, At: time.Now().Add(time.Duration(i+1) * time.Second)})
+	}
+	if team.learnedAt.IsZero() {
+		t.Fatal("多帧之后应当完成一轮学习")
 	}
 }

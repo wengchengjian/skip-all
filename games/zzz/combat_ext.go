@@ -97,6 +97,9 @@ type zzzChainExt struct {
 	last     time.Time
 	// avatarIDs 是连携槽位里要试的头像模板（与 templates/avatar1 一致）。
 	avatarIDs []string
+	// knownIDs 返回已经认出来的代理人模板：有白名单就只比这几张，
+	// 不再对 71 张头像逐个匹配。
+	knownIDs  func() []string
 	threshold float64
 }
 
@@ -144,7 +147,13 @@ func (c *zzzChainExt) matchSide(rt combat.Runtime, frame assist.Frame, area geom
 	if threshold <= 0 {
 		threshold = 0.8
 	}
-	for _, id := range c.avatarIDs {
+	ids := c.avatarIDs
+	if c.knownIDs != nil {
+		if known := c.knownIDs(); len(known) > 0 {
+			ids = known
+		}
+	}
+	for _, id := range ids {
 		matches, err := rt.MatchTemplate(frame, screen.Area{Name: "连携槽位", Rect: area}, vision.TemplateRef{SubDir: "avatar1", ID: id}, threshold)
 		if err != nil || len(matches) == 0 {
 			continue
@@ -258,6 +267,7 @@ func zzzExtensions(team *zzzTeam) []combat.Extension {
 			RightKey:  "e",
 			Interval:  900 * time.Millisecond,
 			avatarIDs: avatarIDs("avatar1"),
+			knownIDs:  team.LearnedIDs,
 			threshold: 0.78,
 		},
 		&zzzUltimateExt{

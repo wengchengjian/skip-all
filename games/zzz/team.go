@@ -30,6 +30,8 @@ type zzzTeam struct {
 	frontLearned []string
 	backLearned  []string
 	learnedAt    time.Time
+	// scanCursor 让"全量认人"分摊到多帧，避免一次扫 71 张头像卡住战斗循环。
+	scanCursor int
 }
 
 func newZZZTeam() *zzzTeam {
@@ -85,21 +87,55 @@ func (t *zzzTeam) Slots(rt combat.Runtime, frame assist.Frame) ([]string, error)
 // zzzTeamRefreshTTL 之后重新全量认一次。
 const zzzTeamRefreshTTL = 10 * time.Second
 
-// candidates 取某个模板族这一轮要比对的 id；learning=true 表示这次是全量扫描。
+// scanBatch 是一次最多比对的模板数量。71 张头像全扫约 225ms，
+// 摊到 8 张/帧后每帧约 25ms，1 秒内能扫完一轮。
+const scanBatch = 8
+
+// candidates 取某个模板族这一轮要比对的 id；learning=true 表示这次是全量扫描的一部分。
 func (t *zzzTeam) candidates(now time.Time, subDir string) ([]string, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	fresh := len(t.frontLearned) > 0 && now.Sub(t.learnedAt) < zzzTeamRefreshTTL
-	if !fresh {
-		return nil, true
+	if fresh {
+		if subDir == "avatar1" {
+			return t.frontLearned, false
+		}
+		if len(t.backLearned) > 0 {
+			return t.backLearned, false
+		}
 	}
-	if subDir == "avatar1" {
-		return t.frontLearned, false
+	// 还没认全：本帧只比一批，剩下的下一帧继续。
+	all := t.frontIDs
+	if subDir == "avatar2" {
+		all = t.backIDs
 	}
-	if len(t.backLearned) > 0 {
-		return t.backLearned, false
+	if len(all) == 0 {
+		return nil, false
 	}
-	return nil, true
+	if t.scanCursor >= len(all) {
+		t.scanCursor = 0
+	}
+	end := t.scanCursor + scanBatch
+	if end > len(all) {
+		end = len(all)
+	}
+	batch := all[t.scanCursor:end]
+	t.scanCursor = end
+	if t.scanCursor >= len(all) {
+		// 一轮扫完：用认出来的角色当白名单。
+		t.learnedAt = now
+	}
+	return batch, true
+}
+
+// LearnedIDs 返回已经认出来的代理人模板（供连携选边等场景复用，避免再扫 71 张）。
+func (t *zzzTeam) LearnedIDs() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ids := make([]string, 0, len(t.frontLearned)+len(t.backLearned))
+	ids = append(ids, t.frontLearned...)
+	ids = append(ids, t.backLearned...)
+	return ids
 }
 
 // learn 记住某个模板族本轮认出来的 id。
@@ -134,9 +170,6 @@ func (t *zzzTeam) matchIn(rt combat.Runtime, frame assist.Frame, area screen.Are
 	if now.IsZero() {
 		now = time.Now()
 	}
-	if candidates, learning := t.candidates(now, subDir); !learning {
-		ids = candidates
-	}
 	best, bestID := 0.0, ""
 	for _, id := range ids {
 		matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: subDir, ID: id}, t.threshold)
@@ -163,18 +196,32 @@ func (t *zzzTeam) Current(rt combat.Runtime, frame assist.Frame) (int, bool, err
 
 // Agent 识别前台角色。
 func (t *zzzTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, error) {
-	best, bestID := 0.0, ""
-	for _, id := range t.frontIDs {
-		matches, err := rt.MatchTemplate(frame, t.front, vision.TemplateRef{SubDir: "avatar1", ID: id}, t.threshold)
-		if err != nil {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	ids, learning := t.candidates(now, "avatar1")
+	id, err := t.matchIn(rt, frame, t.front, ids, "avatar1")
+	if err != nil {
+		return "", false, err
+	}
+	if id == "" && !learning {
+		// 白名单里没有：换人了，作废白名单，从当前游标继续分批认。
+		t.invalidate()
+		ids, _ = t.candidates(now, "avatar1")
+		if id, err = t.matchIn(rt, frame, t.front, ids, "avatar1"); err != nil {
 			return "", false, err
 		}
-		if len(matches) > 0 && matches[0].Confidence > best {
-			best, bestID = matches[0].Confidence, id
-		}
 	}
-	if bestID == "" {
-		return "", false, nil
-	}
-	return bestID, true, nil
+	return id, id != "", nil
 }
+
+// invalidate 作废白名单，让下一次 candidates 重新分批扫描。
+func (t *zzzTeam) invalidate() {
+	t.mu.Lock()
+	t.learnedAt = time.Time{}
+	t.scanCursor = 0
+	t.mu.Unlock()
+}
+
+// Slots 列出前后台槽位上的代理人 id（认不出留空），切人打分用。
