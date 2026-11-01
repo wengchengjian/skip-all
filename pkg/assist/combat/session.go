@@ -127,6 +127,16 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	if action, ok := s.concertoSwitch(frame, now); ok {
 		return assist.Result{State: "协奏满切人", Wait: s.spec.Interval}, []assist.Action{action}, nil
 	}
+	// 战斗被打断（复活/失败界面）时先别乱按——这一步要排在锁定之前，
+	// 否则战斗已经结束时还会去按中键。
+	if aborted, err := s.checkAbort(frame); err != nil {
+		return assist.Result{}, nil, err
+	} else if aborted {
+		s.cursor = 0
+		s.introLeft = nil
+		return assist.Result{State: "战斗中断", Wait: s.spec.IdleWait}, nil, nil
+	}
+
 	// 中键锁定：上游 target_enemy() 在没锁定目标时反复中键。
 	if s.spec.LockInterval > 0 && (s.lockAt.IsZero() || now.Sub(s.lockAt) >= s.spec.LockInterval) {
 		locked, err := s.hasTarget(frame)
@@ -138,15 +148,6 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 			return assist.Result{State: "锁定目标", Wait: s.spec.Interval},
 				[]assist.Action{{Kind: assist.ActionMiddleClick, Point: s.spec.AttackPoint}}, nil
 		}
-	}
-
-	// 战斗被打断（复活/失败界面）时先别乱按。
-	if aborted, err := s.checkAbort(frame); err != nil {
-		return assist.Result{}, nil, err
-	} else if aborted {
-		s.cursor = 0
-		s.introLeft = nil
-		return assist.Result{State: "战斗中断", Wait: s.spec.IdleWait}, nil, nil
 	}
 
 	action, state, ok := s.nextAction(frame)

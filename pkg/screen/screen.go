@@ -171,6 +171,13 @@ func LoadFS(fsys fs.FS, dir string) (*Set, error) {
 	return set, nil
 }
 
+// NewScreen 用名字和区域直接构造画面（供测试与动态场景使用），内部会建立索引。
+func NewScreen(name string, areas ...*Area) *Screen {
+	s := &Screen{Name: name, AreaList: areas}
+	s.normalize()
+	return s
+}
+
 // Area 按名称查找区域。
 func (s *Screen) Area(name string) (*Area, bool) {
 	if s == nil {
