@@ -145,6 +145,15 @@ func (s *Session) inCombat(frame assist.Frame) (bool, error) {
 	return false, nil
 }
 
+// ready 判断某个动作现在能不能用；没配判据就当作可用。
+func (s *Session) ready(frame assist.Frame, kind StepKind) bool {
+	check, ok := s.spec.Ready[kind]
+	if !ok {
+		return true
+	}
+	return vision.ColorRatio(frame.Image, check.Area, check.ColorRange) >= check.MinRatio
+}
+
 // nextAction 按连招序列取下一条动作，跳过被设置关掉的动作。
 // currentPlan 返回当前角色专属的连招，没有就用默认连招。
 // 角色识别按 agentTTL 缓存，避免每帧都跑一遍模板匹配。
@@ -185,17 +194,17 @@ func (s *Session) nextAction(frame assist.Frame) (assist.Action, string, bool) {
 			}
 			return assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}, "普攻", true
 		case StepSkill:
-			if s.spec.Keys.Skill == "" {
+			if s.spec.Keys.Skill == "" || !s.ready(frame, StepSkill) {
 				continue
 			}
 			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Skill}, "技能", true
 		case StepEcho:
-			if s.spec.Keys.Echo == "" || s.cfg.noEcho {
+			if s.spec.Keys.Echo == "" || s.cfg.noEcho || !s.ready(frame, StepEcho) {
 				continue
 			}
 			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Echo}, "装备技能", true
 		case StepLiberation:
-			if s.spec.Keys.Liberation == "" || s.cfg.noLiberation {
+			if s.spec.Keys.Liberation == "" || s.cfg.noLiberation || !s.ready(frame, StepLiberation) {
 				continue
 			}
 			return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Liberation}, "爆发", true

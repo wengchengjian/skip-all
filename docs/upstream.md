@@ -142,3 +142,12 @@
 生成结果落在 `games/wuwa/agent_plans.go`（46 个角色）与 `games/zzz/agent_plans.go`（3 个代理人：艾莲/莱卡恩/莱特）。
 运行时由 `combat.Spec.PlansByAgent` + `combat.Team.Agent()` 选择：认得出当前角色就用专属连招，认不出退回默认连招。
 注意这是**近似序列**——上游真实的 `perform()` / 状态机还带冷却、能量、招架支援、连携判断，本项目没有对应能力。
+
+## 技能可用性
+
+| 游戏 | 上游判据 | 本项目 |
+| --- | --- | --- |
+| 鸣潮 | `available()` → `box_highlighted()`：技能按钮区域里 `text_white_color`（253-255）像素占比 > 0 即可用（另外还有 CD 的 OCR 判断） | `combat.Spec.Ready`：共鸣技能/声骸/共鸣解放三个按钮区域（上游 `box_resonance` / `box_echo` / `box_liberation` 坐标折半），纯白占比 >=0.2%，不用就跳过该动作 |
+| 绝区零 | 按角色属性分别判定特殊技/终结技（`agent.py` 的 `SPECIAL_*` / `ULTIMATE_*` 色域） | 统一按按钮亮度近似：特殊攻击 (1620,917)-(1720,1017)、终结技 (1728,778)-(1826,876)，亮起占比 >=5% 才放 |
+
+没配判据的动作照旧放（不会因为缺配置停摆）。CD 的 OCR 判断两家都还没做。

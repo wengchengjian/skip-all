@@ -30,6 +30,11 @@ func combatSpec() combat.Spec {
 			Dodge:      "shift",
 			Switch:     []string{"space"},
 		},
+		// 技能就绪判据：特殊攻击 / 终结技按钮亮起才放（上游按角色属性判定，这里按亮度近似）。
+		Ready: map[combat.StepKind]combat.ReadyCheck{
+			combat.StepSkill:      {Area: geom.Rect{X1: 1620, Y1: 917, X2: 1720, Y2: 1017}, ColorRange: readyBright, MinRatio: 0.05},
+			combat.StepLiberation: {Area: geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876}, ColorRange: readyBright, MinRatio: 0.05},
+		},
 		// 认人 + 角色专属连招（模板来自上游 avatar_1_*/avatar_2_*）。
 		Team:         newZZZTeam(),
 		PlansByAgent: agentPlans,
@@ -45,3 +50,6 @@ func combatSpec() combat.Spec {
 		},
 	}
 }
+
+// readyBright 是"按钮点亮"的色域。
+var readyBright = [2][3]uint8{{210, 200, 180}, {255, 255, 255}}

@@ -89,3 +89,6 @@ func combatSpec() combat.Spec {
 		},
 	}
 }
+
+// readyWhite 是上游 text_white_color：按钮高亮时是接近纯白。
+var readyWhite = [2][3]uint8{{253, 253, 253}, {255, 255, 255}}

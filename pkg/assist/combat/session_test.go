@@ -503,3 +503,32 @@ func TestAgentPlanFallsBackWhenUnknown(t *testing.T) {
 		t.Fatalf("认不出角色时应当用默认连招: state = %q", result.State)
 	}
 }
+
+func TestReadyCheckSkipsUnavailableSkill(t *testing.T) {
+	spec := testSpec()
+	spec.Plan = []Step{{Kind: StepSkill}, {Kind: StepAttack}}
+	spec.Ready = map[StepKind]ReadyCheck{
+		StepSkill: {Area: geom.Rect{X1: 10, Y1: 10, X2: 60, Y2: 60}, ColorRange: [2][3]uint8{{253, 253, 253}, {255, 255, 255}}, MinRatio: 0.05},
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+
+	// 按钮没高亮 -> 跳过技能，直接普攻。
+	empty := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	result, actions := step(t, session, assist.Frame{Image: empty, At: time.Now()})
+	if result.State != "连招-普攻" {
+		t.Fatalf("技能不可用时应跳过: state = %q actions = %+v", result.State, actions)
+	}
+
+	// 按钮高亮 -> 放技能。
+	lit := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 10; y < 60; y++ {
+		for x := 10; x < 60; x++ {
+			lit.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+		}
+	}
+	session2 := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	result, actions = step(t, session2, assist.Frame{Image: lit, At: time.Now()})
+	if result.State != "连招-技能" || actions[0].Key != "e" {
+		t.Fatalf("技能可用时应放技能: state = %q actions = %+v", result.State, actions)
+	}
+}
