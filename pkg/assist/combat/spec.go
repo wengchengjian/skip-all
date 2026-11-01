@@ -60,7 +60,20 @@ type UltReadyCheck struct {
 type IntroSpec struct {
 	// MaxDuration 是入场等待的上限，超时就直接进入连招。
 	MaxDuration time.Duration
+	// Mode 决定入场期间做什么，默认 IntroWait（点普攻等落地）。
+	Mode IntroMode
 }
+
+// IntroMode 是入场期间的行为。
+type IntroMode string
+
+const (
+	// IntroWait 是基类行为：点普攻，等技能可用（落地）。对应 wait_down()/wait_intro()。
+	IntroWait IntroMode = ""
+	// IntroBurn 是"入场就打一轮爆发"的行为：技能可用就一直按技能，
+	// 技能进冷却后按声骸（没有再普攻）收尾。对应今汐重写的 handle_intro()。
+	IntroBurn IntroMode = "burn"
+)
 
 // ForteCheck 是"共鸣回路是否已满"的判据：上游 BaseChar.is_forte_full() 在
 // (2251,1993)-(2311,2016)（4K）里数接近纯白的像素占比，超过 0.08 就算满。
@@ -151,6 +164,7 @@ type Spec struct {
 	Cooldowns    map[StepKind]geom.Rect  // 技能冷却数字的区域，OCR 到正数就不放
 	IntroSteps   []Step                  // 切人后插入的一小段（固定序列，留空则用 Intro）
 	Intro        *IntroSpec              // 入场等待：切人后点普攻直到"落地"，对应上游 wait_down/wait_intro
+	IntroByAgent map[string]IntroSpec    // 角色专属的入场行为（如今汐的入场爆发）
 	AbortArea    string                  // 中断检测的 OCR 区域名（画面配置里），留空不检测
 	AbortTexts   []string                // 命中这些文字说明战斗被打断（复活/失败界面），暂停出招
 	UltReady     *UltReadyCheck          // 后台角色大招就绪判据，命中给切人加分

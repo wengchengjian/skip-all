@@ -910,3 +910,48 @@ func TestIntroTimesOut(t *testing.T) {
 		t.Fatal("超时后应当结束入场等待")
 	}
 }
+
+func TestIntroBurnMode(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Skill = "e"
+	spec.Keys.Echo = "q"
+	spec.Keys.Attack = ""
+	spec.Plan = []Step{{Kind: StepAttack}}
+	spec.Intro = &IntroSpec{MaxDuration: time.Second}
+	spec.IntroByAgent = map[string]IntroSpec{"agent-x": {Mode: IntroBurn, MaxDuration: 1500 * time.Millisecond}}
+	spec.Team = stubTeam{}
+	spec.Ready = map[StepKind]ReadyCheck{
+		StepSkill: {Area: geom.Rect{X1: 10, Y1: 10, X2: 60, Y2: 60}, ColorRange: [2][3]uint8{{253, 253, 253}, {255, 255, 255}}, MinRatio: 0.05},
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	session.agentID = "agent-x" // 固定当前角色，避免测试依赖认人
+	session.noteSwitch(assist.Frame{}, base)
+
+	lit := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 10; y < 60; y++ {
+		for x := 10; x < 60; x++ {
+			lit.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+		}
+	}
+	// 技能可用 -> 入场爆发按技能。
+	result, actions := step(t, session, assist.Frame{Image: lit, At: base.Add(100 * time.Millisecond)})
+	if result.State != "入场-爆发" || actions[0].Key != "e" {
+		t.Fatalf("技能可用时入场应当打技能: state=%q actions=%+v", result.State, actions)
+	}
+
+	// 技能进冷却（不亮）-> 声骸收尾（上游 if not click_echo(): click()），入场结束。
+	dark := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	result, actions = step(t, session, assist.Frame{Image: dark, At: base.Add(300 * time.Millisecond)})
+	if result.State != "入场-收尾" || actions[0].Key != "q" {
+		t.Fatalf("技能冷却后应当声骸收尾: state=%q actions=%+v", result.State, actions)
+	}
+	if !session.introUntil.IsZero() {
+		t.Fatal("收尾后入场状态应当清空")
+	}
+	// 再下一帧回到连招。
+	result, _ = step(t, session, assist.Frame{Image: dark, At: base.Add(400 * time.Millisecond)})
+	if !strings.HasPrefix(result.State, "连招-") {
+		t.Fatalf("收尾之后应当回到连招: state=%q", result.State)
+	}
+}

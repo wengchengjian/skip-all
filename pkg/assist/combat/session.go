@@ -46,6 +46,7 @@ type Session struct {
 	switchInAt map[int]time.Time
 	introLeft  []Step
 	introUntil time.Time
+	introMode  IntroMode
 	abortAt    time.Time
 }
 
@@ -309,7 +310,34 @@ func (s *Session) nextAction(frame assist.Frame) (assist.Action, string, bool) {
 		if now.IsZero() {
 			now = time.Now()
 		}
-		if now.After(s.introUntil) || s.ready(frame, StepSkill) {
+		// 角色专属入场（如今汐的入场爆发）：切进来才知道是谁，所以在这里解析。
+		if s.spec.Team != nil {
+			if id := s.currentAgent(frame); id != "" {
+				if override, ok := s.spec.IntroByAgent[id]; ok {
+					s.introMode = override.Mode
+					limit := override.MaxDuration
+					if limit <= 0 {
+						limit = 1200 * time.Millisecond
+					}
+					if deadline := s.switchAt.Add(limit); deadline.After(s.introUntil) {
+						s.introUntil = deadline
+					}
+				}
+			}
+		}
+		if now.After(s.introUntil) {
+			s.introUntil = time.Time{}
+		} else if s.introMode == IntroBurn {
+			// 入场爆发：技能可用就一直按，进冷却后用声骸/普攻收尾并结束入场。
+			if s.ready(frame, StepSkill) && s.spec.Keys.Skill != "" {
+				return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Skill}, "入场-爆发", true
+			}
+			if s.spec.Keys.Echo != "" && s.ready(frame, StepEcho) {
+				s.introUntil = time.Time{}
+				return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Echo}, "入场-收尾", true
+			}
+			s.introUntil = time.Time{}
+		} else if s.ready(frame, StepSkill) {
 			s.introUntil = time.Time{}
 		} else {
 			action := assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}
@@ -633,12 +661,14 @@ func (s *Session) noteSwitch(frame assist.Frame, now time.Time) {
 	s.agentAt = time.Time{}
 	s.agentID = ""
 	s.introLeft = append([]Step(nil), s.spec.IntroSteps...)
+	// 入场行为的角色专属覆盖要等"切进来的是谁"确定后再定，这里先按默认值开启窗口。
 	if s.spec.Intro != nil {
 		limit := s.spec.Intro.MaxDuration
 		if limit <= 0 {
 			limit = 1200 * time.Millisecond
 		}
 		s.introUntil = now.Add(limit)
+		s.introMode = s.spec.Intro.Mode
 	}
 	_ = frame
 }

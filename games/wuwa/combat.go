@@ -123,6 +123,11 @@ func combatSpec() combat.Spec {
 		// 直到角色落地（用"技能可用"判断），超时 1.2 秒。
 		// 只有今汐（Jinhsi）重写了 handle_intro，属于个例，这里按基类行为实现。
 		Intro: &combat.IntroSpec{MaxDuration: 1200 * time.Millisecond},
+		// 今汐重写了 handle_intro：入场后技能可用就一直按，进冷却后用声骸/普攻收尾，
+		// 超时 1.5 秒（上游 Jinhsi.handle_intro）。
+		IntroByAgent: map[string]combat.IntroSpec{
+			"char_jinhsi": {Mode: combat.IntroBurn, MaxDuration: 1500 * time.Millisecond},
+		},
 		// 复活/失败界面出现时停手。
 		AbortArea:  "中断提示",
 		AbortTexts: []string{"复活", "失败", "重新挑战", "挑战失败"},
