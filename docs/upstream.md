@@ -185,3 +185,9 @@
 - 每个战斗会话第一次认人时全量扫模板（鸣潮 62 张 × 3 槽位 = 186 次比对，绝区零 71 × 3 = 213 次）；
 - 认出来的角色进白名单，之后只比这几张（鸣潮 3 次、绝区零 ≤5 次），开销降一个量级以上；
 - 10 秒后重新全量一次，换队伍也能跟上。
+
+## 后台角色大招就绪
+
+上游 `update_lib_portrait_icon()` 在角色卡标记位（`lib_mark_char_N`）匹配 `lib_ready_*` 元素模板，判断后台角色的解放是否可用，切人时优先让能放大招的人上场。
+
+本项目：`combat.Spec.UltReady` 配三个槽位区域 + 6 个元素模板（`lib_ready_spectro/electric/wind/fire/ice/havoc`，已从上游拷入 `assets/games/wuwa/templates/libready`），命中给该槽位 +15 分；分数可调（`Bonus`）。

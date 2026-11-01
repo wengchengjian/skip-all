@@ -18,10 +18,12 @@ import (
 )
 
 type fakeRuntime struct {
-	screens *screen.Set
-	hit     bool
-	scores  map[string]float64 // 按模板 id 给分数，决定"是否锁定目标"这类判据
-	ocrText string             // 技能按钮上 OCR 到的文字（冷却数字）
+	screens  *screen.Set
+	hit      bool
+	scores   map[string]float64 // 按模板 id 给分数，决定"是否锁定目标"这类判据
+	ocrText  string             // 技能按钮上 OCR 到的文字（冷却数字）
+	ultSlots []geom.Rect        // 大招就绪判据的槽位
+	ultReady map[int]bool       // 哪些槽位就绪
 }
 
 func (f *fakeRuntime) Screen(name string) (*screen.Screen, error) {
@@ -40,6 +42,14 @@ func (f *fakeRuntime) OCR(_ assist.Frame, area screen.Area, _ vision.OCROptions)
 }
 
 func (f *fakeRuntime) MatchTemplate(_ assist.Frame, area screen.Area, ref vision.TemplateRef, _ float64) ([]vision.Match, error) {
+	if f.ultReady != nil && ref.SubDir == "libready" {
+		for i, slot := range f.ultSlots {
+			if slot == area.Rect && f.ultReady[i] {
+				return []vision.Match{{Rect: area.Rect, Confidence: 0.95}}, nil
+			}
+		}
+		return nil, nil
+	}
 	if f.scores != nil {
 		if score, ok := f.scores[ref.ID]; ok {
 			if score <= 0 {
@@ -729,5 +739,34 @@ func TestSwitchInvalidatesCooldownCache(t *testing.T) {
 	}
 	if session.agentAt != (time.Time{}) || session.agentID != "" {
 		t.Fatal("切人后角色缓存也要清空")
+	}
+}
+
+func TestUltReadyBonusAffectsSwitch(t *testing.T) {
+	slots := []geom.Rect{
+		{X1: 1800, Y1: 210, X2: 1900, Y2: 265},
+		{X1: 1800, Y1: 340, X2: 1900, Y2: 400},
+		{X1: 1800, Y1: 470, X2: 1900, Y2: 530},
+	}
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"dps", "sub", "other"}}
+	spec.Roles = map[string]Role{"dps": RoleMainDPS, "sub": RoleSubDPS}
+	spec.UltReady = &UltReadyCheck{Slots: slots, SubDir: "libready", IDs: []string{"lib_ready_fire"}, Threshold: 0.8, Bonus: 25}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.8,
+	}
+	rt := testRuntime(true)
+	rt.ultSlots = slots
+	rt.ultReady = map[int]bool{2: true}
+	session := newSession(rt, spec.withDefaults(), sessionSettings{})
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: time.Now()})
+	// 副C(20)+久未出场(20)=40 与 未知(5)+久未出场(20)+大招就绪(25)=50，后者应当胜出。
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("大招就绪的槽位应当被优先选中, actions = %+v", actions)
 	}
 }

@@ -485,7 +485,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if i == current || i >= len(keys) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i)
 		if score > best {
 			best, bestKey = score, keys[i]
 		}
@@ -494,6 +494,32 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		return s.nextSwitchKey(frame)
 	}
 	return bestKey
+}
+
+// ultBonus 给"大招已就绪"的槽位加分：上游 update_lib_portrait_icon() 记录后台角色
+// 的解放是否可用，切人时优先让能放大招的人上场。
+func (s *Session) ultBonus(frame assist.Frame, slot int) float64 {
+	check := s.spec.UltReady
+	if check == nil || slot >= len(check.Slots) {
+		return 0
+	}
+	threshold := check.Threshold
+	if threshold <= 0 {
+		threshold = 0.8
+	}
+	for _, id := range check.IDs {
+		matches, err := s.rt.MatchTemplate(frame, screen.Area{Name: "大招就绪", Rect: check.Slots[slot]}, vision.TemplateRef{SubDir: check.SubDir, ID: id}, threshold)
+		if err != nil {
+			return 0
+		}
+		if len(matches) > 0 {
+			if check.Bonus > 0 {
+				return check.Bonus
+			}
+			return 15
+		}
+	}
+	return 0
 }
 
 // staleBonus 给"很久没出场"的槽位加分，对应上游 _oldest_switch_target。

@@ -41,6 +41,16 @@ type ReadyCheck struct {
 	MinRatio   float64
 }
 
+// UltReadyCheck 是"后台角色大招是否就绪"的判据，照上游 update_lib_portrait_icon()：
+// 在槽位区域里匹配到就绪标记模板，说明该角色可以放大招，切人时优先。
+type UltReadyCheck struct {
+	Slots     []geom.Rect
+	SubDir    string
+	IDs       []string
+	Threshold float64
+	Bonus     float64
+}
+
 // HealthBar 是敌人血条的判据，对应上游 has_health_bar()：
 // 在整帧里找颜色、尺寸、填充率都对得上的实心矩形。
 type HealthBar struct {
@@ -112,6 +122,7 @@ type Spec struct {
 	IntroSteps   []Step                  // 切人后插入的一小段（鸣潮的入场技），打完再接主连招
 	AbortArea    string                  // 中断检测的 OCR 区域名（画面配置里），留空不检测
 	AbortTexts   []string                // 命中这些文字说明战斗被打断（复活/失败界面），暂停出招
+	UltReady     *UltReadyCheck          // 后台角色大招就绪判据，命中给切人加分
 	Roles        map[string]Role         // 角色定位，切人时用来打分
 	Switch       *SwitchPolicy           // 切人规则，留空用默认间隔
 	Interval     time.Duration           // 每步之间的间隔
