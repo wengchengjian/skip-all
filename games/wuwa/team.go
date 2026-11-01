@@ -254,7 +254,7 @@ func (t *wuwaTeam) Current(rt combat.Runtime, frame assist.Frame) (int, bool, er
 var healerIDs_ = []string{
 	"char_verina", "char_shorekeeper", "char_suisui", "char_taoqi",
 	"char_jianxin", "char_baizhi", "char_youhu", "char_brant",
-	"char_chisa", "char_chisa2", "char_moning", "char_moning_new",
+	"char_chisa", "char_moning",
 }
 
 func healerIDs() []string { return healerIDs_ }
