@@ -21,6 +21,11 @@ type zzzStateRuleExt struct {
 	SkillArea geom.Rect
 	UltArea   geom.Rect
 	Threshold float64
+	// StateArea 是角色状态图标所在区域（血条下方的能量/层数条），
+	// 用来判定 [<角色>-<状态>] 这类颜色条件。
+	StateArea geom.Rect
+	// FlashArea 是闪避闪光出现的区域，用来判定 自定义-红光闪避 / 自定义-黄光切人。
+	FlashArea geom.Rect
 
 	queue   []combat.Step
 	agentID string
@@ -163,7 +168,48 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 	case "按键可用-终结技":
 		return e.lit(frame, e.UltArea)
 	}
+	// [<角色>-状态>]：用上游 agent.py 的颜色范围 + 连通块数量判定。
+	if check, ok := agentStateChecks[name]; ok {
+		return e.matchState(frame, check)
+	}
+	// [<角色>-特殊技可用] / [<角色>-终结技可用]：和按钮就绪是一回事。
+	if strings.HasSuffix(name, "-特殊技可用") && strings.Count(name, "-") >= 1 {
+		return e.lit(frame, e.SkillArea)
+	}
+	if strings.HasSuffix(name, "-终结技可用") {
+		return e.lit(frame, e.UltArea)
+	}
+	// 闪避闪光：黄光是切人时机，红光是闪避时机。
+	switch name {
+	case "自定义-黄光切人":
+		return e.flash(frame, 0)
+	case "自定义-红光闪避":
+		return e.flash(frame, 1)
+	}
 	return false
+}
+
+// flash 判定闪避闪光：0 黄光、1 红光。
+func (e *zzzStateRuleExt) flash(frame assist.Frame, index int) bool {
+	area := e.FlashArea
+	if area.X2 <= area.X1 || area.Y2 <= area.Y1 || index >= len(flashColors) {
+		return false
+	}
+	return vision.ColorRatio(frame.Image, area, flashColors[index]) >= flashRatio
+}
+
+// matchState 照上游的 COLOR_RANGE_CONNECT：区域里出现足够多的该颜色块就算状态成立。
+func (e *zzzStateRuleExt) matchState(frame assist.Frame, check StateCheck) bool {
+	area := e.StateArea
+	if area.X2 <= area.X1 || area.Y2 <= area.Y1 {
+		return false
+	}
+	required := check.Connect
+	if required < 1 {
+		required = 1
+	}
+	rects := vision.FindColorRectangles(frame.Image, area, [2][3]uint8{check.Lower, check.Upper}, 2, 2, 200, 0.9)
+	return len(rects) >= required
 }
 
 func (e *zzzStateRuleExt) lit(frame assist.Frame, rect geom.Rect) bool {
@@ -173,6 +219,14 @@ func (e *zzzStateRuleExt) lit(frame assist.Frame, rect geom.Rect) bool {
 	}
 	return vision.ColorRatio(frame.Image, rect, brightRange) >= threshold
 }
+
+// flashColors / flashRatio 与 zzzDodgeExt 保持一致。
+var flashColors = [][2][3]uint8{
+	{{225, 195, 60}, {255, 255, 165}}, // 黄光
+	{{215, 35, 35}, {255, 110, 110}},  // 红光
+}
+
+const flashRatio = 0.03
 
 func ruleAction(step combat.Step) (assist.Action, bool) {
 	switch step.Kind {

@@ -317,3 +317,32 @@ func TestExtractedRulesShape(t *testing.T) {
 		t.Fatalf("规则总数太少: %d", total)
 	}
 }
+
+func TestStateCheckAtomUsesColorRange(t *testing.T) {
+	// 雅-落霜：颜色范围取自上游 agent.py
+	check, ok := agentStateChecks["雅-落霜"]
+	if !ok {
+		t.Skip("没有该状态定义")
+	}
+	e := &zzzStateRuleExt{StateArea: geom.Rect{X1: 40, Y1: 940, X2: 420, Y2: 1070}}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	// 画两块符合颜色范围的色块，满足连通块数量要求。
+	for i := 0; i < 3; i++ {
+		x0 := 60 + i*60
+		for y := 960; y < 1000; y++ {
+			for x := x0; x < x0+40; x++ {
+				img.SetRGBA(x, y, color.RGBA{check.Lower[0], check.Lower[1], check.Lower[2], 255})
+			}
+		}
+	}
+	frame := assist.Frame{Image: img, At: time.Now()}
+	if !e.atom(nil, frame, "雅-落霜") {
+		t.Fatalf("颜色块满足条件时该状态应成立: %+v", check)
+	}
+
+	// 同色块放到区域外就不成立。
+	empty := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	if e.atom(nil, assist.Frame{Image: empty, At: time.Now()}, "雅-落霜") {
+		t.Fatal("没有色块时不该成立")
+	}
+}

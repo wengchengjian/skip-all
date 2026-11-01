@@ -229,6 +229,9 @@ func zzzExtensions(team *zzzTeam) []combat.Extension {
 			SkillArea: geom.Rect{X1: 1620, Y1: 917, X2: 1720, Y2: 1017},
 			UltArea:   geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876},
 			Threshold: 0.05,
+			// 角色能量/层数条在血条下方一带（经验值，实机可调）。
+			StateArea: geom.Rect{X1: 40, Y1: 940, X2: 420, Y2: 1070},
+			FlashArea: geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840},
 		},
 		&zzzDodgeExt{
 			// 闪光出现在角色周围，取屏幕中央一块；比值是经验值，实机可调。
