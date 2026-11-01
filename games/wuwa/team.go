@@ -29,6 +29,9 @@ type wuwaTeam struct {
 	mu        sync.Mutex
 	learned   []string
 	learnedAt time.Time
+	// scanCursor 让全量认人分摊到多帧：一次要比 3 个槽位 × 62 张模板，
+	// 一帧全扫会明显卡顿。
+	scanCursor int
 }
 
 func newWuwaTeam() *wuwaTeam {
@@ -64,6 +67,14 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 	candidates, learning := t.candidates(now)
 	area := t.avatarSlots[index]
 	best, bestID := 0.0, ""
+	if !learning && len(candidates) > 0 {
+		// 白名单里认不出来说明换人了，作废白名单重新分批认。
+		bestID = matchBest(rt, frame, area, candidates, t.avatarThreshold)
+		if bestID == "" {
+			t.invalidate()
+			candidates, _ = t.candidates(now)
+		}
+	}
 	for _, id := range candidates {
 		matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: "team", ID: id}, t.avatarThreshold)
 		if err != nil {
@@ -86,14 +97,58 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 // teamRefreshTTL 之后会重新全量认一次，队伍变了也能跟上。
 const teamRefreshTTL = 10 * time.Second
 
-// candidates 返回这一轮要比对的模板：白名单还新鲜就只比那几张。
+// wuwaScanBatch 是一次最多比对的模板数量。鸣潮的头像模板来自 4K 裁剪、比绝区零的大，
+// 单张匹配约 9ms，所以一帧只比 1 张（3 个槽位 ≈ 28ms），62 张约 2 秒扫完一轮。
+const wuwaScanBatch = 1
+
+// candidates 返回这一轮要比对的模板：白名单还新鲜就只比那几张，
+// 否则分批扫描，每帧只比一小批。
 func (t *wuwaTeam) candidates(now time.Time) (ids []string, learning bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if len(t.learned) > 0 && now.Sub(t.learnedAt) < teamRefreshTTL {
 		return t.learned, false
 	}
-	return t.avatarIDs, true
+	if len(t.avatarIDs) == 0 {
+		return nil, false
+	}
+	if t.scanCursor >= len(t.avatarIDs) {
+		t.scanCursor = 0
+	}
+	end := t.scanCursor + wuwaScanBatch
+	if end > len(t.avatarIDs) {
+		end = len(t.avatarIDs)
+	}
+	batch := t.avatarIDs[t.scanCursor:end]
+	t.scanCursor = end
+	if t.scanCursor >= len(t.avatarIDs) {
+		t.learnedAt = now
+	}
+	return batch, true
+}
+
+// matchBest 在一个区域里比对若干模板，返回分数最高的 id。
+func matchBest(rt combat.Runtime, frame assist.Frame, area screen.Area, ids []string, threshold float64) string {
+	best, bestID := 0.0, ""
+	for _, id := range ids {
+		matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: "team", ID: id}, threshold)
+		if err != nil || len(matches) == 0 {
+			continue
+		}
+		if matches[0].Confidence > best {
+			best, bestID = matches[0].Confidence, id
+		}
+	}
+	return bestID
+}
+
+// invalidate 作废白名单，让下一次 candidates 重新分批扫描。
+func (t *wuwaTeam) invalidate() {
+	t.mu.Lock()
+	t.learnedAt = time.Time{}
+	t.scanCursor = 0
+	t.learned = nil
+	t.mu.Unlock()
 }
 
 // learn 记住本轮认出来的角色。

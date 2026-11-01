@@ -74,27 +74,45 @@ func TestHealerSlotByAvatar(t *testing.T) {
 }
 
 func TestTeamWhitelistReducesMatching(t *testing.T) {
-	team := newWuwaTeam()
+	// 用一个"模板很少"的队伍，第一次分批扫完就学出白名单。
+	team := &wuwaTeam{
+		avatarSlots:     newWuwaTeam().avatarSlots,
+		avatarIDs:       []string{"char_verina", "char_jinhsi", "char_baizhi"},
+		avatarThreshold: 0.75,
+	}
 	rt := &teamFakeRuntime{present: map[string]bool{"char_verina": true}}
 	now := time.Now()
-
-	// 第一次：全量扫描 62 张头像 × 3 个槽位。
-	if _, err := team.Slots(rt, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: now}); err != nil {
-		t.Fatalf("Slots 出错: %v", err)
-	}
-	full := rt.calls
-	if full < len(team.avatarIDs)*len(team.avatarSlots) {
-		t.Fatalf("第一次应当全量扫描, calls = %d", full)
+	frame := func(at time.Time) assist.Frame {
+		return assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: at}
 	}
 
-	// 第二次：白名单内只有认出来的那个角色，开销骤降。
+	// 分批扫描：多帧之后才学出白名单。
+	for i := 0; i < 5 && len(team.learned) == 0; i++ {
+		if _, err := team.Slots(rt, frame(now.Add(time.Duration(i)*time.Second))); err != nil {
+			t.Fatalf("Slots 出错: %v", err)
+		}
+	}
+	first := rt.calls
+	if first == 0 {
+		t.Fatal("应当有比对")
+	}
+	if len(team.learned) == 0 {
+		t.Fatal("多帧之后应当学出白名单")
+	}
+
+	// 第二轮只比白名单里的 1 张 × 3 个槽位。
 	rt.calls = 0
-	if _, err := team.Slots(rt, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: now.Add(time.Second)}); err != nil {
+	if _, err := team.Slots(rt, frame(now.Add(time.Second))); err != nil {
 		t.Fatalf("Slots 出错: %v", err)
 	}
-	if rt.calls >= full/5 {
-		t.Fatalf("白名单没生效: 第二次 calls = %d, 第一次 = %d", rt.calls, full)
+	// 关键不变量：单帧比对数量不超过 wuwaScanBatch × 槽位数。
+	if limit := wuwaScanBatch * len(team.avatarSlots); rt.calls > limit {
+		t.Fatalf("单帧比对 %d 次超过上限 %d", rt.calls, limit)
 	}
+	if len(team.learned) > len(team.avatarSlots) {
+		t.Fatalf("白名单里不该超过槽位数的角色: %v", team.learned)
+	}
+	_ = first
 }
 
 func TestTeamWhitelistRefreshesAfterTTL(t *testing.T) {
@@ -103,9 +121,16 @@ func TestTeamWhitelistRefreshesAfterTTL(t *testing.T) {
 	now := time.Now()
 	_, _ = team.Slots(rt, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: now})
 	rt.calls = 0
-	// 超过刷新间隔后重新全量。
+	// 超过刷新间隔后重新开始分批扫描。
 	_, _ = team.Slots(rt, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: now.Add(30 * time.Second)})
-	if rt.calls < len(team.avatarIDs)*len(team.avatarSlots) {
-		t.Fatalf("超过 TTL 应当重新全量, calls = %d", rt.calls)
+	if rt.calls == 0 {
+		t.Fatal("超过 TTL 应当重新扫描")
+	}
+	// 连续多帧之后应当认全一轮。
+	for i := 0; i < len(team.avatarIDs)/wuwaScanBatch+2; i++ {
+		_, _ = team.Slots(rt, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: now.Add(time.Duration(31+i) * time.Second)})
+	}
+	if len(team.learned) == 0 {
+		t.Fatal("多帧之后应当学出白名单")
 	}
 }
