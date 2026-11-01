@@ -1167,3 +1167,26 @@ func TestHeavyStepProducesHoldClick(t *testing.T) {
 		t.Fatalf("按住时长应当是 600ms（上游 heavy_attack 默认值），实际 %v", actions[0].Duration)
 	}
 }
+
+// TestSynergyOverridesRoleScore 验证协同对压过定位打分：
+// 当前在场是 hiyuki 时，哪怕 verina 只是治疗，也要优先切给她。
+func TestSynergyOverridesRoleScore(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 1, ids: []string{"dps", "hiyuki", "verina"}}
+	spec.Roles = map[string]Role{"dps": RoleMainDPS, "hiyuki": RoleSubDPS, "verina": RoleHealer}
+	spec.SwitchSynergy = map[string][]string{"verina": {"hiyuki"}}
+	spec.Switch = &SwitchPolicy{MinInterval: time.Millisecond}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: time.Now()})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("应当优先切给协同角色(3号位), actions=%+v", actions)
+	}
+}

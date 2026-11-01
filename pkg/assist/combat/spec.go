@@ -176,10 +176,13 @@ type Spec struct {
 	ForteGate    map[string]ForteNeed     // 哪些角色的技能要等回路状态，对应上游 is_forte_full()
 	Roles        map[string]Role          // 角色定位，切人时用来打分
 	BuffTimes    map[string]time.Duration // 角色增益持续时间，切人时用来判断"增益是否已掉"
-	Switch       *SwitchPolicy            // 切人规则，留空用默认间隔
-	Interval     time.Duration            // 每步之间的间隔
-	Hold         time.Duration            // 命中证据后保持战斗态的时间
-	IdleWait     time.Duration            // 不在战斗时的等待
+	// SwitchSynergy 是"谁在场时必须切给谁"的协同表：candidate -> 触发它的在场角色列表。
+	// 对应上游各角色 get_switch_priority() 里 "if has_intro and current_char.char_name in {...}: MUST"。
+	SwitchSynergy map[string][]string
+	Switch        *SwitchPolicy // 切人规则，留空用默认间隔
+	Interval      time.Duration // 每步之间的间隔
+	Hold          time.Duration // 命中证据后保持战斗态的时间
+	IdleWait      time.Duration // 不在战斗时的等待
 }
 
 // DefaultPlan 是一套通用的连招节奏：普攻起手、夹技能、中间接爆发与闪避。

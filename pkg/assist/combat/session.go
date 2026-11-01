@@ -597,6 +597,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 	best, bestKey := -1e9, ""
 	bestIndex := -1
 	currentRole := Role("")
+	agent := s.currentAgent(frame)
 	if current >= 0 && current < len(ids) {
 		currentRole = s.spec.Roles[ids[current]]
 	}
@@ -608,7 +609,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.spec.Roles[id] == RoleHealer && s.healerLocked(i, now) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
 		}
@@ -641,6 +642,22 @@ func (s *Session) ultBonus(frame assist.Frame, slot int) float64 {
 				return check.Bonus
 			}
 			return 15
+		}
+	}
+	return 0
+}
+
+// synergyScore 是"上游 MUST 级协同"的分数，压过常规定位打分。
+const synergyScore = 1000
+
+// synergyBonus 判断这个候选角色是不是"当前在场角色的必须接手者"。
+func (s *Session) synergyBonus(candidate, current string) float64 {
+	if current == "" || candidate == current {
+		return 0
+	}
+	for _, trigger := range s.spec.SwitchSynergy[candidate] {
+		if trigger == current {
+			return synergyScore
 		}
 	}
 	return 0
