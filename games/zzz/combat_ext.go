@@ -392,9 +392,10 @@ func zzzExtensions(team *zzzTeam) []combat.Extension {
 		},
 		&zzzQuickAssistExt{
 			Area: screen.Area{
-				Name:                   "支援按钮",
-				Type:                   screen.AreaTemplate,
-				Rect:                   geom.Rect{X1: 1580, Y1: 860, X2: 1780, Y2: 1050},
+				Name: "支援按钮",
+				Type: screen.AreaTemplate,
+				// 上游 按键-切换后援 (1615,776)-(1726,877)。
+				Rect:                   geom.Rect{X1: 1615, Y1: 776, X2: 1726, Y2: 877},
 				TemplateMatchThreshold: 0.85,
 			},
 			SubDir: "combat",
