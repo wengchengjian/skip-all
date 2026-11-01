@@ -15,7 +15,11 @@ import (
 )
 
 // flowRuntime 只用真实像素做判据：模板一律认不出，OCR 返回空，画面配置给出中断区域。
-type flowRuntime struct{ ocr string }
+type flowRuntime struct {
+	ocr string
+	// hit 里的模板 id 一律返回命中（用来模拟队伍数字与角色头像）。
+	hit map[string]bool
+}
 
 func (flowRuntime) Screen(name string) (*screen.Screen, error) {
 	area := &screen.Area{Name: "中断提示", Rect: geom.Rect{X1: 520, Y1: 840, X2: 1850, Y2: 1060}}
@@ -29,7 +33,10 @@ func (r flowRuntime) OCR(assist.Frame, screen.Area, vision.OCROptions) ([]vision
 	return []vision.TextBlock{{Text: r.ocr, Rect: geom.Rect{X1: 600, Y1: 900, X2: 900, Y2: 950}}}, nil
 }
 
-func (flowRuntime) MatchTemplate(assist.Frame, screen.Area, vision.TemplateRef, float64) ([]vision.Match, error) {
+func (r flowRuntime) MatchTemplate(_ assist.Frame, area screen.Area, ref vision.TemplateRef, _ float64) ([]vision.Match, error) {
+	if r.hit[ref.ID] {
+		return []vision.Match{{Rect: area.Rect, Confidence: 0.95}}, nil
+	}
 	return nil, nil
 }
 
@@ -132,5 +139,45 @@ func TestCombatFlowAbort(t *testing.T) {
 	}
 	if len(actions) != 0 {
 		t.Fatalf("中断时不该出手: %+v", actions)
+	}
+}
+
+// TestCombatFlowAfterSwitch 覆盖切人之后的链路：切人确认 -> 入场 -> 连招。
+func TestCombatFlowAfterSwitch(t *testing.T) {
+	// 队伍栏：1、2 号数字可见，3 号缺失 => 当前角色是 3 号位；头像认成忌炎。
+	rt := flowRuntime{hit: map[string]bool{
+		"char_1_text": true,
+		"char_2_text": true,
+		"char_jiyan":  true,
+		"has_target":  true,
+	}}
+	session, err := CombatFeature().NewSession(rt, nil)
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	defer session.Close()
+	base := time.Now()
+
+	// 第一帧：进战斗后先切治疗位（配置里 HealerKey = "3"）。
+	result, _, err := session.Step(nil, assist.Frame{Image: flowFrame(true, false), At: base})
+	if err != nil || result.State != "战斗前切治疗" {
+		t.Fatalf("开打前应当先切治疗: state=%q err=%v", result.State, err)
+	}
+	// 第二帧：有血条 + 协奏满 -> 切人
+	result, actions, err := session.Step(nil, assist.Frame{Image: flowFrame(true, true), At: base.Add(3 * time.Second)})
+	if err != nil || result.State != "协奏满切人" {
+		t.Fatalf("协奏满应当切人: state=%q err=%v", result.State, err)
+	}
+	if len(actions) == 0 {
+		t.Fatal("切人应当有动作")
+	}
+
+	// 切人后的下一帧：队伍仍显示 1、2 可见（3 缺失），视为还没切过去 -> 补普攻。
+	result, _, err = session.Step(nil, assist.Frame{Image: flowFrame(true, false), At: base.Add(3400 * time.Millisecond)})
+	if err != nil {
+		t.Fatalf("切人确认帧出错: %v", err)
+	}
+	if result.State != "切人未生效" {
+		t.Fatalf("队伍数字没变应当判定切人未生效, got %q", result.State)
 	}
 }
