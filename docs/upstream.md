@@ -191,3 +191,9 @@
 上游 `update_lib_portrait_icon()` 在角色卡标记位（`lib_mark_char_N`）匹配 `lib_ready_*` 元素模板，判断后台角色的解放是否可用，切人时优先让能放大招的人上场。
 
 本项目：`combat.Spec.UltReady` 配三个槽位区域 + 6 个元素模板（`lib_ready_spectro/electric/wind/fire/ice/havoc`，已从上游拷入 `assets/games/wuwa/templates/libready`），命中给该槽位 +15 分；分数可调（`Bonus`）。
+
+## 鸣潮共鸣回路提示
+
+上游 `BaseChar.is_e_forte_full()` / `is_mouse_forte_full()`：在血条下方的回路提示位匹配 `e_forte`、`mouse_forte` 两个图标，出现就说明强化共鸣技能 / 重击可以打。
+
+本项目 `games/wuwa/combat_ext.go` 的 `wuwaForteExt`：同一区域 (1080,950)-(1220,1045) 依次匹配两个图标，E 图标优先按共鸣技能（状态 `回路-E`），否则鼠标图标点普攻（状态 `回路-重击`），500ms 冷却，阈值 0.6。
