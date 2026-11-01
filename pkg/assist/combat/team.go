@@ -15,4 +15,6 @@ import (
 type Team interface {
 	// Current 返回当前角色在队伍里的槽位下标（0 起）；ok=false 表示这一帧没识别出来。
 	Current(rt Runtime, frame assist.Frame) (index int, ok bool, err error)
+	// Agent 返回当前角色的模板标识（用来选角色专属连招）；ok=false 表示没识别出来。
+	Agent(rt Runtime, frame assist.Frame) (id string, ok bool, err error)
 }

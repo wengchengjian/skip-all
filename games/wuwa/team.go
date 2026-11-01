@@ -16,10 +16,21 @@ type wuwaTeam struct {
 	slots     []screen.Area
 	templates []string
 	threshold float64
+	// avatarSlots/avatarIDs 用来认人：槽位头像区 + 全部角色头像模板。
+	avatarSlots     []screen.Area
+	avatarIDs       []string
+	avatarThreshold float64
 }
 
 func newWuwaTeam() *wuwaTeam {
 	return &wuwaTeam{
+		avatarSlots: []screen.Area{
+			{Name: "角色1头像", Rect: geom.Rect{X1: 1750, Y1: 205, X2: 1900, Y2: 305}},
+			{Name: "角色2头像", Rect: geom.Rect{X1: 1750, Y1: 335, X2: 1900, Y2: 435}},
+			{Name: "角色3头像", Rect: geom.Rect{X1: 1750, Y1: 465, X2: 1900, Y2: 565}},
+		},
+		avatarIDs:       agentPlanIDs(),
+		avatarThreshold: 0.75,
 		slots: []screen.Area{
 			{Name: "角色1数字", Rect: geom.Rect{X1: 1728, Y1: 204, X2: 1762, Y2: 240}},
 			{Name: "角色2数字", Rect: geom.Rect{X1: 1728, Y1: 335, X2: 1762, Y2: 371}},
@@ -28,6 +39,29 @@ func newWuwaTeam() *wuwaTeam {
 		templates: []string{"char_1_text", "char_2_text", "char_3_text"},
 		threshold: 0.8,
 	}
+}
+
+// Agent 识别当前角色：先按数字缺失定槽位，再在该槽位头像区里逐个头像模板比对。
+func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, error) {
+	index, ok, err := t.Current(rt, frame)
+	if err != nil || !ok || index >= len(t.avatarSlots) {
+		return "", false, nil
+	}
+	area := t.avatarSlots[index]
+	best, bestID := 0.0, ""
+	for _, id := range t.avatarIDs {
+		matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: "team", ID: id}, t.avatarThreshold)
+		if err != nil {
+			return "", false, err
+		}
+		if len(matches) > 0 && matches[0].Confidence > best {
+			best, bestID = matches[0].Confidence, id
+		}
+	}
+	if bestID == "" {
+		return "", false, nil
+	}
+	return bestID, true, nil
 }
 
 func (t *wuwaTeam) Current(rt combat.Runtime, frame assist.Frame) (int, bool, error) {
@@ -51,4 +85,13 @@ func (t *wuwaTeam) Current(rt combat.Runtime, frame assist.Frame) (int, bool, er
 		return missing, true, nil
 	}
 	return 0, false, nil
+}
+
+// agentPlanIDs 返回有专属连招的角色模板 id（与 templates 目录一致）。
+func agentPlanIDs() []string {
+	ids := make([]string, 0, len(agentPlans))
+	for id := range agentPlans {
+		ids = append(ids, id)
+	}
+	return ids
 }

@@ -21,6 +21,17 @@ func (f teamFakeRuntime) MatchTemplate(_ assist.Frame, area screen.Area, ref vis
 	return nil, nil
 }
 
+func TestAgentPlansPresent(t *testing.T) {
+	if len(agentPlans) < 10 {
+		t.Fatalf("角色专属连招数量太少: %d", len(agentPlans))
+	}
+	for id, plan := range agentPlans {
+		if len(plan) == 0 {
+			t.Fatalf("角色 %s 的连招为空", id)
+		}
+	}
+}
+
 func TestTeamCurrentByMissingDigit(t *testing.T) {
 	team := newWuwaTeam()
 	frame := assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: time.Now()}

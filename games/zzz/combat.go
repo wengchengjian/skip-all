@@ -30,6 +30,9 @@ func combatSpec() combat.Spec {
 			Dodge:      "shift",
 			Switch:     []string{"space"},
 		},
+		// 认人 + 角色专属连招（模板来自上游 avatar_1_*/avatar_2_*）。
+		Team:         newZZZTeam(),
+		PlansByAgent: agentPlans,
 		// 绝区零专属能力：闪光闪避、快速支援（通用流程先问它们，再走连招）。
 		Extensions: zzzExtensions(),
 		Plan: []combat.Step{

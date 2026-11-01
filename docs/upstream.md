@@ -125,7 +125,20 @@
 | 队伍槽位 | 固定区域 `box_char_1/2/3`，用角色头像模板 `find_best_match_in_box` 识别每个位置是谁（`BaseCombatTask.load_chars`） | 四个固定区域：`头像-3-1`(104,40)-(274,110) 前台大图、`头像-3-2`(559,40)-(662,91)、`头像-3-3`(741,40)-(844,91) 后台、`头像-2-2`(594,40)-(697,91) 双人队（`_check_agent_in_parallel`） |
 | 当前角色 | 看**角色卡上的 1/2/3 键位数字**：当前角色卡面高亮放大、数字被挡，所以"缺数字的那一格"就是当前角色（`in_team()`） | 看**头像模板族**：前台用 `avatar_1_*`、后台用 `avatar_2_*`，同一个角色前后台各一套模板（`_match_agent_in`） |
 | 队伍人数 | `in_team()` 里可见数字个数 + 1 | 3-1/3-2/3-3 都识别到 = 3 人；3-1 + 2-2 = 2 人；只有 3-1 = 1 人 |
-| 本项目 | `games/wuwa/team.go` 的 `wuwaTeam`：数字模板缺失法，模板取上游 `char_1_text/char_2_text/char_3_text` | 暂未实现：需要按你的配队裁 `avatar_1_*` / `avatar_2_*` 两套头像模板，接入点已留好（`combat.Spec.Team`） |
+| 本项目 | `games/wuwa/team.go` 的 `wuwaTeam`：数字模板缺失定槽位 + 槽位头像模板认人（62 个角色头像取自上游） | `games/zzz/team.go` 的 `zzzTeam`：前台槽位用 `avatar_1_*` 认人（71 套模板已拷入 `templates/avatar1`），后台槽位备好 `avatar_2_*`（`templates/avatar2`） |
 
 共享流程只依赖 `combat.Team` 接口（`Current(rt, frame) (index, ok, err)`）。
 鸣潮的协奏满切人现在会按当前槽位选下一个键；识别不出来时退回第一个切换键。
+
+## 角色专属连招
+
+两家上游都不是"数据表"，得从代码/配置里机械推导，本项目生成了一份近似序列：
+
+| 游戏 | 数据来源 | 推导方式 |
+| --- | --- | --- |
+| 鸣潮 | ok-ww `src/char/<角色>.py` 的 `do_perform()` | 扫描首个出现的 `click_echo / click_liberation / click_resonance / click` 顺序 → 能力之间夹一次普攻 |
+| 绝区零 | OneDragon `config/auto_battle/专属配队-<角色>.yml` 与带 `agent_name` 的块 | 统计各按钮出现次数 → 用得多的排前面，能力之间夹一次普攻 |
+
+生成结果落在 `games/wuwa/agent_plans.go`（46 个角色）与 `games/zzz/agent_plans.go`（3 个代理人：艾莲/莱卡恩/莱特）。
+运行时由 `combat.Spec.PlansByAgent` + `combat.Team.Agent()` 选择：认得出当前角色就用专属连招，认不出退回默认连招。
+注意这是**近似序列**——上游真实的 `perform()` / 状态机还带冷却、能量、招架支援、连携判断，本项目没有对应能力。

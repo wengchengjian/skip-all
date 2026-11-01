@@ -16,6 +16,9 @@ import (
 // healthBarFillRatio 是上游 find_color_rectangles 的默认填充率阈值。
 const healthBarFillRatio = 0.95
 
+// agentTTL 是角色识别的缓存时间。
+const agentTTL = 2 * time.Second
+
 // concertoSwitchCooldown 是两次协奏切人之间的最小间隔。
 const concertoSwitchCooldown = 2 * time.Second
 
@@ -28,6 +31,8 @@ type Session struct {
 	lockAt     time.Time
 	healed     bool
 	switchAt   time.Time
+	agentID    string
+	agentAt    time.Time
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
@@ -91,7 +96,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		}
 	}
 
-	action, state, ok := s.nextAction()
+	action, state, ok := s.nextAction(frame)
 	if !ok {
 		return assist.Result{State: "等待战斗", Wait: s.spec.IdleWait}, nil, nil
 	}
@@ -141,8 +146,32 @@ func (s *Session) inCombat(frame assist.Frame) (bool, error) {
 }
 
 // nextAction 按连招序列取下一条动作，跳过被设置关掉的动作。
-func (s *Session) nextAction() (assist.Action, string, bool) {
-	plan := s.spec.Plan
+// currentPlan 返回当前角色专属的连招，没有就用默认连招。
+// 角色识别按 agentTTL 缓存，避免每帧都跑一遍模板匹配。
+func (s *Session) currentPlan(frame assist.Frame) []Step {
+	if len(s.spec.PlansByAgent) == 0 || s.spec.Team == nil {
+		return s.spec.Plan
+	}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if s.agentAt.IsZero() || now.Sub(s.agentAt) >= agentTTL {
+		s.agentAt = now
+		if id, ok, err := s.spec.Team.Agent(runtimeAdapter{rt: s.rt}, frame); err == nil && ok {
+			s.agentID = id
+		} else {
+			s.agentID = ""
+		}
+	}
+	if plan, ok := s.spec.PlansByAgent[s.agentID]; ok && len(plan) > 0 {
+		return plan
+	}
+	return s.spec.Plan
+}
+
+func (s *Session) nextAction(frame assist.Frame) (assist.Action, string, bool) {
+	plan := s.currentPlan(frame)
 	if len(plan) == 0 {
 		return assist.Action{}, "", false
 	}

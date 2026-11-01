@@ -447,6 +447,9 @@ func TestExtensionCanBeDisabledBySettings(t *testing.T) {
 type stubTeam struct{ index int }
 
 func (s stubTeam) Current(Runtime, assist.Frame) (int, bool, error) { return s.index, true, nil }
+func (s stubTeam) Agent(Runtime, assist.Frame) (string, bool, error) {
+	return "agent-x", true, nil
+}
 
 func TestConcertoSwitchUsesCurrentSlot(t *testing.T) {
 	spec := testSpec()
@@ -472,5 +475,31 @@ func TestConcertoSwitchUsesCurrentSlot(t *testing.T) {
 	_, actions := step(t, session, assist.Frame{Image: img, At: time.Now()})
 	if len(actions) != 1 || actions[0].Key != "3" {
 		t.Fatalf("2 号位在场上时应当按 3 号键, actions = %+v", actions)
+	}
+}
+
+func TestAgentPlanOverridesDefault(t *testing.T) {
+	spec := testSpec()
+	spec.Team = stubTeam{}
+	spec.PlansByAgent = map[string][]Step{
+		"agent-x": {{Kind: StepLiberation}, {Kind: StepEcho}},
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	result, actions := step(t, session, frameAt(time.Now()))
+	if result.State != "连招-爆发" || actions[0].Key != "r" {
+		t.Fatalf("应当走角色专属连招: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestAgentPlanFallsBackWhenUnknown(t *testing.T) {
+	spec := testSpec()
+	spec.Team = stubTeam{}
+	spec.PlansByAgent = map[string][]Step{
+		"other-agent": {{Kind: StepLiberation}},
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	result, _ := step(t, session, frameAt(time.Now()))
+	if result.State != "连招-普攻" {
+		t.Fatalf("认不出角色时应当用默认连招: state = %q", result.State)
 	}
 }

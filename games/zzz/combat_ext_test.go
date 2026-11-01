@@ -144,3 +144,31 @@ func TestUltimateExtension(t *testing.T) {
 		t.Fatal("按钮没亮不该按终结技")
 	}
 }
+
+func TestZZZTeamTemplatesLoaded(t *testing.T) {
+	team := newZZZTeam()
+	if len(team.frontIDs) == 0 || len(team.backIDs) == 0 {
+		t.Fatalf("头像模板没加载: front=%d back=%d", len(team.frontIDs), len(team.backIDs))
+	}
+}
+
+func TestZZZTeamAgentMatchesFrontAvatar(t *testing.T) {
+	team := newZZZTeam()
+	target := team.frontIDs[0]
+	rt := fakeRuntime{matches: map[string][]vision.Match{target: {{Rect: geom.Rect{X1: 104, Y1: 40, X2: 274, Y2: 110}, Confidence: 0.95}}}}
+	id, ok, err := team.Agent(rt, assist.Frame{Image: image.NewRGBA(image.Rect(0, 0, 1920, 1080)), At: time.Now()})
+	if err != nil || !ok || id != target {
+		t.Fatalf("应当识别到前台角色 %s, got %q ok=%v err=%v", target, id, ok, err)
+	}
+}
+
+func TestZZZAgentPlansPresent(t *testing.T) {
+	if len(agentPlans) == 0 {
+		t.Fatal("缺少代理人专属连招")
+	}
+	for id, plan := range agentPlans {
+		if len(plan) == 0 {
+			t.Fatalf("代理人 %s 的连招为空", id)
+		}
+	}
+}

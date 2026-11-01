@@ -85,22 +85,23 @@ type Keys struct {
 // 共享流程（检测战斗 -> 按连招序列出招 -> 脱离战斗后复位）只有一份，
 // 游戏之间的差异只体现在这里的数据上。
 type Spec struct {
-	Screen       string        // 画面配置名，只有用模板证据时才需要
-	DetectAreas  []string      // 战斗证据区域（模板），任意一个命中即认为在战斗
-	HealthBar    *HealthBar    // 敌人血条证据，留空表示不用它
-	BossBar      *BossBar      // Boss 血条证据，留空表示不用它
-	Concerto     *Concerto     // 协奏值能量环，满了优先切人
-	HealerKey    string        // 治疗位按键，战斗开始与结束时各按一次
-	Extensions   []Extension   // 游戏专属战斗能力，先于通用连招执行
-	Team         Team          // 当前角色判读，留空表示不识别
-	Target       *Target       // 是否已锁定目标的判据，留空表示不做目标识别
-	LockInterval time.Duration // 没锁住目标时按中键的间隔，0 表示不锁定
-	AttackPoint  geom.Point    // 普攻的点击位置
-	Keys         Keys          // 按键绑定
-	Plan         []Step        // 连招序列，循环执行
-	Interval     time.Duration // 每步之间的间隔
-	Hold         time.Duration // 命中证据后保持战斗态的时间
-	IdleWait     time.Duration // 不在战斗时的等待
+	Screen       string            // 画面配置名，只有用模板证据时才需要
+	DetectAreas  []string          // 战斗证据区域（模板），任意一个命中即认为在战斗
+	HealthBar    *HealthBar        // 敌人血条证据，留空表示不用它
+	BossBar      *BossBar          // Boss 血条证据，留空表示不用它
+	Concerto     *Concerto         // 协奏值能量环，满了优先切人
+	HealerKey    string            // 治疗位按键，战斗开始与结束时各按一次
+	Extensions   []Extension       // 游戏专属战斗能力，先于通用连招执行
+	Team         Team              // 当前角色判读，留空表示不识别
+	Target       *Target           // 是否已锁定目标的判据，留空表示不做目标识别
+	LockInterval time.Duration     // 没锁住目标时按中键的间隔，0 表示不锁定
+	AttackPoint  geom.Point        // 普攻的点击位置
+	Keys         Keys              // 按键绑定
+	Plan         []Step            // 默认连招序列，循环执行
+	PlansByAgent map[string][]Step // 角色专属连招；识别到当前角色时优先用
+	Interval     time.Duration     // 每步之间的间隔
+	Hold         time.Duration     // 命中证据后保持战斗态的时间
+	IdleWait     time.Duration     // 不在战斗时的等待
 }
 
 // DefaultPlan 是一套通用的连招节奏：普攻起手、夹技能、中间接爆发与闪避。
