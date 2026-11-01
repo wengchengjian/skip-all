@@ -21,7 +21,11 @@ func TestGameMetadata(t *testing.T) {
 	if len(game.ProcessNames()) != 1 || game.ProcessNames()[0] != "Client-Win64-Shipping.exe" {
 		t.Fatalf("ProcessNames = %v", game.ProcessNames())
 	}
-	if len(game.Features()) != 1 || game.Features()[0].ID() != "story_skip" {
+	ids := map[string]bool{}
+	for _, feature := range game.Features() {
+		ids[feature.ID()] = true
+	}
+	if !ids["story_skip"] || !ids["auto_combat"] {
 		t.Fatalf("Features = %v", game.Features())
 	}
 }
@@ -56,5 +60,36 @@ func TestStorySkipSpecUsesTextDialog(t *testing.T) {
 	}
 	if len(spec.StorySkipAreas) == 0 {
 		t.Fatal("缺少剧情跳过模板区域")
+	}
+}
+
+func TestAssetsLoadCombatScreen(t *testing.T) {
+	game := New()
+	set, err := screen.LoadFS(game.Assets(), "screens")
+	if err != nil {
+		t.Fatalf("加载画面失败: %v", err)
+	}
+	combat, ok := set.Get("鸣潮战斗")
+	if !ok {
+		t.Fatal("缺少 鸣潮战斗 画面")
+	}
+	for _, name := range []string{"敌人锁定", "敌人锁定-内圈"} {
+		area, ok := combat.Area(name)
+		if !ok {
+			t.Fatalf("缺少区域 %s", name)
+		}
+		if area.TemplateID == "" {
+			t.Fatalf("区域 %s 缺少模板", name)
+		}
+	}
+}
+
+func TestCombatSpecUsesUpstreamKeys(t *testing.T) {
+	spec := combatSpec()
+	if spec.Keys.Skill != "e" || spec.Keys.Echo != "q" || spec.Keys.Liberation != "r" || spec.Keys.Dodge != "lshift" {
+		t.Fatalf("按键绑定 = %+v", spec.Keys)
+	}
+	if len(spec.DetectAreas) == 0 {
+		t.Fatal("缺少战斗证据区域")
 	}
 }

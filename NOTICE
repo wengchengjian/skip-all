@@ -24,11 +24,14 @@ The Wuthering Waves ("鸣潮") story skip flow references the behavior of:
   Copyright (C) ok-oldking contributors
   Licensed under AGPL-3.0
 
-No source code or image assets from that project are copied: the upstream is
-AGPL-3.0, which is not compatible with this project's GPL-3.0, so only the
-skip flow and timing were used as a reference and reimplemented in Go. The
-Wuthering Waves templates under assets/games/wuwa were cropped from in-game
-screenshots; game artwork belongs to its respective rights holders.
+The Go implementation is original: only the flow, timings and key bindings were
+used as a reference. Part of the template images under assets/games/wuwa are
+crops of that project's shipped template set (assets/templates), which is
+AGPL-3.0; shipping them here makes those files subject to AGPL-3.0 and, when
+redistributed together, the combined work should be treated as AGPL-3.0 rather
+than GPL-3.0 alone. Templates that are not marked as upstream crops
+(skip_dialog, skip_dialog_wide) were cropped from in-game screenshots; game
+artwork belongs to its respective rights holders.
 
 ViGEmClient.dll is distributed under the MIT License; see
 assets/runtime/ViGEmClient-LICENSE.txt.

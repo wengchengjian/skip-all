@@ -87,3 +87,14 @@
 据此新增了 `story/skip_dialog` 模板：从上面那枚 4K 图标裁剪、缩到 1080p 后做成白色剪影（图标本身是半透明白，直接当模板方差太小），阈值 0.82。用 109 张真实截图做过误命中检查，最高 0.672。
 
 模板来源：assets/games/wuwa/templates/story/skip 从《鸣潮》剧情画面裁剪，按双线性缩放到 1920×1080 逻辑分辨率，掩码只保留图标的白像素，因此不受背景画面影响。游戏素材权利归原权利人所有。
+
+## 自动战斗
+
+| 上游 ok-ww | 本项目 | 说明 |
+| --- | --- | --- |
+| `AutoCombatTask.run`：`in_team_and_world` 直接返回，否则 `while in_combat(): char.perform()` | `pkg/assist/combat`：检测战斗 -> 按连招序列出招 -> 脱离战斗复位 | 流程只有一份，游戏只给数据 |
+| 每角色一个 char 模块（CD OCR、协奏、闪避判定） | 数据驱动的连招序列 `Spec.Plan` | 先把骨架做对，角色特化后续按需补 |
+| 按键：共鸣技能 E、声骸 Q、共鸣解放 R、闪避 左 Shift、切换 1/2/3 | 同上游 `config.py` 的默认值 | 见 `games/wuwa/combat.go` |
+| 战斗判据：`box_target_enemy` 等锁定目标框模板 | `敌人锁定` / `敌人锁定-内圈` 两个区域 | 模板直接取自上游 `assets/templates` |
+| 资产：`assets/templates/box_target_enemy*` | `assets/games/wuwa/templates/combat/box_target_enemy*`（原图直接放入，许可见 NOTICE） | 战斗判据需要真实战斗画面校准尺寸 |
+| `Use Liberation` / `Switch to Healer` 等开关 | `use_liberation` / `use_echo` / `use_dodge` / `interval` / `hold` | 未做切治疗、超时重开等上游特化能力 |

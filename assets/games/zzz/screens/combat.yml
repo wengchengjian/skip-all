@@ -1,0 +1,14 @@
+screen_id: zzz_combat
+screen_name: 绝区零战斗
+pc_alt: false
+area_list:
+- area_name: 战斗中
+  id_mark: false
+  pc_rect:
+  - 1200
+  - 850
+  - 1700
+  - 1060
+  template_sub_dir: combat
+  template_id: in_combat
+  template_match_threshold: 0.7

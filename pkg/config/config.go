@@ -201,7 +201,8 @@ func DefaultGame() GameConfig {
 	return GameConfig{
 		SchemaVersion: SchemaVersion,
 		Features: map[string]StorySkipConfig{
-			"story_skip": {Enabled: true, Settings: map[string]any{}},
+			"story_skip":  {Enabled: true, Settings: map[string]any{}},
+			"auto_combat": {Enabled: true, Settings: map[string]any{}},
 		},
 	}
 }

@@ -376,7 +376,9 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	if settings == nil {
 		settings = assist.Settings{}
 	}
-	settings[storyskip.SettingGamepad] = appCfg.Input.Gamepad && input.GamepadAvailable()
+	if feature.ID() == "story_skip" {
+		settings[storyskip.SettingGamepad] = appCfg.Input.Gamepad && input.GamepadAvailable()
+	}
 	screens, err := screen.LoadFS(game.Assets(), "screens")
 	if err != nil {
 		return ActionResult{OK: false, Error: err.Error()}
