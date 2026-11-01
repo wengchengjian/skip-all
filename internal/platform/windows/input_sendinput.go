@@ -468,6 +468,21 @@ func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
 		}
 	}()
 	time.Sleep(10 * time.Millisecond)
+	// 光标已经真实移到目标上：只要游戏在前台就发真实点击。
+	// UE5 这类游戏（鸣潮）会忽略 PostMessage 的鼠标消息，只认真实输入。
+	if i.win.IsActive() {
+		if err := sendMouseEvent(mouseEventLeftDown, 0, 0); err != nil {
+			return err
+		}
+		time.Sleep(clickHoldTime)
+		if err := sendMouseEvent(mouseEventLeftUp, 0, 0); err != nil {
+			_ = sendMouseEvent(mouseEventLeftUp, 0, 0)
+			return err
+		}
+		time.Sleep(25 * time.Millisecond)
+		return nil
+	}
+	// 不在前台就退回消息点击：真实点击会落到别的窗口上。
 	// 与上游一致：先同步激活窗口，再 PostMessage 鼠标事件；
 	// 绝区零后台点击会忽略 lParam 坐标，依赖上面 SetCursorPos 的真实位置。
 	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
