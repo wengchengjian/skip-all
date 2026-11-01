@@ -40,6 +40,8 @@ func TestDocsMatchCode(t *testing.T) {
 		{"绝区零连招", string(parity), fmt.Sprintf("%d 个代理人", z["plans"])},
 		{"整队规则", string(parity), fmt.Sprintf("%d 条，", z["team_rules"])},
 		{"鸣潮连招", string(upstream), fmt.Sprintf("%d 个角色", w["plans"])},
+		{"鸣潮规则条数(upstream)", string(upstream), fmt.Sprintf("%d 条规则覆盖", w["char_rules"])},
+		{"鸣潮规则条数(能力表)", string(wuwaDoc), fmt.Sprintf("%d 条角色专属规则", w["char_rules"])},
 		{"鸣潮定位", string(upstream), fmt.Sprintf("%d 个", w["roles"])},
 		{"鸣潮增益时长", string(wuwaDoc), fmt.Sprintf("%d 个角色增益时长", w["buff_times"])},
 		{"鸣潮协同对", string(wuwaDoc), fmt.Sprintf("%d 个协同对", w["synergy"])},
@@ -56,7 +58,7 @@ func TestDocsMatchCode(t *testing.T) {
 	if z["agents"] < 50 || z["rules"] < 300 {
 		t.Errorf("绝区零规则规模异常: %+v", z)
 	}
-	if w["plans"] < 40 || w["roles"] < 40 {
+	if w["plans"] < 40 || w["roles"] < 40 || w["char_rules"] < 100 {
 		t.Errorf("鸣潮规模异常: %+v", w)
 	}
 }

@@ -75,3 +75,38 @@ func TestRuleExtConditions(t *testing.T) {
 		t.Fatal("认不出角色时不该接管")
 	}
 }
+
+// TestRuleExtOutroAtom 验证 延奏=角色id 原子：只有入场窗口内且来源匹配才算真。
+// 上游 check_outro() 在 has_intro 为 false 时返回 'null'，所以窗口外一律不成立。
+func TestRuleExtOutroAtom(t *testing.T) {
+	rules := map[string][]wuwaRule{
+		"char_brant": {
+			{Cond: "延奏=char_lupa", Ops: []combat.Step{{Kind: combat.StepSkill}}},
+			{Cond: "(延奏=char_roccia|延奏=char_sanhua)", Ops: []combat.Step{{Kind: combat.StepEcho}}},
+			{Cond: "1", Ops: []combat.Step{{Kind: combat.StepAttack}}},
+		},
+	}
+	base := time.Now()
+	cases := []struct {
+		name  string
+		state combat.CombatState
+		want  string
+		key   string
+	}{
+		{"来源匹配", combat.CombatState{InIntro: true, LastOutro: "char_lupa"}, "规则-延奏=char_lupa", "e"},
+		{"多来源之一", combat.CombatState{InIntro: true, LastOutro: "char_sanhua"}, "规则-(延奏=char_roccia|延奏=char_sanhua)", "q"},
+		{"来源不匹配", combat.CombatState{InIntro: true, LastOutro: "char_zhezhi"}, "规则-1", ""},
+		{"不在入场窗口", combat.CombatState{InIntro: false, LastOutro: "char_lupa"}, "规则-1", ""},
+	}
+	for _, c := range cases {
+		ext := &wuwaRuleExt{Team: ruleTeam{agent: "char_brant"}, Rules: rules}
+		ext.SetCombatState(c.state)
+		action, state, ok, err := ext.Step(nil, assist.Frame{Image: ruleFrame(false, false), At: base})
+		if err != nil || !ok || state != c.want {
+			t.Fatalf("%s: state=%q action=%+v err=%v", c.name, state, action, err)
+		}
+		if action.Key != c.key {
+			t.Fatalf("%s: 按键=%q, want %q", c.name, action.Key, c.key)
+		}
+	}
+}

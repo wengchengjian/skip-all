@@ -22,7 +22,7 @@
 | 今汐 incarnate | `Jinhsi.handle_incarnation()`：交替普攻/共鸣，动画结束后收尾 | `wuwaJinhsiExt` |
 | 重击 | `heavy_attack(duration=0.6)` / `heavy_click_forte()` | `StepHeavy` → `ActionClickHold` → `Input.ClickHold`（14 个角色用到） |
 | 角色连招 | 各 `do_perform()` 里出手顺序 | `agentPlans`（46 个角色） |
-| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**135 条角色专属规则（41 个角色）+ BaseChar 回退规则（其余 7 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 |
+| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**137 条角色专属规则（41 个角色）+ BaseChar 回退规则（其余 7 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 延奏=<角色id> |
 | 角色定位 | `char_type` | `agentRoles`（48 个） |
 
 ## 明确不做
@@ -31,12 +31,12 @@
 | --- | --- | --- |
 | 逐条件连招里**无法表达**的部分 | 见下 | 条件依赖上游内部计时器（`still_in_liberation`、`crisis_time_left`、`nightfall_time_left`、`last_heavy` 等），屏幕上观测不到；这类条件所在的分支**被降级为无条件规则或直接跳过**，不假装精确 |
 
-机械提取时统计到的"表达不了的条件"出现次数（来自生成脚本输出）：
+机械提取时统计到的条件出现次数（来自生成脚本输出；其中 `is_con_full` / `has_intro` / `check_outro` 已映射成规则原子）：
 
 ```text
 flying 18   is_con_full 7   check_outro 7   still_in_liberation 5   has_intro 5   can_resonance_step2 1
 ```
-| `check_outro()` 的分支 | 10 个角色 | 检测本身是记账（谁是上一次的延奏来源），价值全在逐角色的 `in {...}` 分支里 |
+| `check_outro()` 的分支 | 10 个角色 | 检测已做会话记账（`CombatState.LastOutro` + `延奏=` 原子）；10 个分支全是循环时长/收尾序列的修饰，不产生单步动作，因此不进规则表 |
 | `get_switch_priority()` 重写 | 26 个角色 | 同上；其中**可机械提取的那一类"在场是谁则必须切我"已经做了**（`SwitchSynergy`，10 对） |
 | `need_fast_perform()` | 6 个角色 | 判据就是"队友的 `get_switch_priority` 是否 MUST"，自身没有独立语义 |
 | `flying()` | 8 个角色 | 只在装备滑翔装置（`has_lavitator`）时生效 |

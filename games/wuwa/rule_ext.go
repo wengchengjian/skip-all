@@ -36,7 +36,7 @@ type wuwaRuleExt struct {
 	queue   []combat.Step
 	agentID string
 
-	// state 是会话推送进来的战斗状态（协奏是否满、是否还在入场）。
+	// state 是会话推送进来的战斗状态（协奏是否满、是否还在入场、延奏来源）。
 	state combat.CombatState
 }
 
@@ -216,6 +216,11 @@ func (p *wuwaCondParser) parseAtom() bool {
 		return p.ext.state.ConcertoFull
 	case "入场中":
 		return p.ext.state.InIntro
+	}
+	// 延奏=char_xxx 对应上游 check_outro()：入场时判断刚切走的是谁。
+	// check_outro() 在 has_intro 为 false 时返回 'null'，所以必须叠加入场窗口。
+	if source, ok := strings.CutPrefix(atom, "延奏="); ok {
+		return p.ext.state.InIntro && p.ext.state.LastOutro == source
 	}
 	p.err = errUnknownAtom(atom)
 	return false

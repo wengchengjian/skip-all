@@ -25,6 +25,10 @@ type CombatState struct {
 	ConcertoFull bool
 	// InIntro 表示还在入场等待期间。
 	InIntro bool
+	// LastOutro 是上一次切走的角色模板 id（上游 check_outro() 的记账：
+	// 队里 last_switch_time 最大的那个队友，即刚放完延奏的人）。
+	// 只有 InIntro 期间才有意义；没切过人时为空。
+	LastOutro string
 }
 
 // StateAware 是扩展可选实现的状态回调。

@@ -51,6 +51,9 @@ type Session struct {
 	switchAt   time.Time
 	agentID    string
 	agentAt    time.Time
+	// outroAgent 是上一次切走的角色模板 id。上游 check_outro() 在入场时
+	// 取队伍里 last_switch_time 最大的队友，就是刚放完延奏的那个人。
+	outroAgent string
 	cdCache    map[StepKind]cdEntry
 	slotSeen   map[int]time.Time
 	switchInAt map[int]time.Time
@@ -97,6 +100,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		s.cdCache = make(map[StepKind]cdEntry)
 		s.agentAt = time.Time{}
 		s.agentID = ""
+		s.outroAgent = ""
 		s.introLeft = nil
 		// 上游在战斗结束后会切回治疗位；这里也是同一件事。
 		if s.healed && !s.cfg.noHealer {
@@ -471,6 +475,7 @@ func (s *Session) pushCombatState(frame assist.Frame, now time.Time) {
 			Agent:        s.currentAgent(frame),
 			ConcertoFull: s.concertoLit(frame),
 			InIntro:      !s.introUntil.IsZero(),
+			LastOutro:    s.outroAgent,
 		})
 	}
 }
@@ -791,6 +796,10 @@ func roleScore(current, target Role) float64 {
 // noteSwitch 记录一次切人：清掉与"当前角色"有关的缓存，并挂上入场技。
 // 切人之后技能按钮上的冷却数字换了人、头像也换了，缓存必须失效。
 func (s *Session) noteSwitch(frame assist.Frame, now time.Time) {
+	// 切走之前先记下离场的人：这就是下一次入场的延奏来源（上游 check_outro）。
+	if id := s.currentAgent(frame); id != "" {
+		s.outroAgent = id
+	}
 	s.switchAt = now
 	s.cdCache = make(map[StepKind]cdEntry)
 	s.agentAt = time.Time{}

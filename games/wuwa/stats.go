@@ -25,6 +25,7 @@ func CombatStats() map[string]int {
 		"synergy":    pairs,
 		"heavy":      heavy,
 		"rules":      ruleCount(agentRules),
+		"char_rules": ruleCharCount(agentRules),
 		"rule_chars": ruleChars(agentRules),
 	}
 }
@@ -34,6 +35,17 @@ func ruleCount(rules map[string][]wuwaRule) int {
 	n := 0
 	for _, rs := range rules {
 		n += len(rs)
+	}
+	return n
+}
+
+// ruleCharCount 统计角色专属规则条目数（不含回退表），文档里的"137 条"用这个数。
+func ruleCharCount(rules map[string][]wuwaRule) int {
+	n := 0
+	for key, rs := range rules {
+		if key != baseRuleKey {
+			n += len(rs)
+		}
 	}
 	return n
 }

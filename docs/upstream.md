@@ -340,10 +340,12 @@
 
 ## 逐角色条件规则（鸣潮）
 
-上游 48 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**135 条规则覆盖 41 个角色**，其余角色回退到上游 `BaseChar.do_perform()` 的保守动作（声骸→解放→技能→重击）。
+上游 48 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**137 条规则覆盖 41 个角色**，其余角色回退到上游 `BaseChar.do_perform()` 的保守动作（声骸→解放→技能→重击）。
 
-可表达原子：`技能可用`（上游 `resonance_available`）、`声骸可用`、`解放可用`、`回路满`/`回路未满`（`is_forte_full`）、`协奏满`（`is_con_full`）、`入场中`（`has_intro`）。
+可表达原子：`技能可用`（上游 `resonance_available`）、`声骸可用`、`解放可用`、`回路满`/`回路未满`（`is_forte_full`）、`协奏满`（`is_con_full`）、`入场中`（`has_intro`）、`延奏=<角色id>`（`check_outro`）。
 
-后两个原子需要**会话状态**（环是否满、是否还在入场窗口），扩展自己从像素看不出来，因此加了可选接口 `combat.StateAware`：实现了它的扩展每帧先收到 `combat.CombatState{Agent, ConcertoFull, InIntro}`。
+后三个原子需要**会话状态**（环是否满、是否还在入场窗口、刚切走的队友是谁），扩展自己从像素看不出来，因此加了可选接口 `combat.StateAware`：实现了它的扩展每帧先收到 `combat.CombatState{Agent, ConcertoFull, InIntro, LastOutro}`。
 
-提取不了的（内部计时器、`flying`、`check_outro`）不计入条件——那条分支会退化成无条件规则，宁可粗略也不伪造精确。生成脚本：`.research/wuwa_rules.py`。
+`check_outro()` 在上游是纯记账：取队伍里 `last_switch_time` 最大的队友（即刚放完延奏的人），`has_intro` 为 false 时返回 `'null'`。本项目在切人动作发出时把当前角色记进 `Session.outroAgent`，只有 `InIntro` 窗口内 `延奏=` 原子才成立。上游 10 个 `check_outro()` 分支全是循环时长/收尾序列的修饰（`perform_in_outro`、`do_perform_outro`、timeout 改动等），不产生单步动作，所以**只做记账、不生成规则**；生成脚本已能映射 `check_outro()` 条件，规则条数保持 137。
+
+提取不了的（内部计时器、`flying`、`still_in_liberation`）不计入条件——那条分支会退化成无条件规则，宁可粗略也不伪造精确。生成脚本：`.research/wuwa_rules.py`。
