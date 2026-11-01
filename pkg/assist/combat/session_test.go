@@ -1149,3 +1149,21 @@ func TestSwitchVerifyAcceptsSuccessfulSwitch(t *testing.T) {
 		t.Fatal("已经切过去了不该再补普攻")
 	}
 }
+
+// TestHeavyStepProducesHoldClick 验证重击会发出"按住 600ms"的点击。
+func TestHeavyStepProducesHoldClick(t *testing.T) {
+	spec := testSpec()
+	spec.AttackPoint = geom.Point{X: 960, Y: 540}
+	spec.Plan = []Step{{Kind: StepHeavy}}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	result, actions := step(t, session, assist.Frame{Image: frameAt(time.Now()).Image, At: time.Now()})
+	if result.State != "连招-重击" {
+		t.Fatalf("应当走重击分支: state=%q", result.State)
+	}
+	if len(actions) != 1 || actions[0].Kind != assist.ActionClickHold {
+		t.Fatalf("重击应当发出按住点击: %+v", actions)
+	}
+	if actions[0].Duration != 600*time.Millisecond {
+		t.Fatalf("按住时长应当是 600ms（上游 heavy_attack 默认值），实际 %v", actions[0].Duration)
+	}
+}

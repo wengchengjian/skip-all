@@ -40,6 +40,7 @@ type Capturer interface {
 type Input interface {
 	Click(geom.Point) error
 	MiddleClick(geom.Point) error
+	ClickHold(geom.Point, time.Duration) error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error

@@ -221,6 +221,33 @@ func (i *Input) SetActivateFunc(fn func() error) {
 }
 
 // Click 把 1920x1080 逻辑坐标换算成客户区坐标后点击。
+// ClickHold 在指定位置按住左键 hold 时长再抬起（重击/蓄力）。
+func (i *Input) ClickHold(p geom.Point, hold time.Duration) error {
+	if i == nil || i.win == nil {
+		return ErrWindowNotFound
+	}
+	if hold <= 0 {
+		hold = clickHoldTime
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	rect, err := i.win.ClientRect()
+	if err != nil {
+		return err
+	}
+	pt, err := scalePoint(p, rect.Width(), rect.Height())
+	if err != nil {
+		return err
+	}
+	if i.background {
+		return i.backgroundHoldAtLocked(pt, i.shouldMoveCursor(), leftButton, hold)
+	}
+	if err := i.ensureActiveLocked(); err != nil {
+		return err
+	}
+	return i.clickHoldLocked(rect.X1+pt.X, rect.Y1+pt.Y, hold)
+}
+
 func (i *Input) Click(p geom.Point) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
@@ -420,6 +447,11 @@ func (i *Input) ensureActiveLocked() error {
 }
 
 func (i *Input) clickLocked(x, y int) error {
+	return i.clickHoldLocked(x, y, clickHoldTime)
+}
+
+// clickHoldLocked 把光标移到 (x,y)，按住 hold 后再抬起。
+func (i *Input) clickHoldLocked(x, y int, hold time.Duration) error {
 	if r, _, _ := procSetCursorPos.Call(uintptr(x), uintptr(y)); r == 0 {
 		return fmt.Errorf("移动鼠标失败: %w", lastErr("SetCursorPos"))
 	}
@@ -427,7 +459,7 @@ func (i *Input) clickLocked(x, y int) error {
 	if err := sendMouseEvent(mouseEventLeftDown, 0, 0); err != nil {
 		return err
 	}
-	time.Sleep(clickHoldTime)
+	time.Sleep(hold)
 	if err := sendMouseEvent(mouseEventLeftUp, 0, 0); err != nil {
 		_ = sendMouseEvent(mouseEventLeftUp, 0, 0)
 		return err
@@ -446,6 +478,21 @@ var (
 	leftButton   = mouseButton{down: wmLButtonDown, up: wmLButtonUp, flag: mkLButton}
 	middleButton = mouseButton{down: wmMButtonDown, up: wmMButtonUp, flag: mkMButton}
 )
+
+// backgroundHoldAtLocked 是按住版本的 backgroundClickAtLocked。
+func (i *Input) backgroundHoldAtLocked(p geom.Point, moveCursor bool, button mouseButton, hold time.Duration) error {
+	if i == nil || i.win == nil {
+		return ErrWindowNotFound
+	}
+	hwnd := i.win.Handle()
+	if hwnd == 0 {
+		return ErrWindowNotFound
+	}
+	if moveCursor {
+		return i.cursorHoldLocked(hwnd, p, button, hold)
+	}
+	return i.postHoldLocked(hwnd, p, button, hold)
+}
 
 func (i *Input) backgroundClickAtLocked(p geom.Point, moveCursor bool, button mouseButton) error {
 	if i == nil || i.win == nil {
@@ -478,6 +525,11 @@ func (i *Input) clickTarget(hwnd uintptr, p geom.Point) (uintptr, uintptr) {
 }
 
 func (i *Input) postClickLocked(hwnd uintptr, p geom.Point, button mouseButton) error {
+	return i.postHoldLocked(hwnd, p, button, 20*time.Millisecond)
+}
+
+// postHoldLocked 投递按住 hold 时长的后台点击。
+func (i *Input) postHoldLocked(hwnd uintptr, p geom.Point, button mouseButton, hold time.Duration) error {
 	target, lparam := i.clickTarget(hwnd, p)
 	// 与上游后台模式设计一致：先同步假装激活，再移动/按下/抬起。
 	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
@@ -490,7 +542,7 @@ func (i *Input) postClickLocked(hwnd uintptr, p geom.Point, button mouseButton) 
 	if err := postMessage(target, button.down, button.flag, lparam); err != nil {
 		return err
 	}
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(hold)
 	if err := postMessage(target, button.up, 0, lparam); err != nil {
 		_ = postMessage(target, button.up, 0, lparam)
 		return err
@@ -500,6 +552,11 @@ func (i *Input) postClickLocked(hwnd uintptr, p geom.Point, button mouseButton) 
 
 // cursorClickLocked 把光标移到目标、点击、再尽量归位；ZZZ 的后台点击依赖真实光标位置。
 func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point, button mouseButton) error {
+	return i.cursorHoldLocked(hwnd, p, button, clickHoldTime)
+}
+
+// cursorHoldLocked 与 cursorClickLocked 相同，只是按住时长可配。
+func (i *Input) cursorHoldLocked(hwnd uintptr, p geom.Point, button mouseButton, hold time.Duration) error {
 	rect, err := i.win.ClientRect()
 	if err != nil {
 		return err
@@ -538,7 +595,7 @@ func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point, button mouseButton
 	if err := postMessage(target, button.down, button.flag, lparam); err != nil {
 		return err
 	}
-	time.Sleep(clickHoldTime)
+	time.Sleep(hold)
 	if err := postMessage(target, button.up, 0, lparam); err != nil {
 		return err
 	}

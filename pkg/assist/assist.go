@@ -31,6 +31,8 @@ const (
 	ActionMiddleClick
 	ActionClickCurrent
 	ActionKeyTap
+	// ActionClickHold 在 Point 处按住左键 Duration 时长再抬起（重击/蓄力）。
+	ActionClickHold
 	ActionWait
 )
 

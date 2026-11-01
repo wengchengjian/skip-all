@@ -431,6 +431,12 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 			return assist.Action{}, "", false
 		}
 		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Dodge}, "闪避", true
+	case StepHeavy:
+		hold := step.Hold
+		if hold <= 0 {
+			hold = 600 * time.Millisecond // 上游 heavy_attack(duration=0.6)
+		}
+		return assist.Action{Kind: assist.ActionClickHold, Point: s.spec.AttackPoint, Duration: hold}, "重击", true
 	case StepKey:
 		if step.Key == "" {
 			return assist.Action{}, "", false

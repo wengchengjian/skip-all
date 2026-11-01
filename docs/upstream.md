@@ -321,3 +321,13 @@
 - 800ms 超时 → 放弃，回到正常流程。
 
 后台 PostMessage 输入偶发丢失时，这一步能把"以为切了其实没切"的情况暴露并补救。
+
+## 鸣潮重击（按住左键）
+
+上游 `BaseChar.heavy_attack(duration=0.6)` 与 `heavy_click_forte()`：在攻击点按下左键、保持约 0.6 秒再抬起。
+
+本项目为此加了一条完整链路：`combat.StepHeavy` → `assist.ActionClickHold` → `engine.Input.ClickHold` → Windows 层 `postHoldLocked` / `cursorHoldLocked`（后台模式投递 WM_LBUTTONDOWN、等待、WM_LBUTTONUP；前台模式 SendInput 同形）。
+
+上游在 `do_perform()` 里用到重击的角色共 **14 个**（camellya / cantarella / chouyuan / ciaccona / danjin / encore / jingran / jiyan / lumi / lupa / roccia / shorekeeper / yangyang / yinlin），本项目把这 14 个角色的连招里**解放前的那次普攻换成重击**。
+
+⚠ 这里是**近似**：上游的重击是条件触发（回路满、技能进冷却等），我们按“解放前补一次重击”的固定位置放，具体位置需要实机校准。

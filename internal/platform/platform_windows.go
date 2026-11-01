@@ -6,6 +6,7 @@ package platform
 import (
 	"errors"
 	"image"
+	"time"
 
 	win "github.com/wengchengjian/skip-all/internal/platform/windows"
 	"github.com/wengchengjian/skip-all/pkg/geom"
@@ -41,6 +42,7 @@ type Capturer interface {
 type Input interface {
 	Click(geom.Point) error
 	MiddleClick(geom.Point) error
+	ClickHold(geom.Point, time.Duration) error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error
@@ -89,9 +91,11 @@ type unsupportedInput struct{ err error }
 func (u unsupportedInput) Click(geom.Point) error { return u.err }
 
 func (u unsupportedInput) MiddleClick(geom.Point) error { return u.err }
-func (u unsupportedInput) ClickCurrent() error          { return u.err }
-func (u unsupportedInput) KeyTap(string) error          { return u.err }
-func (u unsupportedInput) ReleaseAll() error            { return nil }
-func (u unsupportedInput) Close() error                 { return nil }
-func (u unsupportedInput) GamepadAvailable() bool       { return false }
-func (u unsupportedInput) GamepadError() error          { return u.err }
+
+func (u unsupportedInput) ClickHold(geom.Point, time.Duration) error { return u.err }
+func (u unsupportedInput) ClickCurrent() error                       { return u.err }
+func (u unsupportedInput) KeyTap(string) error                       { return u.err }
+func (u unsupportedInput) ReleaseAll() error                         { return nil }
+func (u unsupportedInput) Close() error                              { return nil }
+func (u unsupportedInput) GamepadAvailable() bool                    { return false }
+func (u unsupportedInput) GamepadError() error                       { return u.err }

@@ -47,6 +47,7 @@ type Device interface {
 type Input interface {
 	Click(geom.Point) error
 	MiddleClick(geom.Point) error
+	ClickHold(geom.Point, time.Duration) error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error
@@ -330,6 +331,8 @@ func actionSummary(actions []assist.Action) string {
 			parts = append(parts, fmt.Sprintf("中键(%d,%d)", action.Point.X, action.Point.Y))
 		case assist.ActionClickCurrent:
 			parts = append(parts, "点击当前光标")
+		case assist.ActionClickHold:
+			parts = append(parts, fmt.Sprintf("按住(%d,%d) %s", action.Point.X, action.Point.Y, action.Duration))
 		case assist.ActionKeyTap:
 			parts = append(parts, "按键 "+action.Key)
 		case assist.ActionWait:
@@ -356,6 +359,10 @@ func (e *Engine) executeActions(ctx context.Context, actions []assist.Action) er
 		case assist.ActionClickCurrent:
 			if err := e.input.ClickCurrent(); err != nil {
 				return fmt.Errorf("当前光标点击失败: %w", err)
+			}
+		case assist.ActionClickHold:
+			if err := e.input.ClickHold(action.Point, action.Duration); err != nil {
+				return fmt.Errorf("按住点击失败: %w", err)
 			}
 		case assist.ActionKeyTap:
 			if err := e.input.KeyTap(action.Key); err != nil {

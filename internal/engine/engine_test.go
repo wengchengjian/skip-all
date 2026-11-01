@@ -34,6 +34,8 @@ type fakeInput struct {
 
 func (f *fakeInput) Click(geom.Point) error { f.clicks.Add(1); return nil }
 
+func (f *fakeInput) ClickHold(_ geom.Point, _ time.Duration) error { return nil }
+
 func (f *fakeInput) MiddleClick(geom.Point) error { f.middleClicks.Add(1); return nil }
 func (f *fakeInput) ClickCurrent() error          { f.clicks.Add(1); return nil }
 func (f *fakeInput) KeyTap(string) error          { f.keys.Add(1); return nil }

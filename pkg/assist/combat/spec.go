@@ -25,6 +25,8 @@ const (
 	StepDodge StepKind = "dodge"
 	// StepKey 是直接按某个键（规则里出现"切换角色-下一个/上一个"这类动作时用）。
 	StepKey StepKind = "key"
+	// StepHeavy 是重击/蓄力：在攻击点按住左键一小段时间再抬起。
+	StepHeavy StepKind = "heavy"
 	// StepSwitch 是切换角色，Index 指向 Keys.Switch 的下标。
 	StepSwitch StepKind = "switch"
 )
@@ -34,6 +36,8 @@ type Step struct {
 	Kind  StepKind
 	Index int
 	Key   string
+	// Hold 是重击按住的时长，0 用默认 600ms（上游 heavy_attack 的 duration）。
+	Hold time.Duration
 }
 
 // ReadyCheck 是"这个动作现在能不能用"的判据，对应上游的 available()：
