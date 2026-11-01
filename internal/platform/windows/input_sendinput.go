@@ -411,9 +411,10 @@ func (i *Input) backgroundClickAtLocked(p geom.Point, moveCursor bool) error {
 }
 
 // postClickLocked 纯后台消息点击：不移动真实光标，坐标只放在 lParam 里。
-func (i *Input) postClickLocked(hwnd uintptr, p geom.Point) error {
-	// 上游 ok-ww 的做法：客户区坐标 -> 屏幕坐标 -> 找出真正覆盖该点的子窗口 ->
-	// 换成该窗口的客户区坐标再投递。UE5 这类游戏收输入的是子窗口，投给顶层会被忽略。
+// clickTarget 把客户区坐标换算成"要投递的窗口 + lParam"。
+// 上游 ok-ww 的做法：客户区坐标 -> 屏幕坐标 -> 找出真正覆盖该点的子窗口 ->
+// 换成该窗口的客户区坐标再投递；坐标必须写进 lParam，游戏是从消息参数读位置的。
+func (i *Input) clickTarget(hwnd uintptr, p geom.Point) (uintptr, uintptr) {
 	target := hwnd
 	lparam := uintptr(uint16(p.X)) | uintptr(uint16(p.Y))<<16
 	if screen, err := clientToScreen(hwnd, winPoint{X: int32(p.X), Y: int32(p.Y)}); err == nil {
@@ -422,6 +423,11 @@ func (i *Input) postClickLocked(hwnd uintptr, p geom.Point) error {
 			lparam = uintptr(uint16(local.X)) | uintptr(uint16(local.Y))<<16
 		}
 	}
+	return target, lparam
+}
+
+func (i *Input) postClickLocked(hwnd uintptr, p geom.Point) error {
+	target, lparam := i.clickTarget(hwnd, p)
 	// 与上游后台模式设计一致：先同步假装激活，再移动/按下/抬起。
 	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
 	if target != hwnd {
@@ -468,30 +474,21 @@ func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
 		}
 	}()
 	time.Sleep(10 * time.Millisecond)
-	// 光标已经真实移到目标上：只要游戏在前台就发真实点击。
-	// UE5 这类游戏（鸣潮）会忽略 PostMessage 的鼠标消息，只认真实输入。
-	if i.win.IsActive() {
-		if err := sendMouseEvent(mouseEventLeftDown, 0, 0); err != nil {
-			return err
-		}
-		time.Sleep(clickHoldTime)
-		if err := sendMouseEvent(mouseEventLeftUp, 0, 0); err != nil {
-			_ = sendMouseEvent(mouseEventLeftUp, 0, 0)
-			return err
-		}
-		time.Sleep(25 * time.Millisecond)
-		return nil
-	}
-	// 不在前台就退回消息点击：真实点击会落到别的窗口上。
-	// 与上游一致：先同步激活窗口，再 PostMessage 鼠标事件；
-	// 绝区零后台点击会忽略 lParam 坐标，依赖上面 SetCursorPos 的真实位置。
+	// 与上游一致：同步激活窗口后投递鼠标消息。lParam 必须带坐标——
+	// 发 0 等于点在客户区左上角，鸣潮这类游戏就会"光标到了但没点中"。
+	target, lparam := i.clickTarget(hwnd, p)
 	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
+	if target != hwnd {
+		_, _, _ = procSendMessage.Call(target, wmActivate, waActive, 0)
+	}
 	time.Sleep(10 * time.Millisecond)
-	if err := postMessage(hwnd, wmLButtonDown, mkLButton, 0); err != nil {
+	_ = postMessage(target, wmMouseMove, 0, lparam)
+	time.Sleep(10 * time.Millisecond)
+	if err := postMessage(target, wmLButtonDown, mkLButton, lparam); err != nil {
 		return err
 	}
 	time.Sleep(clickHoldTime)
-	if err := postMessage(hwnd, wmLButtonUp, 0, 0); err != nil {
+	if err := postMessage(target, wmLButtonUp, 0, lparam); err != nil {
 		return err
 	}
 	time.Sleep(25 * time.Millisecond)
