@@ -16,12 +16,18 @@ import (
 // healthBarFillRatio 是上游 find_color_rectangles 的默认填充率阈值。
 const healthBarFillRatio = 0.95
 
+// concertoSwitchCooldown 是两次协奏切人之间的最小间隔。
+const concertoSwitchCooldown = 2 * time.Second
+
 type Session struct {
 	rt         assist.Runtime
 	spec       Spec
 	cfg        sessionSettings
 	cursor     int
 	lastCombat time.Time
+	lockAt     time.Time
+	healed     bool
+	switchAt   time.Time
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
@@ -46,7 +52,31 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	} else if s.lastCombat.IsZero() || now.Sub(s.lastCombat) > s.spec.Hold {
 		// 证据会短暂丢失（转身、切人、特效遮挡），用保持时间把它们连起来。
 		s.cursor = 0
+		s.lockAt = time.Time{}
+		// 上游在战斗结束后会切回治疗位；这里也是同一件事。
+		if s.healed && s.spec.HealerKey != "" && !s.cfg.noHealer {
+			s.healed = false
+			return assist.Result{State: "战斗结束切治疗", Wait: s.spec.Interval},
+				[]assist.Action{{Kind: assist.ActionKeyTap, Key: s.spec.HealerKey}}, nil
+		}
+		s.healed = false
 		return assist.Result{State: "等待战斗", Wait: s.spec.IdleWait}, nil, nil
+	}
+	// 上游在开打前先切到治疗位，保证有人能奶。
+	if s.spec.HealerKey != "" && !s.cfg.noHealer && !s.healed {
+		s.healed = true
+		return assist.Result{State: "战斗前切治疗", Wait: s.spec.Interval},
+			[]assist.Action{{Kind: assist.ActionKeyTap, Key: s.spec.HealerKey}}, nil
+	}
+	// 协奏值满了就切人（上游 switch_next_char 的核心判据）。
+	if action, ok := s.concertoSwitch(frame, now); ok {
+		return assist.Result{State: "协奏满切人", Wait: s.spec.Interval}, []assist.Action{action}, nil
+	}
+	// 中键锁定：上游 target_enemy() 会反复中键把目标锁回来。
+	if s.spec.LockInterval > 0 && (s.lockAt.IsZero() || now.Sub(s.lockAt) >= s.spec.LockInterval) {
+		s.lockAt = now
+		return assist.Result{State: "锁定目标", Wait: s.spec.Interval},
+			[]assist.Action{{Kind: assist.ActionMiddleClick, Point: s.spec.AttackPoint}}, nil
 	}
 
 	action, state, ok := s.nextAction()
@@ -141,6 +171,28 @@ func (s *Session) nextAction() (assist.Action, string, bool) {
 		}
 	}
 	return assist.Action{}, "", false
+}
+
+// concertoSwitch 在协奏值满时返回一次切人动作。
+func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Action, bool) {
+	if s.cfg.noConcerto || s.spec.Concerto == nil || len(s.spec.Keys.Switch) == 0 {
+		return assist.Action{}, false
+	}
+	// 切人后协奏环会清空，留一点冷却避免连点。
+	if !s.switchAt.IsZero() && now.Sub(s.switchAt) < concertoSwitchCooldown {
+		return assist.Action{}, false
+	}
+	c := s.spec.Concerto
+	coverage := vision.RingCoverage(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer)
+	full := c.FullRatio
+	if full <= 0 {
+		full = 0.8
+	}
+	if coverage < full {
+		return assist.Action{}, false
+	}
+	s.switchAt = now
+	return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Switch[0]}, true
 }
 
 func (s *Session) area(name string) (*screen.Area, error) {

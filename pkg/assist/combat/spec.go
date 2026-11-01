@@ -51,6 +51,16 @@ type BossBar struct {
 	MinHeight int
 }
 
+// Concerto 是协奏值能量环的判据，对应上游 get_current_con()：
+// 在当前角色头像周围找一圈有颜色的能量环，覆盖率高说明协奏值满、可以切人。
+type Concerto struct {
+	Rect      geom.Rect // 1080p 逻辑像素
+	Colors    [][2][3]uint8
+	Inner     float64 // 环内半径，按区域高度的比例（上游 0.35119）
+	Outer     float64 // 环外半径（上游 0.42261）
+	FullRatio float64 // 覆盖率到此认为协奏值满
+}
+
 // Keys 是技能按键绑定，留空的按键表示该游戏没有这个动作。
 type Keys struct {
 	Attack     string // 普通攻击的按键；留空表示用鼠标点击
@@ -65,16 +75,19 @@ type Keys struct {
 // 共享流程（检测战斗 -> 按连招序列出招 -> 脱离战斗后复位）只有一份，
 // 游戏之间的差异只体现在这里的数据上。
 type Spec struct {
-	Screen      string        // 画面配置名，只有用模板证据时才需要
-	DetectAreas []string      // 战斗证据区域（模板），任意一个命中即认为在战斗
-	HealthBar   *HealthBar    // 敌人血条证据，留空表示不用它
-	BossBar     *BossBar      // Boss 血条证据，留空表示不用它
-	AttackPoint geom.Point    // 普攻的点击位置
-	Keys        Keys          // 按键绑定
-	Plan        []Step        // 连招序列，循环执行
-	Interval    time.Duration // 每步之间的间隔
-	Hold        time.Duration // 命中证据后保持战斗态的时间
-	IdleWait    time.Duration // 不在战斗时的等待
+	Screen       string        // 画面配置名，只有用模板证据时才需要
+	DetectAreas  []string      // 战斗证据区域（模板），任意一个命中即认为在战斗
+	HealthBar    *HealthBar    // 敌人血条证据，留空表示不用它
+	BossBar      *BossBar      // Boss 血条证据，留空表示不用它
+	Concerto     *Concerto     // 协奏值能量环，满了优先切人
+	HealerKey    string        // 治疗位按键，战斗开始与结束时各按一次
+	LockInterval time.Duration // 中键锁定的间隔，0 表示不锁定
+	AttackPoint  geom.Point    // 普攻的点击位置
+	Keys         Keys          // 按键绑定
+	Plan         []Step        // 连招序列，循环执行
+	Interval     time.Duration // 每步之间的间隔
+	Hold         time.Duration // 命中证据后保持战斗态的时间
+	IdleWait     time.Duration // 不在战斗时的等待
 }
 
 // DefaultPlan 是一套通用的连招节奏：普攻起手、夹技能、中间接爆发与闪避。

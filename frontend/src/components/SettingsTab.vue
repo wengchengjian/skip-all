@@ -28,6 +28,8 @@ const form = reactive({
   useLiberation: true,
   useEcho: true,
   useDodge: true,
+  switchHealer: true,
+  useConcerto: true,
   combatInterval: 0.15,
   excludedGames: [] as string[],
   hotkeyToggle: "F9",
@@ -55,6 +57,8 @@ watch(
     form.useLiberation = combatSettings.use_liberation ?? true;
     form.useEcho = combatSettings.use_echo ?? true;
     form.useDodge = combatSettings.use_dodge ?? true;
+    form.switchHealer = combatSettings.switch_healer ?? true;
+    form.useConcerto = combatSettings.use_concerto_switch ?? true;
     form.combatInterval = toNumber(combatSettings.interval, 0.15);
     form.pauseWhenBackground = config.app.Input.PauseWhenBackground;
     form.captureMethod = config.app.Capture.Method || "auto";
@@ -111,6 +115,8 @@ function save() {
       use_liberation: form.useLiberation,
       use_echo: form.useEcho,
       use_dodge: form.useDodge,
+      switch_healer: form.switchHealer,
+      use_concerto_switch: form.useConcerto,
       interval: form.combatInterval,
     };
   }
@@ -184,6 +190,14 @@ function save() {
           <label class="field field-switch">
             <span>使用闪避 / DODGE</span>
             <input v-model="form.useDodge" type="checkbox" />
+          </label>
+          <label class="field field-switch">
+            <span>战斗前后切治疗 / HEALER</span>
+            <input v-model="form.switchHealer" type="checkbox" />
+          </label>
+          <label class="field field-switch">
+            <span>协奏满切人 / CONCERTO</span>
+            <input v-model="form.useConcerto" type="checkbox" />
           </label>
           <label class="field">
             <span>出招间隔（秒） / INTERVAL</span>

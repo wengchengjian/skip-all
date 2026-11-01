@@ -14,6 +14,8 @@ const (
 	SettingUseLiberation = "use_liberation"
 	SettingUseEcho       = "use_echo"
 	SettingUseDodge      = "use_dodge"
+	SettingSwitchHealer  = "switch_healer"
+	SettingUseConcerto   = "use_concerto_switch"
 	SettingInterval      = "interval"
 	SettingHold          = "hold"
 )
@@ -54,6 +56,8 @@ func (f *Feature) DefaultSettings() assist.Settings {
 		SettingUseLiberation: true,
 		SettingUseEcho:       true,
 		SettingUseDodge:      true,
+		SettingSwitchHealer:  f.spec.HealerKey != "",
+		SettingUseConcerto:   f.spec.Concerto != nil,
 		SettingInterval:      f.spec.Interval.Seconds(),
 		SettingHold:          f.spec.Hold.Seconds(),
 	}
@@ -85,6 +89,8 @@ type sessionSettings struct {
 	noLiberation bool
 	noEcho       bool
 	noDodge      bool
+	noHealer     bool
+	noConcerto   bool
 }
 
 func parseSettings(settings assist.Settings, spec Spec) (sessionSettings, error) {
@@ -100,6 +106,12 @@ func parseSettings(settings assist.Settings, spec Spec) (sessionSettings, error)
 	}
 	if value, ok := boolSetting(settings, SettingUseDodge); ok {
 		cfg.noDodge = !value
+	}
+	if value, ok := boolSetting(settings, SettingSwitchHealer); ok {
+		cfg.noHealer = !value
+	}
+	if value, ok := boolSetting(settings, SettingUseConcerto); ok {
+		cfg.noConcerto = !value
 	}
 	if value, ok := floatSetting(settings, SettingInterval); ok {
 		if value <= 0 {

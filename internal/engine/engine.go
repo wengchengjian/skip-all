@@ -46,6 +46,7 @@ type Device interface {
 // Input 抽象点击与按键，便于测试替换。
 type Input interface {
 	Click(geom.Point) error
+	MiddleClick(geom.Point) error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error
@@ -325,6 +326,8 @@ func actionSummary(actions []assist.Action) string {
 		switch action.Kind {
 		case assist.ActionClick:
 			parts = append(parts, fmt.Sprintf("点击(%d,%d)", action.Point.X, action.Point.Y))
+		case assist.ActionMiddleClick:
+			parts = append(parts, fmt.Sprintf("中键(%d,%d)", action.Point.X, action.Point.Y))
 		case assist.ActionClickCurrent:
 			parts = append(parts, "点击当前光标")
 		case assist.ActionKeyTap:
@@ -345,6 +348,10 @@ func (e *Engine) executeActions(ctx context.Context, actions []assist.Action) er
 		case assist.ActionClick:
 			if err := e.input.Click(action.Point); err != nil {
 				return fmt.Errorf("点击失败: %w", err)
+			}
+		case assist.ActionMiddleClick:
+			if err := e.input.MiddleClick(action.Point); err != nil {
+				return fmt.Errorf("中键点击失败: %w", err)
 			}
 		case assist.ActionClickCurrent:
 			if err := e.input.ClickCurrent(); err != nil {

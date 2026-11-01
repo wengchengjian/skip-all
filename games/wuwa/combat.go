@@ -1,6 +1,8 @@
 package wuwa
 
 import (
+	"time"
+
 	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"github.com/wengchengjian/skip-all/pkg/geom"
@@ -33,7 +35,29 @@ func combatSpec() combat.Spec {
 			MinWidth:  50,
 			MinHeight: 6,
 		},
-		AttackPoint: geom.Point{X: 960, Y: 540},
+		// 协奏值能量环：上游 get_con_box() 的 (1431,1942)-(1557,2068)（4K、水平居中锚点），
+		// 换算到 1080p 是 (716,971)-(779,1034)；环半径按区域高度比例内外 0.35119 / 0.42261。
+		Concerto: &combat.Concerto{
+			Rect:  geom.Rect{X1: 716, Y1: 971, X2: 779, Y2: 1034},
+			Inner: 0.35119,
+			Outer: 0.42261,
+			// 覆盖率到这个数认为协奏满；上游是拿满环面积做基准换算，这里取经验值。
+			FullRatio: 0.8,
+			Colors: [][2][3]uint8{
+				{{205, 190, 90}, {235, 222, 130}}, // 衍射（黄）
+				{{150, 95, 210}, {190, 140, 249}}, // 导电（紫）
+				{{200, 100, 75}, {230, 130, 105}}, // 热熔（红）
+				{{60, 150, 210}, {95, 180, 245}},  // 冷凝（蓝）
+				{{70, 215, 155}, {110, 250, 190}}, // 气动（绿）
+				{{190, 65, 145}, {220, 105, 175}}, // 湮灭（暗红）
+			},
+		},
+		// 治疗位：默认按 3 号位（上游是识别 is_healer 后切位；这里用固定槽位，
+		// 你的治疗不在 3 号位就改这里，或在设置里关掉“战斗前后切治疗”）。
+		HealerKey: "3",
+		// 中键锁定间隔：上游 target_enemy() 会反复中键把目标锁回来。
+		LockInterval: 2 * time.Second,
+		AttackPoint:  geom.Point{X: 960, Y: 540},
 		Keys: combat.Keys{
 			Skill:      "e",
 			Echo:       "q",

@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"io"
 	"log/slog"
+	"math"
 	"testing"
 	"time"
 
@@ -272,5 +273,86 @@ func TestBossBarRequiresExactlyOne(t *testing.T) {
 	result, actions := step(t, session, assist.Frame{Image: img, At: time.Now()})
 	if result.State != "等待战斗" || len(actions) != 0 {
 		t.Fatalf("两条血条不该判成 Boss 战: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestLockIntervalEmitsMiddleClick(t *testing.T) {
+	spec := testSpec()
+	spec.LockInterval = 2 * time.Second
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	result, actions := step(t, session, frameAt(base))
+	if result.State != "锁定目标" {
+		t.Fatalf("首帧应当先锁目标, state = %q", result.State)
+	}
+	if len(actions) != 1 || actions[0].Kind != assist.ActionMiddleClick {
+		t.Fatalf("锁定动作 = %+v", actions)
+	}
+	// 间隔内继续出招，不再按中键。
+	result, actions = step(t, session, frameAt(base.Add(500*time.Millisecond)))
+	if result.State != "连招-普攻" || actions[0].Kind != assist.ActionClick {
+		t.Fatalf("间隔内应当出招: state = %q actions = %+v", result.State, actions)
+	}
+	// 超过间隔后再锁一次。
+	result, actions = step(t, session, frameAt(base.Add(3*time.Second)))
+	if result.State != "锁定目标" {
+		t.Fatalf("超过间隔应当再次锁定, state = %q", result.State)
+	}
+}
+
+func TestHealerSwitchAtStartAndEnd(t *testing.T) {
+	rt := testRuntime(true)
+	spec := testSpec()
+	spec.HealerKey = "3"
+	session := newSession(rt, spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	result, actions := step(t, session, frameAt(base))
+	if result.State != "战斗前切治疗" || actions[0].Key != "3" {
+		t.Fatalf("开局应切治疗: state = %q actions = %+v", result.State, actions)
+	}
+	// 之后正常出招，不会反复切。
+	for i := 1; i < 3; i++ {
+		result, _ = step(t, session, frameAt(base.Add(time.Duration(i)*200*time.Millisecond)))
+		if result.State == "战斗前切治疗" {
+			t.Fatal("切治疗只应在开局做一次")
+		}
+	}
+	// 脱离战斗后切回治疗，然后回到等待。
+	rt.hit = false
+	result, actions = step(t, session, frameAt(base.Add(10*time.Second)))
+	if result.State != "战斗结束切治疗" || actions[0].Key != "3" {
+		t.Fatalf("结束应切回治疗: state = %q actions = %+v", result.State, actions)
+	}
+	result, actions = step(t, session, frameAt(base.Add(11*time.Second)))
+	if result.State != "等待战斗" || len(actions) != 0 {
+		t.Fatalf("之后应当等待: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestConcertoFullSwitchesCharacter(t *testing.T) {
+	spec := testSpec()
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.8,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 0; y < 63; y++ {
+		for x := 0; x < 63; x++ {
+			d := math.Hypot(float64(x)+0.5-31.5, float64(y)+0.5-31.5)
+			if d >= 22.1 && d <= 26.6 {
+				img.SetRGBA(700+x, 960+y, color.RGBA{220, 205, 110, 255})
+			}
+		}
+	}
+	result, actions := step(t, session, assist.Frame{Image: img, At: time.Now()})
+	if result.State != "协奏满切人" {
+		t.Fatalf("协奏满应切人, state = %q", result.State)
+	}
+	if len(actions) != 1 || actions[0].Kind != assist.ActionKeyTap || actions[0].Key != "1" {
+		t.Fatalf("切人动作 = %+v", actions)
 	}
 }

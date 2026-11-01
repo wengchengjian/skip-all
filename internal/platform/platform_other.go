@@ -39,6 +39,7 @@ type Capturer interface {
 // Input 是输入接口。
 type Input interface {
 	Click(geom.Point) error
+	MiddleClick(geom.Point) error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error
@@ -66,9 +67,11 @@ func (unsupportedCapturer) Close() error                           { return nil 
 type unsupportedInput struct{}
 
 func (unsupportedInput) Click(geom.Point) error { return ErrUnsupported }
-func (unsupportedInput) ClickCurrent() error    { return ErrUnsupported }
-func (unsupportedInput) KeyTap(string) error    { return ErrUnsupported }
-func (unsupportedInput) ReleaseAll() error      { return nil }
-func (unsupportedInput) Close() error           { return nil }
-func (unsupportedInput) GamepadAvailable() bool { return false }
-func (unsupportedInput) GamepadError() error    { return ErrUnsupported }
+
+func (unsupportedInput) MiddleClick(geom.Point) error { return ErrUnsupported }
+func (unsupportedInput) ClickCurrent() error          { return ErrUnsupported }
+func (unsupportedInput) KeyTap(string) error          { return ErrUnsupported }
+func (unsupportedInput) ReleaseAll() error            { return nil }
+func (unsupportedInput) Close() error                 { return nil }
+func (unsupportedInput) GamepadAvailable() bool       { return false }
+func (unsupportedInput) GamepadError() error          { return ErrUnsupported }

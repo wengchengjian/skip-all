@@ -93,9 +93,11 @@
 | 上游 ok-ww | 本项目 | 说明 |
 | --- | --- | --- |
 | `AutoCombatTask.run`：`in_team_and_world` 直接返回，否则 `while in_combat(): char.perform()` | `pkg/assist/combat`：检测战斗 -> 按连招序列出招 -> 脱离战斗复位 | 流程只有一份，游戏只给数据 |
-| 每角色一个 char 模块（CD OCR、协奏、闪避判定） | 数据驱动的连招序列 `Spec.Plan` | 先把骨架做对，角色特化后续按需补 |
+| 每角色一个 char 模块（CD OCR、闪避判定、角色专属连招） | 数据驱动的连招序列 `Spec.Plan`；协奏满切人由 `Spec.Concerto` 触发 | 角色专属连招仍未做，等实机确认优先级 |
 | 按键：共鸣技能 E、声骸 Q、共鸣解放 R、闪避 左 Shift、切换 1/2/3 | 同上游 `config.py` 的默认值 | 见 `games/wuwa/combat.go` |
 | 战斗判据：`check_health_bar()` = `has_health_bar()` 扫敌人血条 + `is_boss()` 扫 Boss 血条 | `pkg/vision.FindColorRectangles` + `Spec.HealthBar` / `Spec.BossBar` | 两个判据都是上游的颜色区间与尺寸参数，整帧扫不需要固定区域 |
 | `is_boss()`：区域 (1269/3840, 58/2160)-(2533/3840, 200/2160) 里恰好一条 `boss_health_color`（R245-255/G30-185/B4-75） | `Spec.BossBar{Color, Rect, MinWidth, MinHeight}`，1080p 换算成 (634,29)-(1266,100)，同样要求恰好一条 | 与上游一致 |
-| `target_enemy()`：没锁定时反复中键锁定敌人 | 未实现 | 需要给输入层加中键动作，等实机确认是否必要 |
+| `target_enemy()`：没锁定时反复中键锁定敌人 | `Spec.LockInterval`：战斗态里按间隔发中键（新增 `ActionMiddleClick`，走平台层真实中键） | 上游按"是否已有目标"决定，这里没有目标识别能力，退化成定时锁定 |
+| `switch_healer()`：战前战后切治疗位 | `Spec.HealerKey` + 设置 `switch_healer`：开打第一帧与脱战第一帧各按一次 | 上游靠 `is_healer` 角色定义识别，这里用固定槽位键 |
+| `switch_next_char()`：协奏满就换人 | `Spec.Concerto` + `vision.RingCoverage`：头像周围能量环覆盖率达阈值就按切换键 | 环的区域与颜色取自上游 `get_con_box()` 与 `con_colors`；阈值是经验值，需实机校准 |
 | `Use Liberation` / `Switch to Healer` 等开关 | `use_liberation` / `use_echo` / `use_dodge` / `interval` / `hold` | 未做切治疗、超时重开等上游特化能力 |

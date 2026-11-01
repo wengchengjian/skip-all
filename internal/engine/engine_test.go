@@ -27,14 +27,17 @@ func (f *fakeDevice) IsActive() bool  { return f.active.Load() }
 func (f *fakeDevice) Activate() error { f.active.Store(true); return nil }
 
 type fakeInput struct {
-	clicks atomic.Int32
-	keys   atomic.Int32
+	middleClicks atomic.Int32
+	clicks       atomic.Int32
+	keys         atomic.Int32
 }
 
 func (f *fakeInput) Click(geom.Point) error { f.clicks.Add(1); return nil }
-func (f *fakeInput) ClickCurrent() error    { f.clicks.Add(1); return nil }
-func (f *fakeInput) KeyTap(string) error    { f.keys.Add(1); return nil }
-func (f *fakeInput) ReleaseAll() error      { return nil }
+
+func (f *fakeInput) MiddleClick(geom.Point) error { f.middleClicks.Add(1); return nil }
+func (f *fakeInput) ClickCurrent() error          { f.clicks.Add(1); return nil }
+func (f *fakeInput) KeyTap(string) error          { f.keys.Add(1); return nil }
+func (f *fakeInput) ReleaseAll() error            { return nil }
 
 type fakeFeature struct {
 	session *fakeSession

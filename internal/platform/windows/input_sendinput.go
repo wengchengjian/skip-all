@@ -22,8 +22,11 @@ const (
 	waActive      = 1
 	wmMouseMove   = 0x0200
 	wmLButtonDown = 0x0201
+	wmMButtonDown = 0x0207
+	wmMButtonUp   = 0x0208
 	wmLButtonUp   = 0x0202
 	mkLButton     = 0x0001
+	mkMButton     = 0x0010
 
 	mouseEventLeftDown   = 0x0002
 	mouseEventLeftUp     = 0x0004
@@ -156,6 +159,7 @@ type Input struct {
 // 编译期断言：Input 可直接作为 engine.Input 使用。
 var _ interface {
 	Click(geom.Point) error
+	MiddleClick(geom.Point) error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error
@@ -232,12 +236,48 @@ func (i *Input) Click(p geom.Point) error {
 		return err
 	}
 	if i.background {
-		return i.backgroundClickAtLocked(pt, i.shouldMoveCursor())
+		return i.backgroundClickAtLocked(pt, i.shouldMoveCursor(), leftButton)
 	}
 	if err := i.ensureActiveLocked(); err != nil {
 		return err
 	}
 	return i.clickLocked(rect.X1+pt.X, rect.Y1+pt.Y)
+}
+
+// MiddleClick 在指定位置按鼠标中键（鸣潮用中键锁定敌人）。
+func (i *Input) MiddleClick(p geom.Point) error {
+	if i == nil || i.win == nil {
+		return ErrWindowNotFound
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	rect, err := i.win.ClientRect()
+	if err != nil {
+		return err
+	}
+	pt, err := scalePoint(p, rect.Width(), rect.Height())
+	if err != nil {
+		return err
+	}
+	if i.background {
+		return i.backgroundClickAtLocked(pt, i.shouldMoveCursor(), middleButton)
+	}
+	if err := i.ensureActiveLocked(); err != nil {
+		return err
+	}
+	if r, _, _ := procSetCursorPos.Call(uintptr(rect.X1+pt.X), uintptr(rect.Y1+pt.Y)); r == 0 {
+		return fmt.Errorf("移动鼠标失败: %w", lastErr("SetCursorPos"))
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := sendMouseEvent(mouseEventMiddleDown, 0, 0); err != nil {
+		return err
+	}
+	time.Sleep(clickHoldTime)
+	if err := sendMouseEvent(mouseEventMiddleUp, 0, 0); err != nil {
+		_ = sendMouseEvent(mouseEventMiddleUp, 0, 0)
+		return err
+	}
+	return nil
 }
 
 // ClickCurrent 在鼠标当前位置点击，不移动光标。
@@ -252,7 +292,7 @@ func (i *Input) ClickCurrent() error {
 		if err != nil {
 			return err
 		}
-		return i.backgroundClickAtLocked(geom.Point{X: rect.Width() / 2, Y: rect.Height() / 2}, i.shouldMoveCursor())
+		return i.backgroundClickAtLocked(geom.Point{X: rect.Width() / 2, Y: rect.Height() / 2}, i.shouldMoveCursor(), leftButton)
 	}
 	if err := i.ensureActiveLocked(); err != nil {
 		return err
@@ -396,7 +436,18 @@ func (i *Input) clickLocked(x, y int) error {
 }
 
 // backgroundClickAtLocked 在后台点击客户区 (x,y)；moveCursor 为 true 时短暂移动并归位光标。
-func (i *Input) backgroundClickAtLocked(p geom.Point, moveCursor bool) error {
+// mouseButton 描述一次按下/抬起要用的消息与标志位。
+type mouseButton struct {
+	down, up uintptr
+	flag     uintptr
+}
+
+var (
+	leftButton   = mouseButton{down: wmLButtonDown, up: wmLButtonUp, flag: mkLButton}
+	middleButton = mouseButton{down: wmMButtonDown, up: wmMButtonUp, flag: mkMButton}
+)
+
+func (i *Input) backgroundClickAtLocked(p geom.Point, moveCursor bool, button mouseButton) error {
 	if i == nil || i.win == nil {
 		return ErrWindowNotFound
 	}
@@ -405,9 +456,9 @@ func (i *Input) backgroundClickAtLocked(p geom.Point, moveCursor bool) error {
 		return ErrWindowNotFound
 	}
 	if moveCursor {
-		return i.cursorClickLocked(hwnd, p)
+		return i.cursorClickLocked(hwnd, p, button)
 	}
-	return i.postClickLocked(hwnd, p)
+	return i.postClickLocked(hwnd, p, button)
 }
 
 // postClickLocked 纯后台消息点击：不移动真实光标，坐标只放在 lParam 里。
@@ -426,7 +477,7 @@ func (i *Input) clickTarget(hwnd uintptr, p geom.Point) (uintptr, uintptr) {
 	return target, lparam
 }
 
-func (i *Input) postClickLocked(hwnd uintptr, p geom.Point) error {
+func (i *Input) postClickLocked(hwnd uintptr, p geom.Point, button mouseButton) error {
 	target, lparam := i.clickTarget(hwnd, p)
 	// 与上游后台模式设计一致：先同步假装激活，再移动/按下/抬起。
 	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
@@ -436,19 +487,19 @@ func (i *Input) postClickLocked(hwnd uintptr, p geom.Point) error {
 	time.Sleep(10 * time.Millisecond)
 	_ = postMessage(target, wmMouseMove, 0, lparam)
 	time.Sleep(10 * time.Millisecond)
-	if err := postMessage(target, wmLButtonDown, mkLButton, lparam); err != nil {
+	if err := postMessage(target, button.down, button.flag, lparam); err != nil {
 		return err
 	}
 	time.Sleep(20 * time.Millisecond)
-	if err := postMessage(target, wmLButtonUp, 0, lparam); err != nil {
-		_ = postMessage(target, wmLButtonUp, 0, lparam)
+	if err := postMessage(target, button.up, 0, lparam); err != nil {
+		_ = postMessage(target, button.up, 0, lparam)
 		return err
 	}
 	return nil
 }
 
 // cursorClickLocked 把光标移到目标、点击、再尽量归位；ZZZ 的后台点击依赖真实光标位置。
-func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
+func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point, button mouseButton) error {
 	rect, err := i.win.ClientRect()
 	if err != nil {
 		return err
@@ -484,11 +535,11 @@ func (i *Input) cursorClickLocked(hwnd uintptr, p geom.Point) error {
 	time.Sleep(10 * time.Millisecond)
 	_ = postMessage(target, wmMouseMove, 0, lparam)
 	time.Sleep(10 * time.Millisecond)
-	if err := postMessage(target, wmLButtonDown, mkLButton, lparam); err != nil {
+	if err := postMessage(target, button.down, button.flag, lparam); err != nil {
 		return err
 	}
 	time.Sleep(clickHoldTime)
-	if err := postMessage(target, wmLButtonUp, 0, lparam); err != nil {
+	if err := postMessage(target, button.up, 0, lparam); err != nil {
 		return err
 	}
 	time.Sleep(25 * time.Millisecond)

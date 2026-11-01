@@ -28,6 +28,7 @@ type ActionKind int
 
 const (
 	ActionClick ActionKind = iota
+	ActionMiddleClick
 	ActionClickCurrent
 	ActionKeyTap
 	ActionWait
