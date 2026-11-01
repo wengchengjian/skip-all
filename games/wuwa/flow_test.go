@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"log/slog"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,8 @@ type flowRuntime struct {
 	ocr string
 	// hit 里的模板 id 一律返回命中（用来模拟队伍数字与角色头像）。
 	hit map[string]bool
+	// skill 为 true 时，技能就绪区域是亮的（用来模拟"落地"）。
+	skill bool
 }
 
 func (flowRuntime) Screen(name string) (*screen.Screen, error) {
@@ -48,7 +51,26 @@ func (flowRuntime) Log() *slog.Logger { return slog.Default() }
 
 // flowFrame 造一帧：可选画敌人血条、可选把协奏环涂满。
 func flowFrame(withHealthBar, fullConcerto bool) *image.RGBA {
+	return flowFrameOpts(withHealthBar, fullConcerto, false, false)
+}
+
+// flowFrameOpts 额外控制"技能就绪亮起"与"回路满亮起"。
+func flowFrameOpts(withHealthBar, fullConcerto, skillLit, forteLit bool) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	if skillLit {
+		for y := 940; y < 992; y++ {
+			for x := 1594; x < 1658; x++ {
+				img.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+			}
+		}
+	}
+	if forteLit {
+		for y := 996; y < 1008; y++ {
+			for x := 1125; x < 1156; x++ {
+				img.SetRGBA(x, y, color.RGBA{252, 252, 252, 255})
+			}
+		}
+	}
 	if withHealthBar {
 		for y := 100; y < 108; y++ {
 			for x := 800; x < 1000; x++ {
@@ -179,5 +201,43 @@ func TestCombatFlowAfterSwitch(t *testing.T) {
 	}
 	if result.State != "切人未生效" {
 		t.Fatalf("队伍数字没变应当判定切人未生效, got %q", result.State)
+	}
+}
+
+// TestCombatFlowIntroThenCombo 覆盖切人成功后的入场与连招：
+// 队伍数字变化 = 切人生效；技能亮起 = 落地；之后进入角色连招。
+func TestCombatFlowIntroThenCombo(t *testing.T) {
+	hit := map[string]bool{"char_1_text": true, "char_2_text": true, "char_jiyan": true, "has_target": true}
+	rt := flowRuntime{hit: hit}
+	session, err := CombatFeature().NewSession(rt, nil)
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	defer session.Close()
+	base := time.Now()
+
+	// 先切治疗，再协奏满切人。
+	if result, _, _ := session.Step(nil, assist.Frame{Image: flowFrame(true, false), At: base}); result.State != "战斗前切治疗" {
+		t.Fatalf("应当先切治疗, got %q", result.State)
+	}
+	if result, _, _ := session.Step(nil, assist.Frame{Image: flowFrame(true, true), At: base.Add(3 * time.Second)}); result.State != "协奏满切人" {
+		t.Fatalf("协奏满应当切人, got %q", result.State)
+	}
+
+	// 切人生效：3 号数字变得可见、2 号消失（当前角色换成 2 号位）。
+	hit["char_3_text"] = true
+	delete(hit, "char_2_text")
+
+	// 技能亮起 = 落地，入场结束；之后应进入连招。
+	result, _, err := session.Step(nil, assist.Frame{Image: flowFrameOpts(true, false, true, false), At: base.Add(3400 * time.Millisecond)})
+	if err != nil {
+		t.Fatalf("入场帧出错: %v", err)
+	}
+	result, actions, err := session.Step(nil, assist.Frame{Image: flowFrameOpts(true, false, true, false), At: base.Add(3600 * time.Millisecond)})
+	if err != nil {
+		t.Fatalf("连招帧出错: %v", err)
+	}
+	if !strings.HasPrefix(result.State, "连招-") && !strings.HasPrefix(result.State, "入场") {
+		t.Fatalf("落地后应当进入连招, got %q actions=%+v", result.State, actions)
 	}
 }
