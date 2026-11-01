@@ -35,6 +35,8 @@ const form = reactive({
   switchHealer: true,
   dodgeFlash: true,
   quickAssist: true,
+  chainAttack: true,
+  ultimateReady: true,
   useConcerto: true,
   combatInterval: 0.15,
   excludedGames: [] as string[],
@@ -74,6 +76,8 @@ watch(
     form.switchHealer = combatSettings.switch_healer ?? true;
     form.dodgeFlash = combatSettings.ext_dodge_flash ?? true;
     form.quickAssist = combatSettings.ext_quick_assist ?? true;
+    form.chainAttack = combatSettings.ext_chain ?? true;
+    form.ultimateReady = combatSettings.ext_ultimate ?? true;
     form.useConcerto = combatSettings.use_concerto_switch ?? true;
     form.combatInterval = toNumber(combatSettings.interval, 0.15);
     form.pauseWhenBackground = config.app.Input.PauseWhenBackground;
@@ -139,6 +143,8 @@ function save() {
         switch_healer: form.switchHealer,
         ext_dodge_flash: form.dodgeFlash,
         ext_quick_assist: form.quickAssist,
+        ext_chain: form.chainAttack,
+        ext_ultimate: form.ultimateReady,
         use_concerto_switch: form.useConcerto,
         interval: form.combatInterval,
       };
