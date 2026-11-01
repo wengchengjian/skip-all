@@ -8,6 +8,7 @@ import (
 	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"github.com/wengchengjian/skip-all/pkg/geom"
+	"github.com/wengchengjian/skip-all/pkg/screen"
 	"github.com/wengchengjian/skip-all/pkg/vision"
 )
 
@@ -40,6 +41,8 @@ type zzzStateRuleExt struct {
 	ChainRGB  [2][3]uint8
 	ChainRate float64
 	stunAt    time.Time
+	// energyThreshold 是能量条模板的匹配阈值。
+	energyThreshold float64
 }
 
 func (e *zzzStateRuleExt) Name() string { return "state_rules" }
@@ -201,6 +204,11 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 	if strings.HasSuffix(name, "-终结技可用") {
 		return e.lit(frame, e.UltArea)
 	}
+	// [前台-能量] / [后台-1-能量] / [后台-2-能量]：读能量条填充长度（0-120）。
+	// 上游用 energy_3_N 模板定位能量条，再量 FOREGROUND_GRAY_RANGE_LENGTH。
+	if slot, ok := energySlot(name); ok {
+		return e.energyInRange(rt, frame, raw, slot)
+	}
 	// [后台-1-击破] / [后台-2-击破]：后台第 N 位的代理人是不是"击破"定位。
 	if kind, index, ok := parseBackSlot(name); ok {
 		return e.backSlotHasKind(rt, frame, index, kind)
@@ -299,6 +307,53 @@ func (e *zzzStateRuleExt) flash(frame assist.Frame, index int) bool {
 	return vision.ColorRatio(frame.Image, area, flashColors[index]) >= flashRatio
 }
 
+// energySlot 把能量条件映射到槽位：前台=0，后台-1=1，后台-2=2。
+// [<角色>-能量] 这类角色专属写法按前台处理。
+func energySlot(name string) (int, bool) {
+	switch name {
+	case "前台-能量":
+		return 0, true
+	case "后台-1-能量":
+		return 1, true
+	case "后台-2-能量":
+		return 2, true
+	}
+	if strings.HasSuffix(name, "-能量") {
+		return 0, true
+	}
+	return 0, false
+}
+
+// energyInRange 读能量条并判断是否落在条件给的范围里（上游的量程是 0-120）。
+func (e *zzzStateRuleExt) energyInRange(rt combat.Runtime, frame assist.Frame, raw string, slot int) bool {
+	value, ok := e.energyValue(rt, frame, slot)
+	if !ok {
+		return false
+	}
+	lo, hi, hasWindow := parseWindow(raw)
+	if !hasWindow {
+		return value > 0
+	}
+	return value >= int(lo) && value <= int(hi)
+}
+
+// energyValue 在限定区域里找能量条，量出灰度填充长度。
+func (e *zzzStateRuleExt) energyValue(rt combat.Runtime, frame assist.Frame, slot int) (int, bool) {
+	if slot >= len(energyTemplateIDs) {
+		return 0, false
+	}
+	threshold := e.energyThreshold
+	if threshold <= 0 {
+		threshold = 0.6
+	}
+	area := screen.Area{Name: "能量条", Rect: energySearchArea}
+	matches, err := rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: "energy", ID: energyTemplateIDs[slot]}, threshold)
+	if err != nil || len(matches) == 0 {
+		return 0, false
+	}
+	return vision.GrayRunLength(frame.Image, matches[0].Rect, energyGrayLower, energyGrayUpper), true
+}
+
 // parseBackSlot 解析 "后台-1-击破" 这类条件。
 func parseBackSlot(name string) (kind string, index int, ok bool) {
 	parts := strings.Split(name, "-")
@@ -371,6 +426,17 @@ func (e *zzzStateRuleExt) lit(frame assist.Frame, rect geom.Rect) bool {
 	}
 	return vision.ColorRatio(frame.Image, rect, brightRange) >= threshold
 }
+
+// 能量条的搜索区域与量程（上游 max_length=120，灰度 90-255）。
+var (
+	energySearchArea  = geom.Rect{X1: 40, Y1: 940, X2: 460, Y2: 1080}
+	energyTemplateIDs = []string{"energy_3_1", "energy_3_2", "energy_3_3"}
+)
+
+const (
+	energyGrayLower = 90
+	energyGrayUpper = 255
+)
 
 // flashColors / flashRatio 与 zzzDodgeExt 保持一致。
 var flashColors = [][2][3]uint8{
