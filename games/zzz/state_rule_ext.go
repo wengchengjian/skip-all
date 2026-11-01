@@ -198,6 +198,10 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 	if strings.HasSuffix(name, "-终结技可用") {
 		return e.lit(frame, e.UltArea)
 	}
+	// [后台-1-击破] / [后台-2-击破]：后台第 N 位的代理人是不是"击破"定位。
+	if kind, index, ok := parseBackSlot(name); ok {
+		return e.backSlotHasKind(rt, frame, index, kind)
+	}
 	// [自定义-终结技被强制释放]：上游在前台角色终结技可用时打这个标记
 	// （auto_battle_agent_context.py 的自动终结技逻辑），这里等价成"终结技可用"。
 	if name == "自定义-终结技被强制释放" {
@@ -208,7 +212,8 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 		return len(e.queue) > 0
 	}
 	// [自定义-失衡时间, 0, N]：连携条可见期间及之后 N 秒（连携只在失衡时出现）。
-	if name == "自定义-失衡时间" {
+	// [自定义-连携换人, 0, N]：同理——连携期间换过人就发生在看到连携条之后。
+	if name == "自定义-失衡时间" || name == "自定义-连携换人" {
 		now := frame.At
 		if now.IsZero() {
 			now = time.Now()
@@ -289,6 +294,47 @@ func (e *zzzStateRuleExt) flash(frame assist.Frame, index int) bool {
 		return false
 	}
 	return vision.ColorRatio(frame.Image, area, flashColors[index]) >= flashRatio
+}
+
+// parseBackSlot 解析 "后台-1-击破" 这类条件。
+func parseBackSlot(name string) (kind string, index int, ok bool) {
+	parts := strings.Split(name, "-")
+	if len(parts) != 3 || parts[0] != "后台" {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(parts[1])
+	if err != nil || n < 1 {
+		return "", 0, false
+	}
+	return parts[2], n, true
+}
+
+// backSlotHasKind 判断后台第 index 位（1 起）的代理人是否属于某定位。
+func (e *zzzStateRuleExt) backSlotHasKind(rt combat.Runtime, frame assist.Frame, index int, kind string) bool {
+	if e.Team == nil {
+		return false
+	}
+	ids, err := e.Team.Slots(rt, frame)
+	if err != nil || index >= len(ids) {
+		return false
+	}
+	// 槽位顺序是 前台 + 后台两位，后台第 1 位对应下标 1。
+	slot := index
+	if slot >= len(ids) || ids[slot] == "" {
+		return false
+	}
+	typeName := map[string]string{
+		"击破": AgentTypeStun,
+		"强攻": AgentTypeAttack,
+		"异常": AgentTypeAnomaly,
+		"支援": AgentTypeSupport,
+		"防护": AgentTypeDefense,
+		"命破": AgentTypeRupture,
+	}[kind]
+	if typeName == "" {
+		return false
+	}
+	return agentsByType[typeName][ids[slot]]
 }
 
 // matchState 照上游的 COLOR_RANGE_CONNECT：区域里出现足够多的该颜色块就算状态成立。
