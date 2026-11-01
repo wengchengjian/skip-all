@@ -73,6 +73,12 @@ type Feature interface {
 	NewSession(Runtime, Settings) (Session, error)
 }
 
+// FrameRateFeature 是可选接口：功能需要比全局更高的截图帧率时实现它。
+// 自动战斗这类要连续出招的场合靠它抬高帧率，其它功能不受影响。
+type FrameRateFeature interface {
+	MinFPS() int
+}
+
 // Game 是一个游戏适配器。
 type Game interface {
 	ID() string

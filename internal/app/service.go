@@ -388,7 +388,11 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 		return ActionResult{OK: false, Error: err.Error()}
 	}
 	matcher := vision.NewMatcher(ocr, vision.NewTemplateStoreFS(game.Assets(), "templates"))
-	eng := engine.New(capturer, input, screens, matcher, s.logger, feature, assist.Settings(settings), engine.Config{TargetFPS: appCfg.Capture.TargetFPS, PauseWhenBackground: appCfg.Input.PauseWhenBackground, ActivateWindow: !background}, func(ev engine.Event) { s.onEngineEvent(gameID, ev) })
+	targetFPS := appCfg.Capture.TargetFPS
+	if needs, ok := feature.(assist.FrameRateFeature); ok && needs.MinFPS() > targetFPS {
+		targetFPS = needs.MinFPS()
+	}
+	eng := engine.New(capturer, input, screens, matcher, s.logger, feature, assist.Settings(settings), engine.Config{TargetFPS: targetFPS, PauseWhenBackground: appCfg.Input.PauseWhenBackground, ActivateWindow: !background}, func(ev engine.Event) { s.onEngineEvent(gameID, ev) })
 	ctx, cancel := context.WithCancel(context.Background())
 	sess := &gameSession{gameID: gameID, featureID: featureID, eng: eng, cancel: cancel}
 	s.mu.Lock()

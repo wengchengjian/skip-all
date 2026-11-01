@@ -23,7 +23,10 @@ type Feature struct {
 	spec Spec
 }
 
-var _ assist.Feature = (*Feature)(nil)
+var (
+	_ assist.Feature          = (*Feature)(nil)
+	_ assist.FrameRateFeature = (*Feature)(nil)
+)
 
 // NewFeature 创建自动战斗功能。
 func NewFeature(spec Spec) *Feature {
@@ -40,6 +43,10 @@ func (f *Feature) Name() string { return "自动战斗" }
 func (f *Feature) Description() string {
 	return "识别进入战斗后按连招循环出招，脱离战斗自动停下。"
 }
+
+// MinFPS 返回自动战斗需要的最低帧率。上游 ok-ww 的触发间隔是 0.1 秒，
+// 5 FPS 的截图节奏会把连招拖到每 200 毫秒才出一次手。
+func (f *Feature) MinFPS() int { return 10 }
 
 // DefaultSettings 返回默认设置。
 func (f *Feature) DefaultSettings() assist.Settings {

@@ -196,3 +196,14 @@ func TestFeatureDefaultSettings(t *testing.T) {
 		t.Fatal("负间隔应当报错")
 	}
 }
+
+func TestFeatureRequestsHigherFrameRate(t *testing.T) {
+	feature := NewFeature(testSpec())
+	needs, ok := assist.Feature(feature).(assist.FrameRateFeature)
+	if !ok {
+		t.Fatal("自动战斗应当实现 FrameRateFeature")
+	}
+	if needs.MinFPS() < 10 {
+		t.Fatalf("MinFPS = %d", needs.MinFPS())
+	}
+}
