@@ -232,6 +232,10 @@ func zzzExtensions(team *zzzTeam) []combat.Extension {
 			// 角色能量/层数条在血条下方一带（经验值，实机可调）。
 			StateArea: geom.Rect{X1: 40, Y1: 940, X2: 420, Y2: 1070},
 			FlashArea: geom.Rect{X1: 560, Y1: 240, X2: 1360, Y2: 840},
+			// 连携条可见 = 敌人失衡。
+			ChainBar:  geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900},
+			ChainRGB:  [2][3]uint8{{200, 120, 40}, {255, 205, 120}},
+			ChainRate: 0.5,
 		},
 		&zzzDodgeExt{
 			// 闪光出现在角色周围，取屏幕中央一块；比值是经验值，实机可调。

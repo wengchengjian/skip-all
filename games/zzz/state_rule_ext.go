@@ -34,6 +34,12 @@ type zzzStateRuleExt struct {
 	// 站场角色变了就说明刚切过人，用来判定 [按键-切换角色-下一个/上一个, 0, N]。
 	lastAgent  string
 	switchedAt time.Time
+	// 连携条出现说明敌人进入失衡（连携只在失衡时可用），
+	// 用它来近似 [自定义-失衡时间, 0, N]。
+	ChainBar  geom.Rect
+	ChainRGB  [2][3]uint8
+	ChainRate float64
+	stunAt    time.Time
 }
 
 func (e *zzzStateRuleExt) Name() string { return "state_rules" }
@@ -54,6 +60,11 @@ func (e *zzzStateRuleExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Ac
 	if now.IsZero() {
 		now = time.Now()
 	}
+	// 连携条可见 = 敌人失衡中，刷新失衡时间戳。
+	if vision.ColorRatio(frame.Image, e.ChainBar, e.ChainRGB) >= e.chainRate() {
+		e.stunAt = now
+	}
+
 	// 每帧确认站场角色：白名单学习过之后只比一两张模板，开销很小；
 	// 角色变化本身就是"刚切过人"的证据。
 	if id, ok, err := e.Team.Agent(rt, frame); err == nil && ok {
@@ -187,6 +198,18 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 	if strings.HasSuffix(name, "-终结技可用") {
 		return e.lit(frame, e.UltArea)
 	}
+	// [自定义-动作不打断]：规则队列里还有动作没打完，等价于"正在出招"。
+	if name == "自定义-动作不打断" {
+		return len(e.queue) > 0
+	}
+	// [自定义-失衡时间, 0, N]：连携条可见期间及之后 N 秒（连携只在失衡时出现）。
+	if name == "自定义-失衡时间" {
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		return e.stunWithin(raw, now)
+	}
 	// [按键-切换角色-下一个/上一个, 0, N]：站场角色刚换过就算成立
 	// （本项目分不出是"下一个"还是"上一个"，两者按同一件事处理）。
 	if strings.HasPrefix(name, "按键-切换角色") {
@@ -204,6 +227,27 @@ func (e *zzzStateRuleExt) atom(rt combat.Runtime, frame assist.Frame, raw string
 		return e.flash(frame, 1)
 	}
 	return false
+}
+
+// chainRate 给连携条的金色占比阈值一个默认值。
+func (e *zzzStateRuleExt) chainRate() float64 {
+	if e.ChainRate > 0 {
+		return e.ChainRate
+	}
+	return 0.5
+}
+
+// stunWithin 判断 [自定义-失衡时间, 0, N]：距最近一次"看到连携条"多久。
+func (e *zzzStateRuleExt) stunWithin(raw string, now time.Time) bool {
+	if e.stunAt.IsZero() {
+		return false
+	}
+	lo, hi, ok := parseWindow(raw)
+	if !ok {
+		return true
+	}
+	elapsed := now.Sub(e.stunAt).Seconds()
+	return elapsed >= lo && elapsed <= hi
 }
 
 // switchedWithin 判断"最近一次切人"是否落在条件给的时间窗内。

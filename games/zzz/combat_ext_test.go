@@ -393,3 +393,44 @@ func TestSwitchEventAtom(t *testing.T) {
 		t.Fatal("超出时间窗不该成立")
 	}
 }
+
+func TestStunWindowFromChainBar(t *testing.T) {
+	front := geom.Rect{X1: 104, Y1: 40, X2: 274, Y2: 110}
+	team := &zzzTeam{
+		front:     screen.Area{Name: "前台头像", Rect: front},
+		frontIDs:  []string{"grace"},
+		threshold: 0.8,
+	}
+	bar := geom.Rect{X1: 813, Y1: 884, X2: 1098, Y2: 900}
+	e := &zzzStateRuleExt{
+		Team:      team,
+		SkillArea: geom.Rect{X1: 1620, Y1: 917, X2: 1720, Y2: 1017},
+		UltArea:   geom.Rect{X1: 1728, Y1: 778, X2: 1826, Y2: 876},
+		ChainBar:  bar,
+		ChainRGB:  [2][3]uint8{{200, 120, 40}, {255, 205, 120}},
+		ChainRate: 0.5,
+	}
+	rt := &mutableAreaFake{byRect: map[geom.Rect]map[string]float64{front: {"grace": 0.95}}}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	// 画连携条（金色横线）= 敌人失衡中。
+	for y := 886; y < 898; y++ {
+		for x := 820; x < 1092; x++ {
+			img.SetRGBA(x, y, color.RGBA{240, 170, 60, 255})
+		}
+	}
+	base := time.Now()
+	e.Step(rt, assist.Frame{Image: img, At: base})
+	if e.stunAt.IsZero() {
+		t.Fatal("看到连携条应当记为失衡")
+	}
+
+	// 失衡后 3 秒：[自定义-失衡时间, 0, 10] 成立。
+	if !e.atom(rt, assist.Frame{Image: img, At: base.Add(3 * time.Second)}, "自定义-失衡时间, 0, 10") {
+		t.Fatal("10 秒窗口内应当成立")
+	}
+	// 失衡后 20 秒（且期间看不到连携条）：[自定义-失衡时间, 0, 10] 不成立。
+	empty := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	if e.atom(rt, assist.Frame{Image: empty, At: base.Add(20 * time.Second)}, "自定义-失衡时间, 0, 10") {
+		t.Fatal("超出窗口不该成立")
+	}
+}
