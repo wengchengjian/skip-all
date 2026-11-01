@@ -33,6 +33,13 @@ area_list:
   - 730
   text: 确认
   lcs_percent: 1.0
+- area_name: 剧情面板-跳过
+  id_mark: false
+  pc_rect:
+  - 1140
+  - 720
+  - 1600
+  - 850
 - area_name: 确认框勾选框
   id_mark: false
   pc_rect:

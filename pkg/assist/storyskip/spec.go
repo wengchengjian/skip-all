@@ -58,6 +58,11 @@ type Spec struct {
 	StoryMenuAreas      []string // 剧情菜单按钮模板区域（键盘/手柄可多个）
 	StorySkipAreas      []string // 剧情跳过按钮模板区域
 	ConfirmTemplateArea string   // 确认按钮模板区域，可留空
+	// PanelSkipArea 是剧情面板（如鸣潮按 ESC 出的"剧情梗概"）里跳过按钮的区域，
+	// 配合 PanelSkipKeyword 用；留空表示不处理这类面板。
+	PanelSkipArea string
+	// PanelSkipKeyword 是面板里跳过按钮的文字，默认"跳过"。
+	PanelSkipKeyword string
 	// ConfirmCheckArea 是确认弹窗里勾选框的模板区域，用来判"确认框已经在场"；
 	// 留空时不做这个判断。
 	ConfirmCheckArea string
@@ -88,6 +93,9 @@ type Spec struct {
 func (s Spec) withDefaults() Spec {
 	if s.ConfirmText == "" {
 		s.ConfirmText = "确认"
+	}
+	if s.PanelSkipKeyword == "" {
+		s.PanelSkipKeyword = s.SkipKeyword
 	}
 	if len(s.ConfirmTexts) == 0 {
 		s.ConfirmTexts = []string{s.ConfirmText}

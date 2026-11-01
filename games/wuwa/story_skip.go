@@ -20,6 +20,9 @@ func storySkipSpec() storyskip.Spec {
 		ConfirmArea:      "对话框确认",
 		DialogArea:       "对话内容",
 		ConfirmCheckArea: "确认框勾选框",
+		// 按 ESC 或剧情暂停时会出现"剧情梗概"面板，里面有"跳过剧情"。
+		PanelSkipArea:    "剧情面板-跳过",
+		PanelSkipKeyword: "跳过",
 		RightOptionArea:  "右侧选项区域",
 		MiddleOptionArea: "中间选项区域",
 		// 鸣潮的“跳过”是左上角的图标，没有文字，只能靠模板：

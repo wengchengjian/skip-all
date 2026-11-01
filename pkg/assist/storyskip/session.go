@@ -32,7 +32,9 @@ const (
 	skipRetryInterval = 500 * time.Millisecond
 	// confirmPollInterval 是"确认框已在场"兜底检查的间隔。
 	confirmPollInterval = 2 * time.Second
-	skipRetryLimit      = 3
+	// panelPollInterval 是"剧情面板里有没有跳过按钮"的检查间隔。
+	panelPollInterval = time.Second
+	skipRetryLimit    = 3
 
 	padPhaseNone   = 0
 	padPhaseSkip   = 1 // 已按“+”触发普通跳过
@@ -66,6 +68,7 @@ type Session struct {
 	confirmUntil   time.Time
 	lastSkipAt     time.Time
 	confirmPollAt  time.Time
+	panelPollAt    time.Time
 	skipRetries    int
 	entryVisible   bool
 	// entrySet 只在一次 Step 内有效：每帧开始时清掉，避免跨帧复用旧结论。
@@ -250,6 +253,16 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	} else if ok {
 		s.recentClicks = 0
 		return assist.Result{State: "等待:" + name, Wait: wait}, nil, nil
+	}
+
+	// 4.5 剧情面板（鸣潮按 ESC 出的"剧情梗概"）：里面有"跳过剧情"就直接点。
+	if s.spec.PanelSkipArea != "" {
+		if step, err := s.clickPanelSkip(frame); err != nil {
+			return assist.Result{}, nil, err
+		} else if step != nil {
+			result, actions := step.unpack()
+			return result, actions, nil
+		}
 	}
 
 	// 5. 确认框已经在场（例如程序启动时弹窗就开着）：勾选框 + 确认文案双证才点。
@@ -535,6 +548,50 @@ func (s *Session) clickConfirm(frame assist.Frame) ([]assist.Action, bool, error
 	// 点 OCR 文字块中心：弹窗宽度会随文案变化，确认按钮不在固定位置，
 	// 点区域中心在宽区域上会落空。
 	return []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}, true, nil
+}
+
+// clickPanelSkip 在剧情面板里找"跳过剧情"并点击；找不到返回 nil。
+// 检查按 panelPollInterval 节流，避免每帧都跑 OCR。
+func (s *Session) clickPanelSkip(frame assist.Frame) (*actionStep, error) {
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if !s.panelPollAt.IsZero() && now.Sub(s.panelPollAt) < panelPollInterval {
+		return nil, nil
+	}
+	s.panelPollAt = now
+	area, err := s.area(s.spec.Screen, s.spec.PanelSkipArea)
+	if err != nil {
+		return nil, err
+	}
+	// 先用白色按钮块把"面板在不在"判掉：按钮是一条宽白条，
+	// 这样大世界里不会为了这个面板每秒跑一次 OCR。
+	panelUp := false
+	for _, band := range vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{
+		ColorRange: &s.spec.ButtonColorRange,
+		MinHeight:  20,
+	}) {
+		if band.X2-band.X1 >= 120 {
+			panelUp = true
+			break
+		}
+	}
+	if !panelUp {
+		return nil, nil
+	}
+	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, storyButtonCacheTTL)
+	if err != nil {
+		return nil, fmt.Errorf("识别剧情面板: %w", err)
+	}
+	block, ok := findBlock(blocks, s.spec.PanelSkipKeyword)
+	if !ok {
+		return nil, nil
+	}
+	s.menuClickedAt = now
+	s.expectConfirm(now, 5*time.Second)
+	return &actionStep{state: "点击跳过剧情", wait: s.spec.SkipClickWait,
+		actions: []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}}, nil
 }
 
 // retrySkip 在确认框还没出现时补点一次跳过图标，节流到 skipRetryInterval。

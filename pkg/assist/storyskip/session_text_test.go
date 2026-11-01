@@ -21,6 +21,8 @@ func textSpec() Spec {
 		MiddleOptionArea: "中间选项区域",
 		StorySkipAreas:   []string{"剧情跳过"},
 		ConfirmCheckArea: "确认框勾选框",
+		PanelSkipArea:    "剧情面板-跳过",
+		PanelSkipKeyword: "跳过",
 		Mode:             TextMode{},
 		DialogClickArea:  "对话内容",
 
@@ -38,6 +40,7 @@ func textScreens() *screen.Set {
 			{Name: "剧情跳过", RectValues: []int{24, 132, 150, 236}, TemplateSubDir: "story", TemplateID: "skip"},
 			{Name: "对话框确认", RectValues: []int{980, 595, 1420, 700}, Text: "确认"},
 			{Name: "剧情菜单-跳过剧情", RectValues: []int{1140, 725, 1610, 845}},
+			{Name: "剧情面板-跳过", RectValues: []int{1140, 720, 1600, 850}},
 			{Name: "确认框勾选框", RectValues: []int{818, 542, 1012, 628}, TemplateSubDir: "story", TemplateID: "confirm_check"},
 			{Name: "对话内容", RectValues: []int{480, 780, 1440, 935}},
 			{Name: "右侧选项区域", RectValues: []int{1150, 300, 1900, 760}, ColorRange: &[2][3]uint8{{240, 240, 240}, {255, 255, 255}}},
@@ -271,4 +274,45 @@ func TestSubtitleWithStoryUIClicks(t *testing.T) {
 		t.Fatalf("state = %q", result.State)
 	}
 	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 960, Y: 857}}})
+}
+
+func TestPanelSkipClicksThenConfirm(t *testing.T) {
+	base := time.Date(2026, 11, 1, 8, 30, 0, 0, time.Local)
+	// 面板上"跳过剧情"是白底深字的按钮：涂成白块让按钮检测通过，文字块给 OCR。
+	button := block("跳过剧情", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})
+	scripts := []frameScript{
+		{at: base, ocr: map[string][]vision.TextBlock{"剧情面板-跳过": {button}}},
+		{
+			at: base.Add(600 * time.Millisecond),
+			ocr: map[string][]vision.TextBlock{
+				"对话框确认": {block("确认", geom.Rect{X1: 1047, Y1: 613, X2: 1310, Y2: 658})},
+			},
+		},
+	}
+	session, rt := newTextSession(t, scripts)
+	result, actions := step(t, session, rt, 0)
+	if result.State != "点击跳过剧情" {
+		t.Fatalf("第 0 帧 state = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1362, Y: 780}}})
+
+	result, actions = step(t, session, rt, 1)
+	if result.State != "确认跳过" {
+		t.Fatalf("第 1 帧 state = %q", result.State)
+	}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: geom.Point{X: 1178, Y: 635}}})
+}
+
+func TestPanelSkipIgnoresScreenWithoutButton(t *testing.T) {
+	// 面板区域没有白色按钮块时不应该跑 OCR、也不点。
+	scripts := []frameScript{{at: time.Now(), ocr: map[string][]vision.TextBlock{
+		"剧情面板-跳过": {block("跳过剧情", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})},
+	}}}
+	session, rt := newTextSession(t, scripts)
+	// 把按钮抹掉：frameForScript 会把 OCR 块涂白，所以这里用空 OCR 块模拟没有按钮。
+	rt.scripts[0].ocr["剧情面板-跳过"] = nil
+	result, actions := step(t, session, rt, 0)
+	if result.State == "点击跳过剧情" || len(actions) > 0 && actions[0].Kind == assist.ActionClick && actions[0].Point.X > 1100 {
+		t.Fatalf("没有按钮时不应点面板: state = %q actions = %+v", result.State, actions)
+	}
 }
