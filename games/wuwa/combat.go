@@ -55,8 +55,19 @@ func combatSpec() combat.Spec {
 		// 治疗位：默认按 3 号位（上游是识别 is_healer 后切位；这里用固定槽位，
 		// 你的治疗不在 3 号位就改这里，或在设置里关掉“战斗前后切治疗”）。
 		HealerKey: "3",
-		// 中键锁定间隔：上游 target_enemy() 会反复中键把目标锁回来。
-		LockInterval: 2 * time.Second,
+		// 目标识别：上游 has_target() 用 has_target / no_target 两张模板比分数，
+		// 位置 (2868,1917) 是 4K 参考坐标，1080p 换算到 (1434,958) 附近；
+		// 模板是 4K 参考裁剪，所以 0.5 / 0.75 / 1.0 三档都试，取最高分。
+		Target: &combat.Target{
+			Rect:      geom.Rect{X1: 1400, Y1: 930, X2: 1540, Y2: 1045},
+			SubDir:    "combat",
+			Have:      "has_target",
+			Missing:   "no_target",
+			Threshold: 0.6,
+			Scales:    []float64{0.5, 0.75, 1.0},
+		},
+		// 没锁住目标时多久按一次中键。
+		LockInterval: time.Second,
 		AttackPoint:  geom.Point{X: 960, Y: 540},
 		Keys: combat.Keys{
 			Skill:      "e",

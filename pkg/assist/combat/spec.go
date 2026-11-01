@@ -51,6 +51,17 @@ type BossBar struct {
 	MinHeight int
 }
 
+// Target 是"有没有锁定目标"的判据，对应上游 has_target()：
+// 用 has_target / no_target 两张模板在同一区域里比分数，谁高就算谁。
+type Target struct {
+	Rect      geom.Rect // 1080p 逻辑像素
+	SubDir    string    // 模板目录
+	Have      string    // 已锁定时的模板 id
+	Missing   string    // 未锁定时的模板 id
+	Threshold float64   // 分数下限，上游用 0.6
+	Scales    []float64 // 要尝试的缩放倍数（上游模板是 4K 参考裁剪）
+}
+
 // Concerto 是协奏值能量环的判据，对应上游 get_current_con()：
 // 在当前角色头像周围找一圈有颜色的能量环，覆盖率高说明协奏值满、可以切人。
 type Concerto struct {
@@ -81,7 +92,8 @@ type Spec struct {
 	BossBar      *BossBar      // Boss 血条证据，留空表示不用它
 	Concerto     *Concerto     // 协奏值能量环，满了优先切人
 	HealerKey    string        // 治疗位按键，战斗开始与结束时各按一次
-	LockInterval time.Duration // 中键锁定的间隔，0 表示不锁定
+	Target       *Target       // 是否已锁定目标的判据，留空表示不做目标识别
+	LockInterval time.Duration // 没锁住目标时按中键的间隔，0 表示不锁定
 	AttackPoint  geom.Point    // 普攻的点击位置
 	Keys         Keys          // 按键绑定
 	Plan         []Step        // 连招序列，循环执行

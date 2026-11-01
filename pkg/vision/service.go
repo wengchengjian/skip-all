@@ -118,14 +118,38 @@ func (s *Service) Template(frame *image.RGBA, area screen.Area, ref TemplateRef,
 		return nil, err
 	}
 	search := resolveRect(area.Rect, frame.Bounds())
-	if area.TemplateWhiteMask {
-		matches, err := MatchTemplateWhiteMask(frame, geom.Rect{X1: search.Min.X, Y1: search.Min.Y, X2: search.Max.X, Y2: search.Max.Y}, raw, threshold)
-		for i := range matches {
-			matches[i].Rect = offsetRect(matches[i].Rect, search.Min.X, search.Min.Y)
-		}
-		return matches, err
+	rect := geom.Rect{X1: search.Min.X, Y1: search.Min.Y, X2: search.Max.X, Y2: search.Max.Y}
+	scales := area.TemplateScales
+	if len(scales) == 0 {
+		scales = []float64{1}
 	}
-	return MatchTemplate(frame, geom.Rect{X1: search.Min.X, Y1: search.Min.Y, X2: search.Max.X, Y2: search.Max.Y}, raw, mask, threshold)
+	var best []Match
+	for _, scale := range scales {
+		cRaw, cMask := raw, mask
+		if scale > 0 && scale != 1 {
+			cRaw = ScaleTemplate(raw, scale)
+			if mask != nil {
+				cMask = ScaleTemplate(mask, scale)
+			}
+		}
+		var matches []Match
+		var err error
+		if area.TemplateWhiteMask {
+			matches, err = MatchTemplateWhiteMask(frame, rect, cRaw, threshold)
+			for i := range matches {
+				matches[i].Rect = offsetRect(matches[i].Rect, search.Min.X, search.Min.Y)
+			}
+		} else {
+			matches, err = MatchTemplate(frame, rect, cRaw, cMask, threshold)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) > 0 && (len(best) == 0 || matches[0].Confidence > best[0].Confidence) {
+			best = matches
+		}
+	}
+	return best, nil
 }
 
 // Color 统计区域内的颜色信息。

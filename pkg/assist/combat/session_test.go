@@ -20,6 +20,7 @@ import (
 type fakeRuntime struct {
 	screens *screen.Set
 	hit     bool
+	scores  map[string]float64 // 按模板 id 给分数，决定"是否锁定目标"这类判据
 }
 
 func (f *fakeRuntime) Screen(name string) (*screen.Screen, error) {
@@ -34,7 +35,15 @@ func (f *fakeRuntime) OCR(assist.Frame, screen.Area, vision.OCROptions) ([]visio
 	return nil, nil
 }
 
-func (f *fakeRuntime) MatchTemplate(assist.Frame, screen.Area, vision.TemplateRef, float64) ([]vision.Match, error) {
+func (f *fakeRuntime) MatchTemplate(_ assist.Frame, area screen.Area, ref vision.TemplateRef, _ float64) ([]vision.Match, error) {
+	if f.scores != nil {
+		if score, ok := f.scores[ref.ID]; ok {
+			if score <= 0 {
+				return nil, nil
+			}
+			return []vision.Match{{Rect: area.Rect, Confidence: score}}, nil
+		}
+	}
 	if !f.hit {
 		return nil, nil
 	}
@@ -276,27 +285,50 @@ func TestBossBarRequiresExactlyOne(t *testing.T) {
 	}
 }
 
-func TestLockIntervalEmitsMiddleClick(t *testing.T) {
+func testTargetSpec() Spec {
 	spec := testSpec()
-	spec.LockInterval = 2 * time.Second
-	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	spec.Target = &Target{
+		Rect:      geom.Rect{X1: 1400, Y1: 930, X2: 1540, Y2: 1045},
+		SubDir:    "combat",
+		Have:      "has_target",
+		Missing:   "no_target",
+		Threshold: 0.6,
+	}
+	spec.LockInterval = time.Second
+	return spec
+}
+
+func TestTargetLockedSkipsMiddleClick(t *testing.T) {
+	rt := testRuntime(true)
+	rt.scores = map[string]float64{"target": 0.9, "has_target": 0.9, "no_target": 0.2}
+	session := newSession(rt, testTargetSpec().withDefaults(), sessionSettings{})
+	result, actions := step(t, session, frameAt(time.Now()))
+	if result.State != "连招-普攻" {
+		t.Fatalf("已锁定目标时应当直接出招, state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestTargetMissingLocksWithMiddleClick(t *testing.T) {
+	rt := testRuntime(true)
+	rt.scores = map[string]float64{"target": 0.9, "has_target": 0.2, "no_target": 0.9}
+	session := newSession(rt, testTargetSpec().withDefaults(), sessionSettings{})
 	base := time.Now()
 	result, actions := step(t, session, frameAt(base))
 	if result.State != "锁定目标" {
-		t.Fatalf("首帧应当先锁目标, state = %q", result.State)
+		t.Fatalf("没锁定目标时应当按中键, state = %q", result.State)
 	}
 	if len(actions) != 1 || actions[0].Kind != assist.ActionMiddleClick {
 		t.Fatalf("锁定动作 = %+v", actions)
 	}
-	// 间隔内继续出招，不再按中键。
-	result, actions = step(t, session, frameAt(base.Add(500*time.Millisecond)))
-	if result.State != "连招-普攻" || actions[0].Kind != assist.ActionClick {
-		t.Fatalf("间隔内应当出招: state = %q actions = %+v", result.State, actions)
+	// 间隔内不重复按中键。
+	result, _ = step(t, session, frameAt(base.Add(300*time.Millisecond)))
+	if result.State == "锁定目标" {
+		t.Fatal("间隔内不该重复按中键")
 	}
-	// 超过间隔后再锁一次。
-	result, actions = step(t, session, frameAt(base.Add(3*time.Second)))
+	// 超过间隔仍然没锁上，再按一次。
+	result, _ = step(t, session, frameAt(base.Add(2*time.Second)))
 	if result.State != "锁定目标" {
-		t.Fatalf("超过间隔应当再次锁定, state = %q", result.State)
+		t.Fatalf("超过间隔应当再锁一次, state = %q", result.State)
 	}
 }
 

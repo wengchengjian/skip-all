@@ -72,11 +72,17 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	if action, ok := s.concertoSwitch(frame, now); ok {
 		return assist.Result{State: "协奏满切人", Wait: s.spec.Interval}, []assist.Action{action}, nil
 	}
-	// 中键锁定：上游 target_enemy() 会反复中键把目标锁回来。
+	// 中键锁定：上游 target_enemy() 在没锁定目标时反复中键。
 	if s.spec.LockInterval > 0 && (s.lockAt.IsZero() || now.Sub(s.lockAt) >= s.spec.LockInterval) {
-		s.lockAt = now
-		return assist.Result{State: "锁定目标", Wait: s.spec.Interval},
-			[]assist.Action{{Kind: assist.ActionMiddleClick, Point: s.spec.AttackPoint}}, nil
+		locked, err := s.hasTarget(frame)
+		if err != nil {
+			return assist.Result{}, nil, err
+		}
+		if !locked {
+			s.lockAt = now
+			return assist.Result{State: "锁定目标", Wait: s.spec.Interval},
+				[]assist.Action{{Kind: assist.ActionMiddleClick, Point: s.spec.AttackPoint}}, nil
+		}
 	}
 
 	action, state, ok := s.nextAction()
@@ -171,6 +177,52 @@ func (s *Session) nextAction() (assist.Action, string, bool) {
 		}
 	}
 	return assist.Action{}, "", false
+}
+
+// hasTarget 判断当前是否已经锁定目标：has_target / no_target 两张模板比分数。
+// 没配置目标识别时一律当作已锁定，免得退化成乱按中键。
+func (s *Session) hasTarget(frame assist.Frame) (bool, error) {
+	t := s.spec.Target
+	if t == nil || t.Have == "" || t.Missing == "" {
+		return true, nil
+	}
+	haveScore, err := s.templateScore(frame, t, t.Have)
+	if err != nil {
+		return false, err
+	}
+	missScore, err := s.templateScore(frame, t, t.Missing)
+	if err != nil {
+		return false, err
+	}
+	threshold := t.Threshold
+	if threshold <= 0 {
+		threshold = 0.6
+	}
+	return haveScore >= missScore && haveScore >= threshold, nil
+}
+
+// templateScore 返回模板在目标区域里的最高分（多尺度取最好）。
+func (s *Session) templateScore(frame assist.Frame, t *Target, id string) (float64, error) {
+	area := screen.Area{
+		Name:                   "战斗目标",
+		Type:                   screen.AreaTemplate,
+		Rect:                   t.Rect,
+		TemplateSubDir:         t.SubDir,
+		TemplateID:             id,
+		TemplateMatchThreshold: 0.05,
+		TemplateScales:         t.Scales,
+	}
+	matches, err := s.rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: t.SubDir, ID: id}, area.TemplateMatchThreshold)
+	if err != nil {
+		return 0, fmt.Errorf("匹配目标模板 %s: %w", id, err)
+	}
+	best := 0.0
+	for _, m := range matches {
+		if m.Confidence > best {
+			best = m.Confidence
+		}
+	}
+	return best, nil
 }
 
 // concertoSwitch 在协奏值满时返回一次切人动作。
