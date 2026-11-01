@@ -13,6 +13,9 @@ func CombatFeature() assist.Feature { return combatFeature() }
 
 func combatFeature() *combat.Feature { return combat.NewFeature(combatSpec()) }
 
+// CombatSpec 返回绝区零自动战斗的完整配置（导出供一致性测试使用）。
+func CombatSpec() combat.Spec { return combatSpec() }
+
 // combatSpec 的按键与判据来自上游 ZenlessZoneZero-OneDragon：
 // 普通攻击 = 鼠标左键，闪避 = Shift，特殊攻击 = E，终结技 = Q，
 // 角色切换-下一个 = 空格（zzz_od/config/game_config.py 的 _KEY_DEFAULTS）。

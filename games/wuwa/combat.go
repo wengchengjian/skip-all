@@ -13,6 +13,9 @@ func CombatFeature() assist.Feature {
 	return combat.NewFeature(combatSpec())
 }
 
+// CombatSpec 返回鸣潮自动战斗的完整配置（导出供一致性测试使用）。
+func CombatSpec() combat.Spec { return combatSpec() }
+
 // combatSpec 的按键与连招参考 ok-ww：
 // 共鸣技能 E、声骸 Q、共鸣解放 R、闪避 左 Shift，角色头像 1/2/3。
 // 战斗判据照搬上游 has_health_bar()：整帧找 enemy_health_color_red
@@ -21,6 +24,8 @@ func CombatFeature() assist.Feature {
 // 靠 Hold 把证据间断连起来，避免开放世界里把红色 UI 当血条。
 func combatSpec() combat.Spec {
 	return combat.Spec{
+		// 画面配置：assets/games/wuwa/screens/combat.yml（含"中断提示"区域）。
+		Screen: "鸣潮战斗",
 		HealthBar: &combat.HealthBar{
 			Color:     [2][3]uint8{{174, 55, 55}, {225, 85, 76}},
 			MinWidth:  50,
@@ -76,6 +81,42 @@ func combatSpec() combat.Spec {
 			Dodge:      "lshift",
 			Switch:     []string{"1", "2", "3"},
 		},
+		// 技能就绪判据照上游 available()：按钮上出现接近纯白的像素即可用。
+		Ready: map[combat.StepKind]combat.ReadyCheck{
+			combat.StepSkill:      {Area: geom.Rect{X1: 1592, Y1: 938, X2: 1660, Y2: 995}, ColorRange: readyWhite, MinRatio: 0.002},
+			combat.StepEcho:       {Area: geom.Rect{X1: 1685, Y1: 938, X2: 1753, Y2: 996}, ColorRange: readyWhite, MinRatio: 0.002},
+			combat.StepLiberation: {Area: geom.Rect{X1: 1786, Y1: 938, X2: 1849, Y2: 995}, ColorRange: readyWhite, MinRatio: 0.002},
+		},
+		// 冷却数字：上游 get_cd()，读到正数就跳过该动作。
+		Cooldowns: map[combat.StepKind]geom.Rect{
+			combat.StepSkill:      {X1: 1592, Y1: 938, X2: 1660, Y2: 995},
+			combat.StepEcho:       {X1: 1685, Y1: 938, X2: 1753, Y2: 996},
+			combat.StepLiberation: {X1: 1786, Y1: 938, X2: 1849, Y2: 995},
+		},
+		// 后台角色大招是否就绪：上游 update_lib_portrait_icon() 的 lib_ready_* 模板。
+		UltReady: &combat.UltReadyCheck{
+			Slots: []geom.Rect{
+				{X1: 1800, Y1: 210, X2: 1900, Y2: 265},
+				{X1: 1800, Y1: 340, X2: 1900, Y2: 400},
+				{X1: 1800, Y1: 470, X2: 1900, Y2: 530},
+			},
+			SubDir:    "libready",
+			IDs:       []string{"lib_ready_spectro", "lib_ready_electric", "lib_ready_wind", "lib_ready_fire", "lib_ready_ice", "lib_ready_havoc"},
+			Threshold: 0.8,
+			Bonus:     15,
+		},
+		// 角色定位（上游 char_type）与大招就绪一起决定协奏满切谁。
+		Roles:  agentRoles,
+		Switch: &combat.SwitchPolicy{MinInterval: 3 * time.Second},
+		// 角色专属连招（上游 do_perform() 的出手顺序）。
+		PlansByAgent: agentPlans,
+		// 切人后先打入场技：上游 handle_intro() 的通用形态。
+		IntroSteps: []combat.Step{{Kind: combat.StepSkill}, {Kind: combat.StepAttack}},
+		// 复活/失败界面出现时停手。
+		AbortArea:  "中断提示",
+		AbortTexts: []string{"复活", "失败", "重新挑战", "挑战失败"},
+		// 鸣潮专属能力：共鸣回路提示（强化 E / 重击）。
+		Extensions: wuwaExtensions(),
 		Plan: []combat.Step{
 			{Kind: combat.StepAttack},
 			{Kind: combat.StepSkill},
