@@ -87,10 +87,11 @@
 - 槽位识别结果缓存 500ms（一帧里规则引擎、格挡、连携都要问"谁在哪"）。
 - 白名单失效兜底：前台认不出来（换了个没见过的角色）就作废白名单、从游标继续分批认。
 
-## 已知风险：模板来源
+## 已清理：错位的队伍模板
 
-- `assets/games/wuwa/templates/team` 里有 6 个模板其实来自上游"解放界面"位置（`Augusta_lib1`、`Augusta_lib2`、`hsin_lib1`、`hsin_lib2`、`denia_end_lib`、`lib_cartethyia_big`），尺寸 70–94px，与队伍槽位头像的位置不一致。它们参与认人时可能产生误匹配，但**没有实机画面无法判断该删还是该重裁**，所以先保留并在文档标注。
-- 清理掉它们会让 hsin / denia 失去唯一模板，反而更糟。
+`assets/games/wuwa/templates/team` 原有 65 个模板，其中 6 个（`Augusta_lib1`、`Augusta_lib2`、`hsin_lib1`、`hsin_lib2`、`denia_end_lib`、`lib_cartethyia_big`）的上游记录坐标在 y≈1886–1894（4K），那是**解放界面**的位置，队伍槽位在 y≈464/723/986。它们参与认人只会带来误匹配，已删除，剩 59 个。
+
+代价：hsin、denia 两个角色失去唯一模板，认不出来时退回默认连招（而不是错误地匹配成别人）。
 
 ## 已知差异汇总
 
