@@ -25,7 +25,11 @@ func TestServiceListGames(t *testing.T) {
 	if zzz == nil {
 		t.Fatalf("games = %+v", list)
 	}
-	if len(zzz.Features) != 1 || zzz.Features[0].ID != "story_skip" {
+	features := map[string]bool{}
+	for _, feature := range zzz.Features {
+		features[feature.ID] = true
+	}
+	if !features["story_skip"] || !features["auto_combat"] {
 		t.Fatalf("features = %+v", zzz.Features)
 	}
 	if cfg := svc.GetConfig(); len(cfg.Games) != len(list) {

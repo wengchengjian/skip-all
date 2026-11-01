@@ -1,45 +1,41 @@
 package zzz
 
 import (
+	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"github.com/wengchengjian/skip-all/pkg/geom"
 )
 
-// combatSpec 是绝区零的自动战斗配置。
-// 流程与鸣潮完全共用（pkg/assist/combat），这里只给出按键与画面证据：
-// 特殊技 E、终结技 Q、闪避 左 Shift、切换 1/2/3。
-// 接入时只需补一张战斗截图做 templates/combat/in_combat，再把 CombatFeature()
-// 加进 Features()；在此之前不注册，避免用户看到一个无法生效的功能。
+// CombatFeature 创建绝区零自动战斗功能。
+func CombatFeature() assist.Feature {
+	return combat.NewFeature(combatSpec())
+}
+
+// combatSpec 的按键与判据来自上游 ZenlessZoneZero-OneDragon：
+// 普通攻击 = 鼠标左键，闪避 = Shift，特殊攻击 = E，终结技 = Q，
+// 角色切换-下一个 = 空格（zzz_od/config/game_config.py 的 _KEY_DEFAULTS）。
+// 战斗判据照它 is_normal_attack_btn_available 的做法：普通攻击按钮
+// （battle/btn_normal_attack，带 mask）在战斗画面 (1403,916)-(1505,1017)
+// 里匹配到就说明在战斗，阈值 0.9。
 func combatSpec() combat.Spec {
 	return combat.Spec{
-		HealthBar: &combat.HealthBar{
-			Color:     [2][3]uint8{{174, 55, 55}, {225, 85, 76}},
-			MinWidth:  50,
-			MinHeight: 5,
-			MaxHeight: 14,
-		},
-		BossBar: &combat.BossBar{
-			Color:     [2][3]uint8{{245, 30, 4}, {255, 185, 75}},
-			Rect:      geom.Rect{X1: 634, Y1: 29, X2: 1266, Y2: 100},
-			MinWidth:  50,
-			MinHeight: 6,
-		},
+		Screen:      "绝区零战斗",
+		DetectAreas: []string{"普通攻击按钮"},
 		AttackPoint: geom.Point{X: 960, Y: 540},
 		Keys: combat.Keys{
 			Skill:      "e",
 			Liberation: "q",
-			Dodge:      "lshift",
-			Switch:     []string{"1", "2", "3"},
+			Dodge:      "shift",
+			Switch:     []string{"space"},
 		},
 		Plan: []combat.Step{
+			{Kind: combat.StepAttack},
 			{Kind: combat.StepAttack},
 			{Kind: combat.StepSkill},
 			{Kind: combat.StepAttack},
 			{Kind: combat.StepAttack},
-			{Kind: combat.StepDodge},
-			{Kind: combat.StepAttack},
 			{Kind: combat.StepLiberation},
-			{Kind: combat.StepAttack},
+			{Kind: combat.StepDodge},
 		},
 	}
 }

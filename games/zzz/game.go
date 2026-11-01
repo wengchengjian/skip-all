@@ -33,7 +33,7 @@ func (g *Game) ProcessNames() []string { return []string{"ZenlessZoneZero.exe"} 
 
 // Features 返回游戏支持的功能。
 func (g *Game) Features() []assist.Feature {
-	return []assist.Feature{StorySkipFeature()}
+	return []assist.Feature{StorySkipFeature(), CombatFeature()}
 }
 
 // Assets 返回内嵌的画面配置与模板资源。

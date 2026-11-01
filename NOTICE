@@ -14,8 +14,11 @@ Portions of this project are derived from:
 
 The initial v0.1 implementation ports the behavior of the upstream
 "委托助手" (Commission Assistant) story/dialogue skip flow, screen definitions
-and the small template images referenced by that flow. See docs/upstream.md
-for the file-by-file mapping and modification notes.
+and the small template images referenced by that flow. The ZZZ auto combat
+feature ports the upstream battle-detection signal (the normal-attack button
+template under assets/template/battle/btn_normal_attack) and its default key
+bindings. See docs/upstream.md for the file-by-file mapping and modification
+notes.
 
 The Wuthering Waves ("鸣潮") story skip flow references the behavior of:
 

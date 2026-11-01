@@ -23,7 +23,11 @@ func TestGameMetadata(t *testing.T) {
 	if len(game.ProcessNames()) != 1 || game.ProcessNames()[0] != "ZenlessZoneZero.exe" {
 		t.Fatalf("ProcessNames = %v", game.ProcessNames())
 	}
-	if len(game.Features()) != 1 || game.Features()[0].ID() != "story_skip" {
+	ids := map[string]bool{}
+	for _, feature := range game.Features() {
+		ids[feature.ID()] = true
+	}
+	if !ids["story_skip"] || !ids["auto_combat"] {
 		t.Fatalf("Features = %v", game.Features())
 	}
 }

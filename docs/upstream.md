@@ -102,3 +102,14 @@
 | `switch_healer()`：战前战后切治疗位 | `Spec.HealerKey` + 设置 `switch_healer`：开打第一帧与脱战第一帧各按一次 | 上游靠 `is_healer` 角色定义识别，这里用固定槽位键 |
 | `switch_next_char()`：协奏满就换人 | `Spec.Concerto` + `vision.RingCoverage`：头像周围能量环覆盖率达阈值就按切换键 | 环的区域与颜色取自上游 `get_con_box()` 与 `con_colors`；阈值是经验值，需实机校准 |
 | `Use Liberation` / `Switch to Healer` 等开关 | `use_liberation` / `use_echo` / `use_dodge` / `interval` / `hold` | 未做切治疗、超时重开等上游特化能力 |
+
+## 绝区零自动战斗
+
+上游是 ZenlessZoneZero-OneDragon（GPL-3.0，与本项目同许可）。
+
+| 上游 | 本项目 | 说明 |
+| --- | --- | --- |
+| `auto_battle_context.check_battle_state`：`is_normal_attack_btn_available` 决定是否在战斗 | `combat.Spec.DetectAreas` 配 `普通攻击按钮` 区域（(1403,916)-(1505,1017)，模板 `combat/btn_normal_attack`，阈值 0.9） | 模板 raw.png + mask.png 直接取自上游 `assets/template/battle/btn_normal_attack` |
+| `_KEY_DEFAULTS`：普通攻击 mouse_left、闪避 shift、特殊攻击 e、终结技 q、角色切换-下一个 space、锁定 mouse_middle | `games/zzz/combat.go` 的 `Keys`：攻击=左键点击、Skill=e、Liberation=q、Dodge=shift、Switch=[space] | 锁定未启用（绝区零默认自动锁定） |
+| 每个代理一套 YAML 招式表（`config/auto_battle/*.yml`） | 一套通用连招 `Spec.Plan`：普攻×2 → 特殊技 → 普攻×2 → 终结技 → 闪避 | 代理专属招式表未移植 |
+| 支援/连携、闪避判定（黄光识别 + 音频） | 未做 | 后续按需补 |
