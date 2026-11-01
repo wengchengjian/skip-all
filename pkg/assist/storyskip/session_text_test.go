@@ -278,10 +278,10 @@ func TestSubtitleWithStoryUIClicks(t *testing.T) {
 
 func TestPanelSkipClicksThenConfirm(t *testing.T) {
 	base := time.Date(2026, 11, 1, 8, 30, 0, 0, time.Local)
-	// 面板上"跳过剧情"是白底深字的按钮：涂成白块让按钮检测通过，文字块给 OCR。
+	// 面板按钮是一整条白底深字的圆角按钮：涂白让按钮检测通过，OCR 结果给按钮文字。
 	button := block("跳过剧情", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})
 	scripts := []frameScript{
-		{at: base, ocr: map[string][]vision.TextBlock{"剧情面板-跳过": {button}}},
+		{at: base, ocr: map[string][]vision.TextBlock{"剧情面板按钮": {button}}},
 		{
 			at: base.Add(600 * time.Millisecond),
 			ocr: map[string][]vision.TextBlock{
@@ -304,15 +304,49 @@ func TestPanelSkipClicksThenConfirm(t *testing.T) {
 }
 
 func TestPanelSkipIgnoresScreenWithoutButton(t *testing.T) {
-	// 面板区域没有白色按钮块时不应该跑 OCR、也不点。
-	scripts := []frameScript{{at: time.Now(), ocr: map[string][]vision.TextBlock{
-		"剧情面板-跳过": {block("跳过剧情", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})},
-	}}}
+	// 有白条但 OCR 读不出按钮文字时不点。
+	scripts := []frameScript{{
+		at: time.Now(),
+		ocr: map[string][]vision.TextBlock{
+			"剧情面板-跳过": {block("", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})},
+		},
+	}}
 	session, rt := newTextSession(t, scripts)
-	// 把按钮抹掉：frameForScript 会把 OCR 块涂白，所以这里用空 OCR 块模拟没有按钮。
-	rt.scripts[0].ocr["剧情面板-跳过"] = nil
 	result, actions := step(t, session, rt, 0)
-	if result.State == "点击跳过剧情" || len(actions) > 0 && actions[0].Kind == assist.ActionClick && actions[0].Point.X > 1100 {
-		t.Fatalf("没有按钮时不应点面板: state = %q actions = %+v", result.State, actions)
+	if result.State == "点击跳过剧情" {
+		t.Fatalf("没有按钮文字时不应点: actions = %+v", actions)
+	}
+}
+
+func TestPanelSkipIgnoresConfirmBodyText(t *testing.T) {
+	// 确认框正文里也会出现"跳过"，但它不是按钮，不能点。
+	scripts := []frameScript{{
+		at: time.Now(),
+		ocr: map[string][]vision.TextBlock{
+			"剧情面板按钮": {block("是否确认跳过？", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})},
+		},
+	}}
+	session, rt := newTextSession(t, scripts)
+	result, actions := step(t, session, rt, 0)
+	if result.State == "点击跳过剧情" {
+		t.Fatalf("确认正文不应被当成按钮: actions = %+v", actions)
+	}
+}
+
+func TestPanelSkipBeforeConfirmWait(t *testing.T) {
+	// 点过跳过之后出现的是面板而不是确认框：不能白等满确认窗口。
+	base := time.Date(2026, 11, 1, 8, 30, 0, 0, time.Local)
+	skipMatch := map[string][]vision.Match{"剧情跳过": {{Rect: geom.Rect{X1: 68, Y1: 175, X2: 89, Y2: 193}, Confidence: 0.95}}}
+	button := block("跳过剧情", geom.Rect{X1: 1170, Y1: 745, X2: 1555, Y2: 815})
+	scripts := []frameScript{
+		{at: base, matches: skipMatch},
+		{at: base.Add(time.Second), ocr: map[string][]vision.TextBlock{"剧情面板按钮": {button}}},
+	}
+	session, rt := newTextSession(t, scripts)
+	if result, _ := step(t, session, rt, 0); result.State != "模板跳过" {
+		t.Fatalf("第 0 帧 state = %q", result.State)
+	}
+	if result, _ := step(t, session, rt, 1); result.State != "点击跳过剧情" {
+		t.Fatalf("确认窗口里出现面板时应点它, state = %q", result.State)
 	}
 }

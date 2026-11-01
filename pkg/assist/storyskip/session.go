@@ -202,6 +202,17 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		}
 	}
 
+	// 0. 剧情面板（鸣潮的"剧情梗概"）：点过跳过之后弹出的常常是面板而不是确认框，
+	// 所以要在确认等待窗口之前判，否则会白等满 5 秒。
+	if s.spec.PanelSkipArea != "" {
+		if step, err := s.clickPanelSkip(frame); err != nil {
+			return assist.Result{}, nil, err
+		} else if step != nil {
+			result, actions := step.unpack()
+			return result, actions, nil
+		}
+	}
+
 	// 1. 确认框：只在刚点过跳过/菜单后检查，避免每帧 OCR。
 	if s.confirmPending(frame.At) {
 		actions, handled, err := s.clickConfirm(frame)
@@ -253,16 +264,6 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	} else if ok {
 		s.recentClicks = 0
 		return assist.Result{State: "等待:" + name, Wait: wait}, nil, nil
-	}
-
-	// 4.5 剧情面板（鸣潮按 ESC 出的"剧情梗概"）：里面有"跳过剧情"就直接点。
-	if s.spec.PanelSkipArea != "" {
-		if step, err := s.clickPanelSkip(frame); err != nil {
-			return assist.Result{}, nil, err
-		} else if step != nil {
-			result, actions := step.unpack()
-			return result, actions, nil
-		}
 	}
 
 	// 5. 确认框已经在场（例如程序启动时弹窗就开着）：勾选框 + 确认文案双证才点。
@@ -565,33 +566,38 @@ func (s *Session) clickPanelSkip(frame assist.Frame) (*actionStep, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 先用白色按钮块把"面板在不在"判掉：按钮是一条宽白条，
-	// 这样大世界里不会为了这个面板每秒跑一次 OCR。
-	panelUp := false
+	// 面板按钮是"白底深字的圆角长条"：先按白色条带找出候选按钮，
+	// 只对候选按钮本身做 OCR，既不用管面板布局，也不会在大世界里跑 OCR。
 	for _, band := range vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{
 		ColorRange: &s.spec.ButtonColorRange,
 		MinHeight:  20,
 	}) {
-		if band.X2-band.X1 >= 120 {
-			panelUp = true
-			break
+		// 两个按钮在同一行，按行投影会并成一条很宽的带：
+		// 这里不限制宽度，交给下面的 OCR 按文字块区分"继续观看"和"跳过剧情"。
+		// 高度用来排除正文文字行（正文一行 25-30 像素，按钮 40 以上）。
+		height := band.Y2 - band.Y1
+		if band.X2-band.X1 < 120 || height < 40 || height > 160 {
+			continue
+		}
+		pill := screen.Area{Name: "剧情面板按钮", Rect: band}
+		blocks, err := s.rt.OCR(frame, pill, vision.OCROptions{})
+		if err != nil {
+			return nil, fmt.Errorf("识别剧情面板按钮: %w", err)
+		}
+		for _, block := range blocks {
+			text := strings.TrimSpace(block.Text)
+			// 只认"跳过剧情"这种按钮文字：确认框正文里也有"跳过"，
+			// 按整段文字匹配可以避开它。
+			if !strings.Contains(text, s.spec.PanelSkipKeyword) || !strings.Contains(text, "剧情") {
+				continue
+			}
+			s.menuClickedAt = now
+			s.expectConfirm(now, 5*time.Second)
+			return &actionStep{state: "点击跳过剧情", wait: s.spec.SkipClickWait,
+				actions: []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}}, nil
 		}
 	}
-	if !panelUp {
-		return nil, nil
-	}
-	blocks, err := s.ocrArea(frame, *area, vision.OCROptions{}, storyButtonCacheTTL)
-	if err != nil {
-		return nil, fmt.Errorf("识别剧情面板: %w", err)
-	}
-	block, ok := findBlock(blocks, s.spec.PanelSkipKeyword)
-	if !ok {
-		return nil, nil
-	}
-	s.menuClickedAt = now
-	s.expectConfirm(now, 5*time.Second)
-	return &actionStep{state: "点击跳过剧情", wait: s.spec.SkipClickWait,
-		actions: []assist.Action{{Kind: assist.ActionClick, Point: block.Rect.Center()}}}, nil
+	return nil, nil
 }
 
 // retrySkip 在确认框还没出现时补点一次跳过图标，节流到 skipRetryInterval。
