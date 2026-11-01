@@ -984,3 +984,54 @@ func TestBuffExpiredBonusInSwitch(t *testing.T) {
 		t.Fatalf("增益已过期的槽位应当被优先选中, actions=%+v", actions)
 	}
 }
+
+// TestConcertoUsesStrongestElement 验证按"最强元素色"判满：
+// 两种颜色各覆盖一半环（合计够 0.8 但单个都不够）时不应触发切人。
+func TestConcertoUsesStrongestElement(t *testing.T) {
+	ring := func(colorA, colorB color.RGBA, split bool) *image.RGBA {
+		img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+		for y := 0; y < 63; y++ {
+			for x := 0; x < 63; x++ {
+				d := math.Hypot(float64(x)+0.5-31.5, float64(y)+0.5-31.5)
+				if d < 22.1 || d > 26.6 {
+					continue
+				}
+				useA := !split || x < 31
+				c := colorB
+				if useA {
+					c = colorA
+				}
+				img.SetRGBA(700+x, 960+y, c)
+			}
+		}
+		return img
+	}
+	base := func() Spec {
+		spec := testSpec()
+		spec.Keys.Switch = []string{"1", "2", "3"}
+		spec.Team = slotTeam{current: 0, ids: []string{"dps", "sub", "healer"}}
+		spec.Concerto = &Concerto{
+			Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+			Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}, {{60, 150, 210}, {95, 180, 245}}},
+			Inner:     0.35119,
+			Outer:     0.42261,
+			FullRatio: 0.8,
+		}
+		return spec
+	}
+	yellow := color.RGBA{220, 205, 110, 255}
+	blue := color.RGBA{80, 165, 230, 255}
+
+	// 单一颜色铺满整环 -> 满。
+	spec := base()
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	if _, ok := session.concertoSwitch(assist.Frame{Image: ring(yellow, yellow, false), At: time.Now()}, time.Now()); !ok {
+		t.Fatal("单色铺满环应当判为满")
+	}
+	// 两种颜色各占一半 -> 单个色都不到 0.8，不应切人。
+	spec2 := base()
+	session2 := newSession(testRuntime(true), spec2.withDefaults(), sessionSettings{})
+	if _, ok := session2.concertoSwitch(assist.Frame{Image: ring(yellow, blue, true), At: time.Now()}, time.Now()); ok {
+		t.Fatal("两色各占一半不应算满（上游只用当前角色那一色）")
+	}
+}

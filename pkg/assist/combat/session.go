@@ -496,7 +496,14 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 		return assist.Action{}, false
 	}
 	c := s.spec.Concerto
-	coverage := vision.RingCoverage(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer)
+	// 上游 _ensure_ring_index()：先看当前角色是哪个元素（哪种颜色占比最高），
+	// 再用这一种颜色算覆盖率，避免 6 种颜色混在一起把不该满的环算满。
+	coverage := 0.0
+	for _, ratio := range vision.RingCoverages(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer) {
+		if ratio > coverage {
+			coverage = ratio
+		}
+	}
 	full := c.FullRatio
 	if full <= 0 {
 		full = 0.8
