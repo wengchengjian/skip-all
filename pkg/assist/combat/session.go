@@ -210,7 +210,6 @@ func (s *Session) templateScore(frame assist.Frame, t *Target, id string) (float
 		TemplateSubDir:         t.SubDir,
 		TemplateID:             id,
 		TemplateMatchThreshold: 0.05,
-		TemplateScales:         t.Scales,
 	}
 	matches, err := s.rt.MatchTemplate(frame, area, vision.TemplateRef{SubDir: t.SubDir, ID: id}, area.TemplateMatchThreshold)
 	if err != nil {

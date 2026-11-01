@@ -87,62 +87,6 @@ func decodeImageFS(fsys fs.FS, name string) (image.Image, error) {
 	return img, nil
 }
 
-// ScaleTemplate 用双线性把图像缩放到 scale 倍；上游模板按参考分辨率裁剪，
-// 换到别的分辨率时要跟着缩放。
-func ScaleTemplate(img image.Image, scale float64) *image.RGBA {
-	if img == nil || scale <= 0 {
-		return nil
-	}
-	b := img.Bounds()
-	w := int(math.Round(float64(b.Dx()) * scale))
-	h := int(math.Round(float64(b.Dy()) * scale))
-	if w < 1 || h < 1 {
-		return nil
-	}
-	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		sy := (float64(y)+0.5)*float64(b.Dy())/float64(h) - 0.5
-		y0 := int(math.Floor(sy))
-		wy := sy - float64(y0)
-		if y0 < 0 {
-			y0, wy = 0, 0
-		}
-		y1 := y0 + 1
-		if y1 >= b.Dy() {
-			y1, wy = b.Dy()-1, 0
-		}
-		for x := 0; x < w; x++ {
-			sx := (float64(x)+0.5)*float64(b.Dx())/float64(w) - 0.5
-			x0 := int(math.Floor(sx))
-			wx := sx - float64(x0)
-			if x0 < 0 {
-				x0, wx = 0, 0
-			}
-			x1 := x0 + 1
-			if x1 >= b.Dx() {
-				x1, wx = b.Dx()-1, 0
-			}
-			var sum [3]float64
-			for _, p := range [4]struct {
-				px, py int
-				wgt    float64
-			}{
-				{x0, y0, (1 - wx) * (1 - wy)},
-				{x1, y0, wx * (1 - wy)},
-				{x0, y1, (1 - wx) * wy},
-				{x1, y1, wx * wy},
-			} {
-				r, g, bl, _ := img.At(b.Min.X+p.px, b.Min.Y+p.py).RGBA()
-				sum[0] += float64(r>>8) * p.wgt
-				sum[1] += float64(g>>8) * p.wgt
-				sum[2] += float64(bl>>8) * p.wgt
-			}
-			out.SetRGBA(x, y, color.RGBA{uint8(sum[0]), uint8(sum[1]), uint8(sum[2]), 255})
-		}
-	}
-	return out
-}
-
 // WhiteMaskRange 是白色掩膜的 RGB 范围，与上游 convert_dialog_icon 一致。
 var WhiteMaskRange = [2][3]uint8{{210, 210, 210}, {255, 255, 255}}
 

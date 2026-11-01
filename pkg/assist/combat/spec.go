@@ -59,7 +59,6 @@ type Target struct {
 	Have      string    // 已锁定时的模板 id
 	Missing   string    // 未锁定时的模板 id
 	Threshold float64   // 分数下限，上游用 0.6
-	Scales    []float64 // 要尝试的缩放倍数（上游模板是 4K 参考裁剪）
 }
 
 // Concerto 是协奏值能量环的判据，对应上游 get_current_con()：

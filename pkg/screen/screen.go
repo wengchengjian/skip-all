@@ -48,13 +48,10 @@ type Area struct {
 	TemplateMatchThreshold float64      `yaml:"template_match_threshold"`
 	// TemplateWhiteMask 为真时，模板匹配前把区域和模板都做白色掩膜
 	// （RGB 全在 210-255 内为白，否则为黑），等价于上游的 convert_dialog_icon。
-	TemplateWhiteMask bool `yaml:"template_white_mask"`
-	// TemplateScales 是模板匹配要尝试的缩放倍数；上游模板按参考分辨率裁剪，
-	// 换分辨率时要跟着缩放。留空表示只按 1:1。
-	TemplateScales []float64 `yaml:"template_scales"`
-	IDMark         bool      `yaml:"id_mark"`
-	GamepadKey     string    `yaml:"gamepad_key"`
-	GotoList       []string  `yaml:"goto_list"`
+	TemplateWhiteMask bool     `yaml:"template_white_mask"`
+	IDMark            bool     `yaml:"id_mark"`
+	GamepadKey        string   `yaml:"gamepad_key"`
+	GotoList          []string `yaml:"goto_list"`
 }
 
 // IsText 报告区域是否是文本匹配区域。
