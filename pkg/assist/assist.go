@@ -81,4 +81,7 @@ type Game interface {
 	ProcessNames() []string
 	Features() []Feature
 	Assets() fs.FS
+	// RequiresForeground 报告该游戏的后台消息输入是否无效。
+	// 返回 true 时运行时会把游戏窗口切到前台、使用真实键鼠输入。
+	RequiresForeground() bool
 }

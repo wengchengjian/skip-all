@@ -38,3 +38,8 @@ func (g *Game) Features() []assist.Feature {
 
 // Assets 返回内嵌的画面配置与模板资源。
 func (g *Game) Assets() fs.FS { return wuwaassets.FS() }
+
+// RequiresForeground 报告是否需要前台输入。
+// 鸣潮是 UE5，实测会忽略 PostMessage 的鼠标消息（鼠标移过去但点不动），
+// 必须把窗口切到前台、用真实键鼠输入。
+func (g *Game) RequiresForeground() bool { return true }

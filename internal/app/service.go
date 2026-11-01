@@ -365,6 +365,10 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	}
 	capturer := platform.NewCapturer(win)
 	background := strings.ToLower(appCfg.Input.Mode) != "foreground"
+	if game.RequiresForeground() && background {
+		background = false
+		s.appendLog("info", "["+game.Name()+"] 该游戏需要前台真实输入，已覆盖输入模式")
+	}
 	input := platform.NewInputWithOptions(win, platform.InputOptions{Background: background, Gamepad: appCfg.Input.Gamepad, GamepadDLL: s.gamepadDLL(), CursorMode: appCfg.Input.CursorMode})
 	if appCfg.Input.Gamepad && !input.GamepadAvailable() {
 		s.appendLog("warn", "["+game.Name()+"] 虚拟手柄不可用: "+fmt.Sprint(input.GamepadError()))

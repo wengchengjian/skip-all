@@ -38,3 +38,6 @@ func (g *Game) Features() []assist.Feature {
 
 // Assets 返回内嵌的画面配置与模板资源。
 func (g *Game) Assets() fs.FS { return zzzassets.FS() }
+
+// RequiresForeground 报告是否需要前台输入。绝区零的后台消息点击可用，保持后台。
+func (g *Game) RequiresForeground() bool { return false }
