@@ -225,3 +225,42 @@ func TestChainPicksSideByRole(t *testing.T) {
 		t.Fatalf("认不出时退回左侧: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
 	}
 }
+
+func TestQuickAssistTargetsLitSlot(t *testing.T) {
+	slots := []geom.Rect{
+		{X1: 104, Y1: 40, X2: 274, Y2: 110},
+		{X1: 559, Y1: 40, X2: 662, Y2: 91},
+		{X1: 741, Y1: 40, X2: 844, Y2: 91},
+	}
+	assistArea := screen.Area{Name: "支援按钮", Rect: geom.Rect{X1: 1580, Y1: 860, X2: 1780, Y2: 1050}}
+	ext := &zzzQuickAssistExt{
+		Area:     assistArea,
+		SubDir:   "combat",
+		IDs:      []string{"btn_assist_1"},
+		Key:      "space",
+		Slots:    slots,
+		Keys:     []string{"1", "2", "3"},
+		Interval: time.Second,
+	}
+	// 3 号位（第三人）头像亮起 -> 应当按 3。
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 45; y < 86; y++ {
+		for x := 745; x < 840; x++ {
+			img.SetRGBA(x, y, color.RGBA{250, 240, 200, 255})
+		}
+	}
+	rt := areaFake{byRect: map[geom.Rect]map[string]float64{assistArea.Rect: {"btn_assist_1": 0.95}}}
+	action, state, ok, err := ext.Step(rt, assist.Frame{Image: img, At: time.Now()})
+	if err != nil || !ok || state != "快速支援" || action.Key != "3" {
+		t.Fatalf("应当按点亮的三号位: action=%+v state=%q ok=%v err=%v", action, state, ok, err)
+	}
+
+	// 全暗 -> 退回兜底键。
+	ext2 := *ext
+	ext2.last = time.Time{}
+	empty := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	action, _, ok, _ = ext2.Step(rt, assist.Frame{Image: empty, At: time.Now()})
+	if !ok || action.Key != "space" {
+		t.Fatalf("认不出槽位时应退回兜底键: action=%+v ok=%v", action, ok)
+	}
+}

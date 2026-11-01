@@ -46,10 +46,15 @@ func (d *zzzDodgeExt) Step(_ combat.Runtime, frame assist.Frame) (assist.Action,
 // 上游在支援按钮可用时按"按键-快速支援"（快速支援模板-全角色.sample.yml）。
 // 这里直接匹配支援按钮模板（btn_assist_1/2），命中就按切换键。
 type zzzQuickAssistExt struct {
-	Area     screen.Area
-	SubDir   string
-	IDs      []string
-	Key      string
+	Area   screen.Area
+	SubDir string
+	IDs    []string
+	// Key 是兜底按键（认不出哪个槽位挂着支援时用）。
+	Key string
+	// Slots/Keys 是三位角色的头像区域与对应按键：支援灯亮在谁身上就把谁换上来
+	// （上游用 按键-切换角色 + agent_name 做同一件事）。
+	Slots    []geom.Rect
+	Keys     []string
 	Interval time.Duration
 	last     time.Time
 }
@@ -71,7 +76,7 @@ func (a *zzzQuickAssistExt) Step(rt combat.Runtime, frame assist.Frame) (assist.
 		}
 		if len(matches) > 0 {
 			a.last = now
-			return assist.Action{Kind: assist.ActionKeyTap, Key: a.Key}, "快速支援", true, nil
+			return assist.Action{Kind: assist.ActionKeyTap, Key: a.assistTarget(frame)}, "快速支援", true, nil
 		}
 	}
 	return assist.Action{}, "", false, nil
@@ -197,6 +202,24 @@ func (u *zzzUltimateExt) Step(_ combat.Runtime, frame assist.Frame) (assist.Acti
 // brightRange 是"亮起来"的通用色域（按钮高亮、头像点亮）。
 var brightRange = [2][3]uint8{{210, 200, 180}, {255, 255, 255}}
 
+// assistTarget 找支援灯亮得最明显的槽位，返回它的按键；认不出就退回兜底键。
+func (a *zzzQuickAssistExt) assistTarget(frame assist.Frame) string {
+	best, bestKey := 0.0, ""
+	for i, slot := range a.Slots {
+		if i >= len(a.Keys) {
+			break
+		}
+		ratio := vision.ColorRatio(frame.Image, slot, brightRange)
+		if ratio > best {
+			best, bestKey = ratio, a.Keys[i]
+		}
+	}
+	if best < 0.15 || bestKey == "" {
+		return a.Key
+	}
+	return bestKey
+}
+
 // zzzExtensions 返回绝区零专属的战斗能力。
 func zzzExtensions() []combat.Extension {
 	return []combat.Extension{
@@ -237,9 +260,15 @@ func zzzExtensions() []combat.Extension {
 				Rect:                   geom.Rect{X1: 1580, Y1: 860, X2: 1780, Y2: 1050},
 				TemplateMatchThreshold: 0.85,
 			},
-			SubDir:   "combat",
-			IDs:      []string{"btn_assist_1", "btn_assist_2"},
-			Key:      "space",
+			SubDir: "combat",
+			IDs:    []string{"btn_assist_1", "btn_assist_2"},
+			Key:    "space",
+			Slots: []geom.Rect{
+				{X1: 104, Y1: 40, X2: 274, Y2: 110},
+				{X1: 559, Y1: 40, X2: 662, Y2: 91},
+				{X1: 741, Y1: 40, X2: 844, Y2: 91},
+			},
+			Keys:     []string{"1", "2", "3"},
 			Interval: 800 * time.Millisecond,
 		},
 	}
