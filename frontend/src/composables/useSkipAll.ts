@@ -23,6 +23,7 @@ export function useSkipAll() {
     fps: 0,
     targetFps: 0,
     ocrBackend: "",
+    features: [],
   });
   const logs = ref<LogEntry[]>([]);
   // 游戏列表异步加载，默认选中项由 loadGames 落成 games[0].id。
@@ -45,6 +46,8 @@ export function useSkipAll() {
   const updateInfo = ref<UpdateView | null>(null);
   const updateChecking = ref(false);
   const updateInstalling = ref(false);
+  const updateProgress = ref(0);
+  const updateDownloading = ref(false);
 
   const notice = ref("");
   const noticeType = ref<"ok" | "error">("ok");
@@ -237,6 +240,27 @@ export function useSkipAll() {
     }
   }
 
+  // toggleFeature 切换某个游戏下单个功能的启用状态；一个游戏可同时启用多个功能。
+  async function toggleFeature(gameId: string, featureId: string, enabled: boolean) {
+    if (!config.value) return;
+    // 深拷贝后再改，避免未保存的改动直接污染 config.value。
+    const view: ConfigView = JSON.parse(JSON.stringify(config.value));
+    const game = ((view.games ??= {})[gameId] ??= { SchemaVersion: 1, Features: {} });
+    const features = (game.Features ??= {});
+    const feature = (features[featureId] ??= { Enabled: true, Settings: {} });
+    feature.Enabled = enabled;
+    try {
+      await Service.SaveConfig(view);
+      config.value = view;
+      const name =
+        games.value.find((item) => item.id === gameId)?.features?.find((item) => item.id === featureId)?.name ??
+        featureId;
+      showNotice(`已${enabled ? "启用" : "停用"} ${name}`);
+    } catch (err) {
+      showNotice(`保存配置失败：${errorText(err)}`, "error");
+    }
+  }
+
   async function loadVersion() {
     try {
       version.value = await Service.GetVersion();
@@ -256,6 +280,21 @@ export function useSkipAll() {
       showNotice("检查更新失败：" + errorText(err), "error");
     } finally {
       updateChecking.value = false;
+    }
+  }
+
+  async function downloadUpdate() {
+    if (!updateInfo.value?.available || updateDownloading.value) return;
+    updateDownloading.value = true;
+    updateProgress.value = 0;
+    try {
+      await Service.DownloadUpdate();
+      updateInfo.value = { ...updateInfo.value, downloaded: true };
+      showNotice("更新已下载，可随时安装");
+    } catch (err) {
+      showNotice("下载更新失败：" + errorText(err), "error");
+    } finally {
+      updateDownloading.value = false;
     }
   }
 
@@ -306,7 +345,11 @@ export function useSkipAll() {
       Events.On("skipall:update", (event) => {
         const data = event.data as UpdateView;
         updateInfo.value = data;
-        if (data.available) showNotice("发现新版本 " + data.latest);
+        if (data.available && data.downloaded) showNotice("新版本 " + data.latest + " 已下载，可在设置页安装");
+      }),
+      Events.On("skipall:update-progress", (event) => {
+        const data = event.data as { percent?: number };
+        updateProgress.value = Math.min(100, Math.max(0, data.percent ?? 0));
       }),
     );
     statusTimer = window.setInterval(refreshStatus, 1000);
@@ -344,6 +387,8 @@ export function useSkipAll() {
     updateInfo,
     updateChecking,
     updateInstalling,
+    updateProgress,
+    updateDownloading,
     notice,
     noticeType,
     selectGame,
@@ -353,10 +398,12 @@ export function useSkipAll() {
     pause,
     resume,
     saveConfig,
+    toggleFeature,
     installModels,
     checkModels,
     runDoctor,
     checkUpdates,
+    downloadUpdate,
     installUpdate,
   };
 }

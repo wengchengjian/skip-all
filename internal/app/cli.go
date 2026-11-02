@@ -82,9 +82,12 @@ func newRunCommand(dataDir *string) *cobra.Command {
 			}
 			defer svc.Shutdown()
 			var result ActionResult
-			if strings.EqualFold(gameID, "all") {
+			switch {
+			case strings.EqualFold(gameID, "all"):
 				result = svc.StartAll()
-			} else {
+			case featureID == "" || strings.EqualFold(featureID, "all"):
+				result = svc.StartGame(gameID)
+			default:
 				result = svc.Start(gameID, featureID)
 			}
 			if !result.OK {
@@ -100,7 +103,7 @@ func newRunCommand(dataDir *string) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&gameID, "game", "all", "游戏 ID；all 表示所有未排除游戏")
-	cmd.Flags().StringVar(&featureID, "feature", "story_skip", "功能 ID")
+	cmd.Flags().StringVar(&featureID, "feature", "all", "功能 ID；all 表示该游戏全部启用的功能")
 	cmd.Flags().Bool("headless", true, "无界面运行（CLI 模式）")
 	return cmd
 }

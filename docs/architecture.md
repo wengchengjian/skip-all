@@ -20,7 +20,7 @@
 ## 核心接口
 
 - `assist.Game`：游戏元数据（ID、名称、窗口标题、进程名、Features、资源 FS）。
-- `assist.Feature`：一个可执行功能，负责校验配置并创建 `assist.Session`。
+- `assist.Feature`：一个可执行功能，负责校验配置并创建 `assist.Session`；同一个游戏可以同时启用多个功能（剧情跳过 + 自动战斗），由 engine 用同一帧截图驱动。
 - `assist.Session`：每帧执行一次 `Step(ctx, frame)`，返回状态、等待时长和 `[]assist.Action`。
 - `assist.Runtime`：Feature 只能通过它访问画面配置和视觉服务，不直接接触 Win32。
 - `assist.Action`：`Click`、`ClickCurrent`、`KeyTap`、`Wait`，由 engine 统一执行。
@@ -30,12 +30,19 @@
 ## 一帧的生命周期
 
 1. `engine.Run` 按目标 FPS 唤醒。
-2. 如果暂停、窗口不在前台且配置了后台暂停，则跳过本帧。
+2. 如果游戏进程不在（`Config.ProcessAlive`）、暂停、窗口不在前台且配置了后台暂停，则跳过本帧。
 3. `platform/windows.Capturer.Capture()` 截图并缩放到 1920×1080，返回 RGBA 和缩放系数。
-4. engine 构造 `assist.Frame` 调 `Session.Step`。
-5. Session 通过 Runtime 调用 OCR/模板/颜色服务，返回动作。
-6. engine 按顺序执行动作；任何一步失败都进入安全停止并释放键鼠。
+4. engine 构造 `assist.Frame`，按功能声明顺序逐个调 `Session.Step`（同一帧复用，OCR/模板结果按帧缓存）。
+5. 每个 Session 通过 Runtime 调用 OCR/模板/颜色服务，返回动作；engine 立即按顺序执行，动作天然串行。
+6. 单个功能出错只停该功能；全部功能都出错才让会话进入 error。
 7. UI 通过事件收到状态和最近日志。
+
+## 多功能并行与进程门控
+
+- 一个游戏一个 engine，engine 内可挂多个 Feature（`engine.FeatureSpec`）；目标帧率取各功能 `MinFPS` 的最大值。
+- 每帧只截图一次，避免两个功能各自截图导致重复开销；动作按功能顺序串行执行，输入不会并发。
+- 游戏进程退出时 engine 自动暂停（不再截图，避免连续失败把会话打成 error），进程回来后自动恢复；用户手动暂停不会被进程恢复覆盖。
+- 进程存活判定 `platform.ProcessAlive` 每 1 秒最多枚举一次进程表（服务层缓存）。
 
 ## 线程模型
 
@@ -80,7 +87,7 @@
 - 默认后台：截图用 PrintWindow，点击用 PostMessage，不激活窗口、默认不移动物理鼠标。
 - `cursor_mode`：`auto`（默认，用户空闲时短暂移动并归位）、`never`（纯消息）、`always`（总是移动）。部分游戏（如 ZZZ）只认真实光标位置，纯消息只能推进对话。
 - 虚拟手柄通过 ViGEmBus + ViGEmClient.dll 创建 Xbox 360 手柄；后台鼠标点击仍走 PostMessage，手柄用于按键类动作。
-- 服务按游戏维护独立 engine 会话；启动时扫描全部未排除游戏，游戏窗口稍后出现会自动启动。
+- 服务按游戏维护独立 engine 会话（会话内含该游戏全部启用的功能）；启动时扫描全部未排除游戏，游戏窗口稍后出现会自动启动。
 - 详情日志由 engine 输出“流程 + 动作 + 坐标”，Service 统一加游戏名前缀。
 - 跳过/点击模式优先用白色文字行投影（FindTextBands）定位按钮、选项、确认框和对话框，避免逐帧 OCR；auto 模式保留 OCR 语义。
 - OCR 后端按 DirectML → CUDA → CPU 探测，engine 每秒统计实际循环帧率并通过 Status.FPS 暴露给 UI。

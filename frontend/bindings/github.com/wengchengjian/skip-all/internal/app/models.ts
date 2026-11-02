@@ -37,6 +37,17 @@ export interface DoctorReport {
 }
 
 /**
+ * FeatureStateView 是单个功能在某个游戏上的运行状态。
+ */
+export interface FeatureStateView {
+    "gameId": string;
+    "featureId": string;
+    "name": string;
+    "state": string;
+    "message": string;
+}
+
+/**
  * FeatureView 是功能列表项。
  */
 export interface FeatureView {
@@ -80,6 +91,7 @@ export interface StatusView {
     "fps": number;
     "targetFps": number;
     "ocrBackend": string;
+    "features": FeatureStateView[] | null;
 }
 
 /**
@@ -97,4 +109,5 @@ export interface UpdateView {
     "assetSize": number;
     "checksumUrl": string;
     "publishedAt": string;
+    "downloaded": boolean;
 }

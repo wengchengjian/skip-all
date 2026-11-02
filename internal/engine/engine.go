@@ -54,14 +54,32 @@ type Input interface {
 	ReleaseAll() error
 }
 
+// FeatureSpec 是 engine 要同时运行的一个功能及其设置。
+type FeatureSpec struct {
+	Feature  assist.Feature
+	Settings assist.Settings
+}
+
 // Config 是 engine 的运行参数。
 type Config struct {
 	TargetFPS           int
 	PauseWhenBackground bool
 	ActivateWindow      bool
+	// ProcessAlive 报告游戏进程是否还在运行；为空时不做进程门控。
+	// 进程消失时自动暂停（避免截图连续失败把会话打成异常），进程回来时自动恢复。
+	ProcessAlive func() bool
 }
 
-// Engine 管理一次 Feature 会话。
+// FeatureStatus 是单个功能的状态快照。
+type FeatureStatus struct {
+	ID      string
+	Name    string
+	State   State
+	Message string
+	Error   string
+}
+
+// Engine 管理一个游戏上的多个功能会话：同一帧截图喂给全部功能，动作串行执行。
 type Engine struct {
 	mu       sync.Mutex
 	device   Device
@@ -69,8 +87,7 @@ type Engine struct {
 	screens  *screen.Set
 	vision   vision.Matcher
 	logger   *slog.Logger
-	feature  assist.Feature
-	settings assist.Settings
+	features []*featureRuntime
 	cfg      Config
 	onEvent  func(Event)
 
@@ -80,15 +97,41 @@ type Engine struct {
 	startedAt   time.Time
 	cancel      context.CancelFunc
 	fps         float64
+	// gatePaused 表示当前暂停是"游戏进程不在"造成的自动暂停，进程回来后自动恢复。
+	gatePaused bool
+	// userPaused 表示用户按了暂停；此时进程回来也不自动恢复。
+	userPaused bool
 }
 
-// New 创建 engine。
-func New(device Device, input Input, screens *screen.Set, matcher vision.Matcher, logger *slog.Logger, feature assist.Feature, settings assist.Settings, cfg Config, onEvent func(Event)) *Engine {
+// featureRuntime 是一个功能在 engine 里的运行态。
+type featureRuntime struct {
+	feature  assist.Feature
+	settings assist.Settings
+	session  assist.Session
+
+	state   State
+	message string
+	err     string
+
+	lastState  string
+	lastAction string
+	lastFrame  time.Time
+}
+
+// New 创建 engine。features 里至少要有一个功能。
+func New(device Device, input Input, screens *screen.Set, matcher vision.Matcher, logger *slog.Logger, features []FeatureSpec, cfg Config, onEvent func(Event)) *Engine {
 	if cfg.TargetFPS <= 0 {
 		cfg.TargetFPS = 5
 	}
 	if logger == nil {
 		logger = slog.Default()
+	}
+	runtimes := make([]*featureRuntime, 0, len(features))
+	for _, spec := range features {
+		if spec.Feature == nil {
+			continue
+		}
+		runtimes = append(runtimes, &featureRuntime{feature: spec.Feature, settings: spec.Settings, state: StateIdle})
 	}
 	return &Engine{
 		device:   device,
@@ -96,8 +139,7 @@ func New(device Device, input Input, screens *screen.Set, matcher vision.Matcher
 		screens:  screens,
 		vision:   matcher,
 		logger:   logger,
-		feature:  feature,
-		settings: settings,
+		features: runtimes,
 		cfg:      cfg,
 		onEvent:  onEvent,
 		state:    StateIdle,
@@ -108,50 +150,75 @@ func New(device Device, input Input, screens *screen.Set, matcher vision.Matcher
 func (e *Engine) Status() Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return Status{
+	status := Status{
 		State:       e.state,
-		FeatureID:   e.feature.ID(),
-		FeatureName: e.feature.Name(),
 		StartedAt:   e.startedAt,
 		LastMessage: e.lastMessage,
 		LastError:   e.lastError,
 		FPS:         e.fps,
 		TargetFPS:   e.cfg.TargetFPS,
+		Features:    make([]FeatureStatus, 0, len(e.features)),
 	}
+	for _, f := range e.features {
+		status.Features = append(status.Features, FeatureStatus{
+			ID: f.feature.ID(), Name: f.feature.Name(),
+			State: f.state, Message: f.message, Error: f.err,
+		})
+	}
+	return status
 }
 
 // Status 是状态快照。
 type Status struct {
 	State       State
-	FeatureID   string
-	FeatureName string
 	StartedAt   time.Time
 	LastMessage string
 	LastError   string
 	FPS         float64
 	TargetFPS   int
+	Features    []FeatureStatus
+}
+
+// FeatureIDs 返回本会话的功能 ID 列表，供服务层比对配置。
+func (e *Engine) FeatureIDs() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]string, 0, len(e.features))
+	for _, f := range e.features {
+		out = append(out, f.feature.ID())
+	}
+	return out
 }
 
 // Pause 暂停会话。
 func (e *Engine) Pause() {
 	e.mu.Lock()
-	if e.state == StateRunning {
+	e.userPaused = true
+	changed := e.state == StateRunning
+	if changed {
 		e.state = StatePaused
 		e.lastMessage = "已暂停"
 	}
 	e.mu.Unlock()
-	e.emit("info", "已暂停")
+	if changed {
+		_ = e.input.ReleaseAll()
+		e.emit("info", "已暂停")
+	}
 }
 
 // Resume 恢复会话。
 func (e *Engine) Resume() {
 	e.mu.Lock()
-	if e.state == StatePaused {
+	e.userPaused = false
+	changed := e.state == StatePaused
+	if changed {
 		e.state = StateRunning
 		e.lastMessage = "已恢复"
 	}
 	e.mu.Unlock()
-	e.emit("info", "已恢复")
+	if changed {
+		e.emit("info", "已恢复")
+	}
 }
 
 // setFPS 更新实时帧率。
@@ -186,7 +253,7 @@ func (e *Engine) Stop() {
 	}
 }
 
-// Run 启动会话，阻塞到 ctx 取消或发生错误。
+// Run 启动会话，阻塞到 ctx 取消或全部功能失败。
 // 功能会话里的 panic 也要转成 StateError 返回，不能让整个 GUI 进程退出。
 func (e *Engine) Run(ctx context.Context) (runErr error) {
 	defer func() {
@@ -205,12 +272,20 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 	e.startedAt = time.Now()
 	e.lastError = ""
 	e.lastMessage = "会话已启动"
+	e.userPaused = false
+	e.gatePaused = false
 	e.mu.Unlock()
 	defer func() {
 		cancel()
 		e.setFPS(0)
 		e.mu.Lock()
 		e.cancel = nil
+		for _, f := range e.features {
+			if f.session != nil {
+				_ = f.session.Close()
+				f.session = nil
+			}
+		}
 		if e.state != StateError {
 			e.state = StateStopped
 		}
@@ -224,26 +299,26 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		}
 	}()
 
-	session, err := e.feature.NewSession(&runtime{
-		screens: e.screens,
-		vision:  e.vision,
-		logger:  e.logger,
-	}, e.settings)
-	if err != nil {
-		return e.fail(fmt.Errorf("创建功能会话: %w", err))
+	rt := &runtime{screens: e.screens, vision: e.vision, logger: e.logger}
+	started := e.createSessions(rt)
+	if started == 0 {
+		return e.fail(errors.New("没有可运行的功能会话"))
 	}
-	defer session.Close()
-	e.emit("info", "开始执行 "+e.feature.Name())
 
 	interval := time.Second / time.Duration(e.cfg.TargetFPS)
 	failures := 0
-	lastState := ""
-	lastAction := ""
 	lastFrameAt := time.Time{}
 	for {
 		if runCtx.Err() != nil {
 			e.emit("info", "会话已停止")
 			return nil
+		}
+		if !e.gateProcess() {
+			// 游戏进程不在：保持暂停，等它回来。
+			if !sleep(runCtx, 500*time.Millisecond) {
+				return nil
+			}
+			continue
 		}
 		if e.isPaused() {
 			if !sleep(runCtx, 100*time.Millisecond) {
@@ -270,6 +345,14 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		}
 		img, scale, err := e.device.Capture()
 		if err != nil {
+			// 进程刚好退出时截图会失败，交给进程门控处理，不累计失败次数。
+			if e.cfg.ProcessAlive != nil && !e.cfg.ProcessAlive() {
+				failures = 0
+				if !sleep(runCtx, 300*time.Millisecond) {
+					return nil
+				}
+				continue
+			}
 			failures++
 			e.emit("warn", fmt.Sprintf("截图失败(%d/3): %v", failures, err))
 			if failures >= 3 {
@@ -282,23 +365,18 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		}
 		failures = 0
 		frame := assist.Frame{Image: img, At: time.Now(), Scale: scale}
-		result, actions, err := session.Step(runCtx, frame)
-		if err != nil {
-			return e.fail(fmt.Errorf("执行功能节点: %w", err))
+		wait := e.stepFeatures(runCtx, frame)
+		if runCtx.Err() != nil {
+			return nil
 		}
-		if result.Message != "" {
-			e.setMessage(result.Message)
-		}
-		lastState, lastAction = e.logStep(lastState, lastAction, result.State, actions)
-		if err := e.executeActions(runCtx, actions); err != nil {
-			return e.fail(err)
+		if e.allFailed() {
+			return e.fail(errors.New("全部功能已停止: " + e.failedSummary()))
 		}
 		now := time.Now()
 		if !lastFrameAt.IsZero() {
 			e.markFrame(now.Sub(lastFrameAt))
 		}
 		lastFrameAt = now
-		wait := result.Wait
 		if wait <= 0 {
 			wait = interval
 		}
@@ -308,21 +386,157 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 	}
 }
 
-// logStep 记录状态切换和动作变化；重复的同一动作只写文件日志，避免刷屏。
-func (e *Engine) logStep(lastState, lastAction, state string, actions []assist.Action) (string, string) {
-	action := actionSummary(actions)
-	if state != lastState || action != lastAction {
-		message := "剧情流程: " + state
-		if action != "" {
-			message += " | " + action
+// createSessions 为每个功能创建会话，返回成功创建的个数。
+func (e *Engine) createSessions(rt *runtime) int {
+	started := 0
+	for _, f := range e.features {
+		session, err := f.feature.NewSession(rt, f.settings)
+		if err != nil {
+			e.mu.Lock()
+			f.state = StateError
+			f.err = err.Error()
+			f.message = err.Error()
+			e.mu.Unlock()
+			e.emit("error", fmt.Sprintf("%s 创建会话失败: %v", f.feature.Name(), err))
+			continue
 		}
-		e.emit("info", message)
-		return state, action
+		e.mu.Lock()
+		f.session = session
+		f.state = StateRunning
+		f.message = "会话已启动"
+		e.mu.Unlock()
+		started++
+		e.emit("info", "开始执行 "+f.feature.Name())
 	}
+	return started
+}
+
+// stepFeatures 用同一帧驱动全部功能，返回本帧建议的等待时长（取各功能的最小值）。
+func (e *Engine) stepFeatures(ctx context.Context, frame assist.Frame) time.Duration {
+	wait := time.Duration(0)
+	for _, f := range e.features {
+		if ctx.Err() != nil {
+			return 0
+		}
+		e.mu.Lock()
+		session, state := f.session, f.state
+		e.mu.Unlock()
+		if session == nil || state != StateRunning {
+			continue
+		}
+		result, actions, err := session.Step(ctx, frame)
+		if err != nil {
+			e.mu.Lock()
+			f.state = StateError
+			f.err = err.Error()
+			f.message = err.Error()
+			e.mu.Unlock()
+			e.emit("error", fmt.Sprintf("%s 执行失败: %v", f.feature.Name(), err))
+			continue
+		}
+		if result.Message != "" {
+			e.mu.Lock()
+			f.message = result.Message
+			e.mu.Unlock()
+			e.emit("info", result.Message)
+		}
+		e.logFeatureStep(f, result.State, actions)
+		if err := e.executeActions(ctx, actions); err != nil {
+			e.mu.Lock()
+			f.state = StateError
+			f.err = err.Error()
+			e.mu.Unlock()
+			e.emit("error", fmt.Sprintf("%s 动作执行失败: %v", f.feature.Name(), err))
+			continue
+		}
+		if result.Wait > 0 && (wait <= 0 || result.Wait < wait) {
+			wait = result.Wait
+		}
+	}
+	return wait
+}
+
+// allFailed 报告是否全部功能都因错误退出。
+func (e *Engine) allFailed() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.features) == 0 {
+		return false
+	}
+	for _, f := range e.features {
+		if f.state != StateError {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *Engine) failedSummary() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var parts []string
+	for _, f := range e.features {
+		if f.err != "" {
+			parts = append(parts, f.feature.Name()+": "+f.err)
+		}
+	}
+	return strings.Join(parts, "；")
+}
+
+// gateProcess 处理游戏进程门控：进程不在就自动暂停，进程回来再自动恢复。
+// 返回 false 表示当前应当暂停；用户自己按的暂停不会因为进程恢复而被取消。
+func (e *Engine) gateProcess() bool {
+	if e.cfg.ProcessAlive == nil {
+		return true
+	}
+	alive := e.cfg.ProcessAlive()
+	var paused, resumed bool
+	e.mu.Lock()
+	switch {
+	case !alive && !e.gatePaused:
+		e.gatePaused = true
+		if e.state == StateRunning {
+			e.state = StatePaused
+			e.lastMessage = "游戏进程已退出，已暂停"
+			paused = true
+		}
+	case alive && e.gatePaused:
+		e.gatePaused = false
+		if !e.userPaused {
+			e.state = StateRunning
+			e.lastMessage = "游戏进程已恢复，已继续"
+			resumed = true
+		}
+	}
+	e.mu.Unlock()
+	if paused {
+		_ = e.input.ReleaseAll()
+		e.emit("info", "游戏进程已退出，已暂停")
+	}
+	if resumed {
+		e.emit("info", "游戏进程已恢复，已继续")
+	}
+	return alive
+}
+
+// logFeatureStep 记录功能的状态切换和动作变化；重复的同一动作只写文件日志，避免刷屏。
+func (e *Engine) logFeatureStep(f *featureRuntime, state string, actions []assist.Action) {
+	action := actionSummary(actions)
+	e.mu.Lock()
+	changed := state != f.lastState || action != f.lastAction
+	f.lastState, f.lastAction = state, action
+	e.mu.Unlock()
+	if !changed {
+		if action != "" {
+			e.logger.Debug("重复动作", "feature", f.feature.ID(), "state", state, "action", action)
+		}
+		return
+	}
+	message := "剧情流程: " + state
 	if action != "" {
-		e.logger.Debug("重复动作", "state", state, "action", action)
+		message += " | " + action
 	}
-	return lastState, lastAction
+	e.emit("info", message)
 }
 
 func actionSummary(actions []assist.Action) string {
@@ -398,13 +612,6 @@ func (e *Engine) fail(err error) error {
 	e.mu.Unlock()
 	e.emit("error", err.Error())
 	return err
-}
-
-func (e *Engine) setMessage(msg string) {
-	e.mu.Lock()
-	e.lastMessage = msg
-	e.mu.Unlock()
-	e.emit("info", msg)
 }
 
 func (e *Engine) emit(level, message string) {

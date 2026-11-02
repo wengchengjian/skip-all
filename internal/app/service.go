@@ -51,9 +51,10 @@ type Service struct {
 	ocr        vision.OCR
 	ocrBackend string
 
-	updateChecker *update.Checker
-	updateInfo    update.Info
-	quit          func()
+	updateChecker    *update.Checker
+	updateInfo       update.Info
+	updateDownloadMu sync.Mutex
+	quit             func()
 
 	sessions  map[string]*gameSession
 	watchStop chan struct{}
@@ -63,12 +64,12 @@ type Service struct {
 	logs []LogEntry
 }
 
-// gameSession 是一个游戏当前的 engine 会话。
+// gameSession 是一个游戏当前的 engine 会话；一个游戏可同时运行多个功能。
 type gameSession struct {
-	gameID    string
-	featureID string
-	eng       *engine.Engine
-	cancel    context.CancelFunc
+	gameID     string
+	featureIDs []string
+	eng        *engine.Engine
+	cancel     context.CancelFunc
 }
 
 // LogEntry 是 UI 显示的一条日志。
@@ -101,18 +102,28 @@ type ConfigView struct {
 
 // StatusView 是当前运行状态。
 type StatusView struct {
-	State       string    `json:"state"`
-	Running     bool      `json:"running"`
-	Paused      bool      `json:"paused"`
-	GameID      string    `json:"gameId"`
-	FeatureID   string    `json:"featureId"`
-	FeatureName string    `json:"featureName"`
-	Message     string    `json:"message"`
-	Error       string    `json:"error"`
-	StartedAt   time.Time `json:"startedAt"`
-	FPS         float64   `json:"fps"`
-	TargetFPS   int       `json:"targetFps"`
-	OCRBackend  string    `json:"ocrBackend"`
+	State       string             `json:"state"`
+	Running     bool               `json:"running"`
+	Paused      bool               `json:"paused"`
+	GameID      string             `json:"gameId"`
+	FeatureID   string             `json:"featureId"`
+	FeatureName string             `json:"featureName"`
+	Message     string             `json:"message"`
+	Error       string             `json:"error"`
+	StartedAt   time.Time          `json:"startedAt"`
+	FPS         float64            `json:"fps"`
+	TargetFPS   int                `json:"targetFps"`
+	OCRBackend  string             `json:"ocrBackend"`
+	Features    []FeatureStateView `json:"features"`
+}
+
+// FeatureStateView 是单个功能在某个游戏上的运行状态。
+type FeatureStateView struct {
+	GameID    string `json:"gameId"`
+	FeatureID string `json:"featureId"`
+	Name      string `json:"name"`
+	State     string `json:"state"`
+	Message   string `json:"message"`
 }
 
 // ActionResult 是启动/停止类操作的结果。
@@ -134,6 +145,7 @@ type UpdateView struct {
 	AssetSize   int64  `json:"assetSize"`
 	ChecksumURL string `json:"checksumUrl"`
 	PublishedAt string `json:"publishedAt"`
+	Downloaded  bool   `json:"downloaded"`
 }
 
 func toUpdateView(info update.Info) UpdateView {
@@ -324,13 +336,14 @@ func (s *Service) restartRunning() {
 			s.appendLog("info", "["+item.gameID+"] 已加入排除列表，停止")
 			continue
 		}
-		if res := s.Start(item.gameID, item.featureID); !res.OK {
+		// 按当前配置重新算启用功能：新开的功能会跟着起来，被停用的不再重启。
+		if res := s.StartGame(item.gameID); !res.OK {
 			s.appendLog("warn", "应用新配置后重启失败: "+res.Error)
 		}
 	}
 }
 
-type sessionRef struct{ gameID, featureID string }
+type sessionRef struct{ gameID string }
 
 func (s *Service) runningSessions() []sessionRef {
 	s.mu.Lock()
@@ -339,24 +352,14 @@ func (s *Service) runningSessions() []sessionRef {
 	for _, sess := range s.sessions {
 		st := sess.eng.Status()
 		if st.State == engine.StateRunning || st.State == engine.StatePaused {
-			out = append(out, sessionRef{gameID: sess.gameID, featureID: sess.featureID})
+			out = append(out, sessionRef{gameID: sess.gameID})
 		}
 	}
 	return out
 }
 
-// Start 启动指定游戏的功能。
+// Start 启动指定游戏的单个功能；功能已禁用或未知时返回错误。
 func (s *Service) Start(gameID, featureID string) ActionResult {
-	s.mu.Lock()
-	if sess, ok := s.sessions[gameID]; ok {
-		st := sess.eng.Status()
-		if st.State == engine.StateRunning || st.State == engine.StatePaused {
-			s.mu.Unlock()
-			return ActionResult{OK: false, Error: "该游戏已有会话在运行"}
-		}
-	}
-	s.mu.Unlock()
-
 	game, ok := games.Get(gameID)
 	if !ok {
 		return ActionResult{OK: false, Error: "未知游戏: " + gameID}
@@ -371,23 +374,40 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	if feature == nil {
 		return ActionResult{OK: false, Error: "未知功能: " + featureID}
 	}
-
-	settings := feature.DefaultSettings()
 	s.mu.Lock()
-	if fc, ok := s.gameConfigLocked(gameID).Features[featureID]; ok {
-		if !fc.Enabled {
+	enabled := s.featureEnabledLocked(gameID, featureID)
+	s.mu.Unlock()
+	if !enabled {
+		return ActionResult{OK: false, Error: "功能已在配置中禁用"}
+	}
+	return s.startGame(game, []assist.Feature{feature})
+}
+
+// StartGame 启动一个游戏里全部启用的功能（剧情跳过 + 自动战斗并行）。
+func (s *Service) StartGame(gameID string) ActionResult {
+	game, ok := games.Get(gameID)
+	if !ok {
+		return ActionResult{OK: false, Error: "未知游戏: " + gameID}
+	}
+	return s.startGame(game, s.enabledFeatures(game))
+}
+
+// startGame 为一个游戏创建 engine：同一帧截图喂给多个功能，动作串行执行。
+func (s *Service) startGame(game assist.Game, features []assist.Feature) ActionResult {
+	if len(features) == 0 {
+		return ActionResult{OK: false, Error: "没有启用的功能"}
+	}
+	gameID := game.ID()
+	s.mu.Lock()
+	if sess, ok := s.sessions[gameID]; ok {
+		st := sess.eng.Status()
+		if st.State == engine.StateRunning || st.State == engine.StatePaused {
 			s.mu.Unlock()
-			return ActionResult{OK: false, Error: "功能已在配置中禁用"}
-		}
-		if fc.Settings != nil {
-			settings = fc.Settings
+			return ActionResult{OK: false, Error: "该游戏已有会话在运行"}
 		}
 	}
 	appCfg := s.appCfg
 	s.mu.Unlock()
-	if err := feature.Validate(settings); err != nil {
-		return ActionResult{OK: false, Error: err.Error()}
-	}
 
 	win, err := platform.Find(game.WindowTitles(), game.ProcessNames())
 	if err != nil {
@@ -403,12 +423,6 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	if appCfg.Input.Gamepad && !input.GamepadAvailable() {
 		s.appendLog("warn", "["+game.Name()+"] 虚拟手柄不可用: "+fmt.Sprint(input.GamepadError()))
 	}
-	if settings == nil {
-		settings = assist.Settings{}
-	}
-	if feature.ID() == "story_skip" {
-		settings[storyskip.SettingGamepad] = appCfg.Input.Gamepad && input.GamepadAvailable()
-	}
 	screens, err := screen.LoadFS(game.Assets(), "screens")
 	if err != nil {
 		return ActionResult{OK: false, Error: err.Error()}
@@ -419,16 +433,49 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	}
 	matcher := vision.NewMatcher(ocr, vision.NewTemplateStoreFS(game.Assets(), "templates"))
 	targetFPS := appCfg.Capture.TargetFPS
-	if needs, ok := feature.(assist.FrameRateFeature); ok && needs.MinFPS() > targetFPS {
-		targetFPS = needs.MinFPS()
+	specs := make([]engine.FeatureSpec, 0, len(features))
+	names := make([]string, 0, len(features))
+	ids := make([]string, 0, len(features))
+	for _, feature := range features {
+		settings := feature.DefaultSettings()
+		s.mu.Lock()
+		if fc, ok := s.gameConfigLocked(gameID).Features[feature.ID()]; ok && fc.Settings != nil {
+			settings = fc.Settings
+		}
+		s.mu.Unlock()
+		if settings == nil {
+			settings = assist.Settings{}
+		}
+		if feature.ID() == "story_skip" {
+			settings[storyskip.SettingGamepad] = appCfg.Input.Gamepad && input.GamepadAvailable()
+		}
+		if err := feature.Validate(settings); err != nil {
+			s.appendLog("warn", "["+game.Name()+"] "+feature.Name()+" 配置无效，跳过: "+err.Error())
+			continue
+		}
+		specs = append(specs, engine.FeatureSpec{Feature: feature, Settings: assist.Settings(settings)})
+		names = append(names, feature.Name())
+		ids = append(ids, feature.ID())
+		if needs, ok := feature.(assist.FrameRateFeature); ok && needs.MinFPS() > targetFPS {
+			targetFPS = needs.MinFPS()
+		}
 	}
-	eng := engine.New(capturer, input, screens, matcher, s.logger, feature, assist.Settings(settings), engine.Config{TargetFPS: targetFPS, PauseWhenBackground: appCfg.Input.PauseWhenBackground, ActivateWindow: !background}, func(ev engine.Event) { s.onEngineEvent(gameID, ev) })
+	if len(specs) == 0 {
+		return ActionResult{OK: false, Error: "没有可运行的功能"}
+	}
+	alive := s.processGate(game.ProcessNames())
+	eng := engine.New(capturer, input, screens, matcher, s.logger, specs, engine.Config{
+		TargetFPS:           targetFPS,
+		PauseWhenBackground: appCfg.Input.PauseWhenBackground,
+		ActivateWindow:      !background,
+		ProcessAlive:        alive,
+	}, func(ev engine.Event) { s.onEngineEvent(gameID, ev) })
 	ctx, cancel := context.WithCancel(context.Background())
-	sess := &gameSession{gameID: gameID, featureID: featureID, eng: eng, cancel: cancel}
+	sess := &gameSession{gameID: gameID, featureIDs: ids, eng: eng, cancel: cancel}
 	s.mu.Lock()
 	s.sessions[gameID] = sess
 	s.mu.Unlock()
-	s.appendLog("info", "["+game.Name()+"] 启动 "+feature.Name())
+	s.appendLog("info", "["+game.Name()+"] 启动 "+strings.Join(names, " + "))
 	go func() {
 		err := eng.Run(ctx)
 		if err != nil {
@@ -444,6 +491,44 @@ func (s *Service) Start(gameID, featureID string) ActionResult {
 	return ActionResult{OK: true}
 }
 
+// processGate 返回带缓存的进程存活判定：每 1 秒最多枚举一次进程表。
+func (s *Service) processGate(processNames []string) func() bool {
+	var mu sync.Mutex
+	var at time.Time
+	alive := true
+	return func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if time.Since(at) < time.Second {
+			return alive
+		}
+		at = time.Now()
+		alive = platform.ProcessAlive(processNames)
+		return alive
+	}
+}
+
+// featureEnabledLocked 报告功能是否启用；配置缺失按启用处理。调用方需持有 s.mu。
+func (s *Service) featureEnabledLocked(gameID, featureID string) bool {
+	if fc, ok := s.gameConfigLocked(gameID).Features[featureID]; ok {
+		return fc.Enabled
+	}
+	return true
+}
+
+// enabledFeatures 返回游戏配置里启用的功能，保持 Features() 的声明顺序。
+func (s *Service) enabledFeatures(game assist.Game) []assist.Feature {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []assist.Feature
+	for _, f := range game.Features() {
+		if s.featureEnabledLocked(game.ID(), f.ID()) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // StartAll 启动所有未排除游戏的默认功能；游戏未启动时由后台扫描等待。
 func (s *Service) StartAll() ActionResult {
 	s.mu.Lock()
@@ -457,8 +542,7 @@ func (s *Service) StartAll() ActionResult {
 			s.appendLog("info", "["+game.Name()+"] 已在排除列表，跳过")
 			continue
 		}
-		feature := s.defaultFeature(game)
-		if feature == nil {
+		if len(s.enabledFeatures(game)) == 0 {
 			continue
 		}
 		s.mu.Lock()
@@ -470,7 +554,7 @@ func (s *Service) StartAll() ActionResult {
 				continue
 			}
 		}
-		res := s.Start(game.ID(), feature.ID())
+		res := s.StartGame(game.ID())
 		if res.OK {
 			started++
 		} else {
@@ -546,16 +630,13 @@ func (s *Service) GetStatus() StatusView {
 	backend := s.ocrBackend
 	s.mu.Unlock()
 	if len(sessions) == 0 {
-		return StatusView{State: string(engine.StateIdle), OCRBackend: backend}
+		return StatusView{State: string(engine.StateIdle), OCRBackend: backend, Features: []FeatureStateView{}}
 	}
-	status := StatusView{State: string(engine.StateStopped), OCRBackend: backend}
-	var ids []string
+	status := StatusView{State: string(engine.StateStopped), OCRBackend: backend, Features: []FeatureStateView{}}
+	var gameIDs, featureIDs, featureNames []string
 	for _, sess := range sessions {
 		st := sess.eng.Status()
-		ids = append(ids, sess.gameID)
-		status.GameID = strings.Join(ids, ",")
-		status.FeatureID = st.FeatureID
-		status.FeatureName = st.FeatureName
+		gameIDs = append(gameIDs, sess.gameID)
 		status.TargetFPS = st.TargetFPS
 		if st.LastMessage != "" {
 			status.Message = st.LastMessage
@@ -581,6 +662,14 @@ func (s *Service) GetStatus() StatusView {
 				status.State = string(engine.StateError)
 			}
 		}
+		for _, fs := range st.Features {
+			featureIDs = append(featureIDs, fs.ID)
+			featureNames = append(featureNames, fs.Name)
+			status.Features = append(status.Features, FeatureStateView{
+				GameID: sess.gameID, FeatureID: fs.ID, Name: fs.Name,
+				State: string(fs.State), Message: fs.Message,
+			})
+		}
 	}
 	if len(sessions) > 0 {
 		status.FPS /= float64(len(sessions))
@@ -588,23 +677,13 @@ func (s *Service) GetStatus() StatusView {
 	if status.Running {
 		status.Paused = false
 	}
+	status.GameID = strings.Join(gameIDs, ",")
+	status.FeatureID = strings.Join(featureIDs, ",")
+	status.FeatureName = strings.Join(featureNames, " + ")
 	if len(sessions) > 1 {
 		status.FeatureName = "全部游戏"
 	}
 	return status
-}
-
-// defaultFeature 返回游戏第一个启用的功能。
-func (s *Service) defaultFeature(game assist.Game) assist.Feature {
-	s.mu.Lock()
-	cfg := s.gameConfigLocked(game.ID())
-	s.mu.Unlock()
-	for _, f := range game.Features() {
-		if fc, ok := cfg.Features[f.ID()]; !ok || fc.Enabled {
-			return f
-		}
-	}
-	return nil
 }
 
 func (s *Service) isExcluded(gameID string) bool {
@@ -653,8 +732,7 @@ func (s *Service) scanGames() {
 		if s.isExcluded(game.ID()) {
 			continue
 		}
-		feature := s.defaultFeature(game)
-		if feature == nil {
+		if len(s.enabledFeatures(game)) == 0 {
 			continue
 		}
 		s.mu.Lock()
@@ -666,7 +744,7 @@ func (s *Service) scanGames() {
 				continue
 			}
 		}
-		res := s.Start(game.ID(), feature.ID())
+		res := s.StartGame(game.ID())
 		if res.OK {
 			s.mu.Lock()
 			delete(s.waiting, game.ID())

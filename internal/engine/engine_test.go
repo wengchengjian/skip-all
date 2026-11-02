@@ -92,7 +92,7 @@ func TestRunExecutesActionsAndStops(t *testing.T) {
 	dev.active.Store(true)
 	in := &fakeInput{}
 	sess := &fakeSession{}
-	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), &fakeFeature{session: sess}, nil, Config{TargetFPS: 100}, nil)
+	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), []FeatureSpec{{Feature: &fakeFeature{session: sess}}}, Config{TargetFPS: 100}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()
 	err := eng.Run(ctx)
@@ -114,7 +114,7 @@ func TestRunRecoversFeaturePanic(t *testing.T) {
 	dev := &fakeDevice{}
 	dev.active.Store(true)
 	in := &fakeInput{}
-	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), &fakeFeature{session: &panicSession{}}, nil, Config{TargetFPS: 100}, nil)
+	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), []FeatureSpec{{Feature: &fakeFeature{session: &panicSession{}}}}, Config{TargetFPS: 100}, nil)
 	err := eng.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "会话异常退出") {
 		t.Fatalf("Run err = %v, want 会话异常退出", err)
@@ -141,7 +141,7 @@ func TestPauseSkipsCapture(t *testing.T) {
 	dev.active.Store(true)
 	in := &fakeInput{}
 	sess := &fakeSession{}
-	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), &fakeFeature{session: sess}, nil, Config{TargetFPS: 100}, nil)
+	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), []FeatureSpec{{Feature: &fakeFeature{session: sess}}}, Config{TargetFPS: 100}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
 	go func() {
@@ -153,5 +153,97 @@ func TestPauseSkipsCapture(t *testing.T) {
 	}
 	if dev.captures.Load() == 0 {
 		t.Fatal("expected captures before pause")
+	}
+}
+
+type namedFeature struct {
+	id      string
+	session assist.Session
+}
+
+func (f *namedFeature) ID() string                       { return f.id }
+func (f *namedFeature) Name() string                     { return f.id }
+func (f *namedFeature) Description() string              { return f.id }
+func (f *namedFeature) DefaultSettings() assist.Settings { return nil }
+func (f *namedFeature) Validate(assist.Settings) error   { return nil }
+func (f *namedFeature) NewSession(assist.Runtime, assist.Settings) (assist.Session, error) {
+	return f.session, nil
+}
+
+// TestRunRunsAllFeatures 验证同一帧截图喂给多个功能、动作按功能顺序串行执行。
+func TestRunRunsAllFeatures(t *testing.T) {
+	dev := &fakeDevice{}
+	dev.active.Store(true)
+	in := &fakeInput{}
+	first := &fakeSession{}
+	second := &fakeSession{}
+	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), []FeatureSpec{
+		{Feature: &namedFeature{id: "story_skip", session: first}},
+		{Feature: &namedFeature{id: "auto_combat", session: second}},
+	}, Config{TargetFPS: 100}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	if err := eng.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if first.steps.Load() == 0 || second.steps.Load() == 0 {
+		t.Fatalf("两个功能都应被驱动: first=%d second=%d", first.steps.Load(), second.steps.Load())
+	}
+	if in.clicks.Load() < 2 {
+		t.Fatalf("两个功能的点击都要执行, clicks = %d", in.clicks.Load())
+	}
+	st := eng.Status()
+	if len(st.Features) != 2 {
+		t.Fatalf("Status.Features = %+v", st.Features)
+	}
+	if st.Features[0].ID != "story_skip" || st.Features[1].ID != "auto_combat" {
+		t.Fatalf("功能顺序 = %+v", st.Features)
+	}
+}
+
+// TestProcessGatePausesAndResumes 验证游戏进程退出时自动暂停、进程回来后自动恢复。
+func TestProcessGatePausesAndResumes(t *testing.T) {
+	dev := &fakeDevice{}
+	dev.active.Store(true)
+	in := &fakeInput{}
+	sess := &fakeSession{}
+	var alive atomic.Bool
+	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), []FeatureSpec{
+		{Feature: &namedFeature{id: "story_skip", session: sess}},
+	}, Config{TargetFPS: 100, ProcessAlive: alive.Load}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- eng.Run(ctx) }()
+
+	// 进程不在：不该截图，状态应为暂停。
+	time.Sleep(120 * time.Millisecond)
+	if n := dev.captures.Load(); n != 0 {
+		t.Fatalf("进程不在时不该截图, captures = %d", n)
+	}
+	if st := eng.Status(); st.State != StatePaused {
+		t.Fatalf("进程不在时应暂停, state = %s", st.State)
+	}
+
+	// 进程回来：自动恢复并开始截图。
+	alive.Store(true)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if st := eng.Status(); st.State == StateRunning && dev.captures.Load() > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st := eng.Status(); st.State != StateRunning {
+		t.Fatalf("进程回来后应自动恢复, state = %s", st.State)
+	}
+	if dev.captures.Load() == 0 {
+		t.Fatal("进程回来后应继续截图")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run 未退出")
 	}
 }

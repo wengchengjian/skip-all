@@ -30,6 +30,8 @@ const {
   updateInfo,
   updateChecking,
   updateInstalling,
+  updateProgress,
+  updateDownloading,
   notice,
   noticeType,
   stateLabel,
@@ -40,10 +42,12 @@ const {
   pause,
   resume,
   saveConfig,
+  toggleFeature,
   installModels,
   checkModels,
   runDoctor,
   checkUpdates,
+  downloadUpdate,
   installUpdate,
 } = useSkipAll();
 
@@ -128,6 +132,7 @@ const fpsLabel = computed(() =>
           :doctor-error="doctorError"
           @select-game="selectGame"
           @select-feature="selectFeature"
+          @toggle-feature="(featureId, enabled) => toggleFeature(selectedGameId, featureId, enabled)"
           @start="start"
           @stop="stop"
           @pause="pause"
@@ -146,8 +151,11 @@ const fpsLabel = computed(() =>
           :update-info="updateInfo"
           :update-checking="updateChecking"
           :update-installing="updateInstalling"
+          :update-downloading="updateDownloading"
+          :update-progress="updateProgress"
           @save="saveConfig"
           @check-update="checkUpdates"
+          @download-update="downloadUpdate"
           @install-update="installUpdate"
         />
         <LogsTab v-else :logs="logs" />

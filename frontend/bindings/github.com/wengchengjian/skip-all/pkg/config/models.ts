@@ -91,8 +91,10 @@ export interface StorySkipConfig {
 
 /**
  * UpdateConfig 是自动更新配置。
+ * AutoCheck/AutoDownload 默认开启；安装动作始终由用户点击触发。
  */
 export interface UpdateConfig {
     "AutoCheck": boolean;
+    "AutoDownload": boolean;
     "Repo": string;
 }

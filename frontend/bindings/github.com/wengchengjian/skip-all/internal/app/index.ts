@@ -10,6 +10,7 @@ export type {
     ActionResult,
     ConfigView,
     DoctorReport,
+    FeatureStateView,
     FeatureView,
     GameView,
     LogEntry,

@@ -52,6 +52,9 @@ type Input interface {
 // Find 在非 Windows 平台返回不支持错误。
 func Find(titles, processNames []string) (Window, error) { return nil, ErrUnsupported }
 
+// ProcessAlive 在非 Windows 平台不做进程门控。
+func ProcessAlive([]string) bool { return true }
+
 // NewCapturer 在非 Windows 平台返回占位截图器。
 func NewCapturer(w Window) Capturer { return unsupportedCapturer{} }
 

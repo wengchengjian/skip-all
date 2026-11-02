@@ -29,6 +29,14 @@ export function Doctor(gameID: string): $CancellablePromise<$models.DoctorReport
 }
 
 /**
+ * DownloadUpdate 下载当前检查到的新版本；已下载过则直接复用本地文件。
+ * 同一时间只允许一个下载任务，并发调用会等待前一个完成。
+ */
+export function DownloadUpdate(): $CancellablePromise<void> {
+    return $Call.ByID(2882206492);
+}
+
+/**
  * EnsureModels 检查并可选安装 OCR 模型。
  */
 export function EnsureModels(): $CancellablePromise<void> {
@@ -75,7 +83,7 @@ export function InstallModels(): $CancellablePromise<void> {
 }
 
 /**
- * InstallUpdate 下载并校验最新版本，随后交给外部脚本替换 exe 并重启。
+ * InstallUpdate 安装最新版本：优先用本地已下载的最新包，缺失时再下载。
  */
 export function InstallUpdate(): $CancellablePromise<$models.ActionResult> {
     return $Call.ByID(3461829845);
@@ -131,7 +139,7 @@ export function Shutdown(): $CancellablePromise<void> {
 }
 
 /**
- * Start 启动指定游戏的功能。
+ * Start 启动指定游戏的单个功能；功能已禁用或未知时返回错误。
  */
 export function Start(gameID: string, featureID: string): $CancellablePromise<$models.ActionResult> {
     return $Call.ByID(4091612947, gameID, featureID);
@@ -145,10 +153,18 @@ export function StartAll(): $CancellablePromise<$models.ActionResult> {
 }
 
 /**
- * StartAutoUpdateCheck 在启动后异步检查一次更新；失败只写日志，不阻塞主流程。
+ * StartAutoUpdateCheck 在启动后异步检查一次更新。
+ * 发现新版本且开启 auto_download 时后台下载；是否安装由用户决定。
  */
 export function StartAutoUpdateCheck(): $CancellablePromise<void> {
     return $Call.ByID(3143693499);
+}
+
+/**
+ * StartGame 启动一个游戏里全部启用的功能（剧情跳过 + 自动战斗并行）。
+ */
+export function StartGame(gameID: string): $CancellablePromise<$models.ActionResult> {
+    return $Call.ByID(3774776001, gameID);
 }
 
 /**

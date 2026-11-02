@@ -3,8 +3,10 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/wengchengjian/skip-all/games"
 	"github.com/wengchengjian/skip-all/pkg/config"
 )
 
@@ -97,5 +99,67 @@ func TestServiceConfigRoundTrip(t *testing.T) {
 	feature := loaded.GetConfig().Games["zzz"].Features["story_skip"]
 	if feature.Enabled || feature.Settings["mode"] != "click" {
 		t.Fatalf("zzz 游戏配置未落盘: %+v", feature)
+	}
+}
+
+// TestEnabledFeaturesFollowConfig 验证"一个游戏可以同时启用多个功能"：
+// 两个都启用时都返回，停用其中一个后只返回另一个。
+func TestEnabledFeaturesFollowConfig(t *testing.T) {
+	svc, err := NewService(Options{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	defer svc.Shutdown()
+	game, ok := games.Get("zzz")
+	if !ok {
+		t.Fatal("缺少 zzz")
+	}
+	if got := svc.enabledFeatures(game); len(got) != 2 {
+		t.Fatalf("默认应启用两个功能, got %d", len(got))
+	}
+	svc.mu.Lock()
+	cfg := svc.gameConfigLocked("zzz")
+	cfg.Features["auto_combat"] = config.StorySkipConfig{Enabled: false, Settings: map[string]any{}}
+	svc.gameCfg["zzz"] = cfg
+	svc.mu.Unlock()
+	got := svc.enabledFeatures(game)
+	if len(got) != 1 || got[0].ID() != "story_skip" {
+		t.Fatalf("停用 auto_combat 后只剩 story_skip, got %+v", got)
+	}
+	if svc.featureEnabledLocked("zzz", "auto_combat") {
+		t.Fatal("auto_combat 应被停用")
+	}
+	if !svc.featureEnabledLocked("zzz", "story_skip") {
+		t.Fatal("story_skip 应仍启用")
+	}
+}
+
+// TestStartRefusesDisabledFeature 验证单独启动一个已停用的功能会被拒绝。
+func TestStartRefusesDisabledFeature(t *testing.T) {
+	svc, err := NewService(Options{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	defer svc.Shutdown()
+	svc.mu.Lock()
+	cfg := svc.gameConfigLocked("zzz")
+	cfg.Features["story_skip"] = config.StorySkipConfig{Enabled: false, Settings: map[string]any{}}
+	svc.gameCfg["zzz"] = cfg
+	svc.mu.Unlock()
+	res := svc.Start("zzz", "story_skip")
+	if res.OK || !strings.Contains(res.Error, "禁用") {
+		t.Fatalf("已停用的功能不应启动: %+v", res)
+	}
+}
+
+// TestGetStatusExposesFeatureStates 验证状态里能拿到每个功能的独立状态（UI 靠它显示徽标）。
+func TestGetStatusExposesFeatureStates(t *testing.T) {
+	svc, err := NewService(Options{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	defer svc.Shutdown()
+	if st := svc.GetStatus(); st.Features == nil {
+		t.Fatal("没有会话时 Features 也应为空数组而不是 nil")
 	}
 }

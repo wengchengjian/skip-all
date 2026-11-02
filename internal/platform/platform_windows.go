@@ -56,6 +56,9 @@ func Find(titles, processNames []string) (Window, error) {
 	return win.Find(titles, processNames)
 }
 
+// ProcessAlive 报告游戏进程是否仍在运行。
+func ProcessAlive(names []string) bool { return win.ProcessAlive(names) }
+
 // NewCapturer 创建截图器。
 func NewCapturer(w Window) Capturer {
 	ww, ok := w.(*win.Window)
