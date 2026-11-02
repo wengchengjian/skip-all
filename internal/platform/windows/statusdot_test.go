@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-func TestStatusDotIsPNG(t *testing.T) {
-	data := StatusDot(color.RGBA{R: 64, G: 186, B: 106, A: 255}, 16)
+func TestGradientDotIsPNG(t *testing.T) {
+	data := GradientDot(color.RGBA{R: 118, G: 240, B: 156, A: 255}, color.RGBA{R: 16, G: 124, B: 72, A: 255}, 16)
 	if len(data) == 0 {
-		t.Fatal("StatusDot 返回空")
+		t.Fatal("GradientDot 返回空")
 	}
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -32,9 +32,23 @@ func TestStatusDotIsPNG(t *testing.T) {
 	}
 }
 
-func TestStatusDotColorsDiffer(t *testing.T) {
-	running := StatusDot(color.RGBA{R: 64, G: 186, B: 106, A: 255}, 16)
-	idle := StatusDot(color.RGBA{R: 150, G: 154, B: 162, A: 255}, 16)
+func TestGradientDotHasVisibleGradient(t *testing.T) {
+	// 左上应比右下亮，否则渐变没生效。
+	data := GradientDot(color.RGBA{R: 255, G: 255, B: 255, A: 255}, color.RGBA{R: 0, G: 0, B: 0, A: 255}, 16)
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("解码失败: %v", err)
+	}
+	lightR, _, _, _ := img.At(5, 5).RGBA()
+	darkR, _, _, _ := img.At(12, 12).RGBA()
+	if lightR <= darkR {
+		t.Fatalf("左上应比右下亮: %d vs %d", lightR, darkR)
+	}
+}
+
+func TestGradientDotColorsDiffer(t *testing.T) {
+	running := GradientDot(color.RGBA{R: 118, G: 240, B: 156, A: 255}, color.RGBA{R: 16, G: 124, B: 72, A: 255}, 16)
+	idle := GradientDot(color.RGBA{R: 206, G: 212, B: 222, A: 255}, color.RGBA{R: 92, G: 98, B: 110, A: 255}, 16)
 	if bytes.Equal(running, idle) {
 		t.Fatal("不同状态应生成不同颜色")
 	}

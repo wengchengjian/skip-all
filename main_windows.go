@@ -5,6 +5,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"image/color"
 	"log"
 	"os"
 	"path/filepath"
@@ -291,20 +292,30 @@ func gameDot(game app.GameStateView) []byte {
 	return statusDot("idle")
 }
 
-// statusDot 按状态取彩色圆点图标（PNG）。
+// statusDot 按状态取状态点（PNG）。
+// 配色是低饱和的"信号色"：绿=运行、琥珀=暂停、朱红=异常、靛蓝=待命、
+// 中性灰=无游戏。top 比 base 略亮，只用来做纵向光照，不做出高光球。
 func statusDot(key string) []byte {
 	switch key {
 	case "running":
-		return platform.StatusDot(64, 186, 106, 16)
+		return platform.StatusDot(rgb(0x34, 0xD0, 0x7F), rgb(0x1B, 0xA8, 0x62), dotSize)
 	case "paused":
-		return platform.StatusDot(232, 168, 64, 16)
+		return platform.StatusDot(rgb(0xF0, 0xB0, 0x42), rgb(0xCE, 0x8B, 0x24), dotSize)
 	case "error":
-		return platform.StatusDot(224, 90, 90, 16)
+		return platform.StatusDot(rgb(0xE8, 0x5C, 0x5C), rgb(0xC4, 0x3E, 0x45), dotSize)
 	case "ready":
-		return platform.StatusDot(88, 150, 232, 16)
+		return platform.StatusDot(rgb(0x5A, 0x9C, 0xE8), rgb(0x3B, 0x7B, 0xC9), dotSize)
 	}
-	return platform.StatusDot(150, 154, 162, 16)
+	return platform.StatusDot(rgb(0xA8, 0xAE, 0xB8), rgb(0x8C, 0x93, 0x9E), dotSize)
 }
+
+// rgb 是构造 color.RGBA 的简写，省掉到处写 A: 255。
+func rgb(r, g, b uint8) color.RGBA {
+	return color.RGBA{R: r, G: g, B: b, A: 255}
+}
+
+// dotSize 是菜单状态点的像素尺寸（含抗锯齿）。
+const dotSize = 16
 
 // runLabel 把运行状态压成一行：状态 + 唯一的切换快捷键与下一步动作。
 // 点击这一行等同于按该快捷键。

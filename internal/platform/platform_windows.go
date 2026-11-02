@@ -81,9 +81,10 @@ func ParseAccelerator(s string) (*HotkeyBinding, error) { return win.ParseAccele
 // ForegroundProcessName 返回前台窗口所属进程的文件名（小写）。
 func ForegroundProcessName() string { return win.ForegroundProcessName() }
 
-// StatusDot 生成指定颜色的圆形状态点（PNG 字节流），给右键菜单项当图标。
-func StatusDot(r, g, b uint8, size int) []byte {
-	return win.StatusDot(color.RGBA{R: r, G: g, B: b, A: 255}, size)
+// StatusDot 生成带渐变的圆形状态点（PNG 字节流），给右键菜单项当图标。
+// from 是高光色、to 是暗部色。
+func StatusDot(from, to color.RGBA, size int) []byte {
+	return win.GradientDot(from, to, size)
 }
 
 // 提示音类型。

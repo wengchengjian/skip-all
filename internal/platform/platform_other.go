@@ -6,6 +6,7 @@ package platform
 import (
 	"errors"
 	"image"
+	"image/color"
 
 	"github.com/wengchengjian/skip-all/pkg/geom"
 )
@@ -89,7 +90,7 @@ func ParseAccelerator(s string) (*HotkeyBinding, error) { return &HotkeyBinding{
 func ForegroundProcessName() string { return "" }
 
 // StatusDot 在非 Windows 平台返回空图标。
-func StatusDot(r, g, b uint8, size int) []byte { return nil }
+func StatusDot(from, to color.RGBA, size int) []byte { return nil }
 
 // 提示音类型（非 Windows 平台不使用）。
 const (
