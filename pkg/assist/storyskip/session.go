@@ -73,7 +73,13 @@ type Session struct {
 	skipRetries    int
 	entryVisible   bool
 	// entrySet 只在一次 Step 内有效：每帧开始时清掉，避免跨帧复用旧结论。
-	entrySet     bool
+	entrySet bool
+	// optionCache 同样只在一次 Step 内有效：按区域名缓存本帧的描边选项按钮。
+	optionCache map[string][]geom.Rect
+	// optionStory 缓存本帧的过场选项结论：0 未算、1 有、-1 没有。
+	optionStory int
+	// frameDark 缓存本帧是不是过场黑屏：0 未算、1 是、-1 不是。整帧统计一次约 10ms，一帧只算一次。
+	frameDark    int
 	padReady     bool
 	padPhase     int
 	padAt        time.Time
@@ -99,7 +105,12 @@ type guardCacheEntry struct {
 var _ assist.Session = (*Session)(nil)
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg, ocrCache: make(map[string]ocrCacheEntry), guardCache: make(map[string]guardCacheEntry)}
+	return &Session{
+		rt: rt, spec: spec, cfg: cfg,
+		ocrCache:    make(map[string]ocrCacheEntry),
+		guardCache:  make(map[string]guardCacheEntry),
+		optionCache: make(map[string][]geom.Rect),
+	}
 }
 
 func (s *Session) confirmPending(at time.Time) bool {
@@ -150,6 +161,9 @@ func (s *Session) Close() error { return nil }
 // Step 处理一帧画面，返回本帧应执行的动作。
 func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []assist.Action, error) {
 	s.entrySet = false
+	s.optionStory = 0
+	s.frameDark = 0
+	clear(s.optionCache)
 	if frame.Image == nil {
 		return assist.Result{State: "等待剧情画面", Wait: s.cfg.sleepAfterEmpty}, nil, nil
 	}
@@ -316,12 +330,84 @@ func (s *Session) hasOptionBands(frame assist.Frame) bool {
 		if err != nil {
 			continue
 		}
-		bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})
-		if len(bands) > 0 {
+		if len(s.optionRects(frame, *area)) > 0 {
 			return true
 		}
 	}
 	return false
+}
+
+// 过场剧情（鸣潮那种全屏黑底、只画一枚选项按钮）的判据：选项区域和整帧都必须基本是黑的，
+// 里面的描边按钮才算剧情选项，免得把菜单里的描边按钮当成选项。
+const (
+	optionAreaDarkMin  = 0.7
+	optionFrameDarkMin = 0.85
+)
+
+// optionDarkRange 是"接近纯黑"的颜色范围。
+var optionDarkRange = [2][3]uint8{{0, 0, 0}, {60, 60, 60}}
+
+// storyOptionButtons 返回某个选项区域里的描边选项按钮，同一次 Step 内按区域名缓存。
+func (s *Session) storyOptionButtons(frame assist.Frame, area screen.Area) []geom.Rect {
+	if rects, ok := s.optionCache[area.Name]; ok {
+		return rects
+	}
+	var rects []geom.Rect
+	if vision.ColorRatio(frame.Image, area.Rect, optionDarkRange) >= optionAreaDarkMin {
+		rects = vision.FindOptionButtons(frame.Image, area.Rect, vision.OptionButtonOptions{ColorRange: s.spec.ButtonColorRange})
+	}
+	s.optionCache[area.Name] = rects
+	return rects
+}
+
+// storyOptionVisible 报告画面里有没有过场剧情的选项按钮。
+// 结果是"过场黑屏 + 选项区域里有描边按钮"两个证据同时成立，本帧内缓存。
+func (s *Session) storyOptionVisible(frame assist.Frame) bool {
+	if s.optionStory != 0 {
+		return s.optionStory > 0
+	}
+	s.optionStory = -1
+	for _, name := range []string{s.spec.RightOptionArea, s.spec.MiddleOptionArea} {
+		if name == "" {
+			continue
+		}
+		area, err := s.area(s.spec.Screen, name)
+		if err != nil {
+			continue
+		}
+		if len(s.storyOptionButtons(frame, *area)) == 0 {
+			continue
+		}
+		if s.darkScreen(frame) {
+			s.optionStory = 1
+			break
+		}
+	}
+	return s.optionStory > 0
+}
+
+// darkScreen 判断整帧是不是过场黑屏：剧情选项出现时整屏基本全黑，菜单界面不会。
+func (s *Session) darkScreen(frame assist.Frame) bool {
+	if s.frameDark != 0 {
+		return s.frameDark > 0
+	}
+	b := frame.Image.Bounds()
+	s.frameDark = -1
+	if vision.ColorRatio(frame.Image, geom.Rect{X1: b.Min.X, Y1: b.Min.Y, X2: b.Max.X, Y2: b.Max.Y}, optionDarkRange) >= optionFrameDarkMin {
+		s.frameDark = 1
+	}
+	return s.frameDark > 0
+}
+
+// optionRects 返回某个选项区域里可点击的矩形：过场选项按描边按钮外形定位，
+// 免得把过场特效的亮斑当成选项；其余情况沿用白色文字行（对话选项就是几行白字）。
+func (s *Session) optionRects(frame assist.Frame, area screen.Area) []geom.Rect {
+	if s.mode().DetectsOptionButtons() {
+		if rects := s.storyOptionButtons(frame, area); len(rects) > 0 {
+			return rects
+		}
+	}
+	return vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})
 }
 
 // storyMenuVisible 用固定模板确认右上角有剧情菜单按钮。
@@ -1059,7 +1145,7 @@ func (s *Session) optionAllowed(inDialog, storyVisible bool) bool {
 	return s.mode().AllowOptions(inDialog, storyVisible)
 }
 
-// clickOptionArea 用白色文字行定位选项，不跑 OCR；灰色选项不会被选中。
+// clickOptionArea 用描边按钮外形或白色文字行定位选项，不跑 OCR；灰色选项不会被选中。
 func (s *Session) clickOptionArea(frame assist.Frame, areaName string, now time.Time) ([]assist.Action, bool, error) {
 	if areaName == "" {
 		return nil, false, nil
@@ -1068,7 +1154,7 @@ func (s *Session) clickOptionArea(frame assist.Frame, areaName string, now time.
 	if err != nil {
 		return nil, false, err
 	}
-	bands := vision.FindTextBands(frame.Image, area.Rect, vision.TextBandOptions{ColorRange: &s.spec.ButtonColorRange})
+	bands := s.optionRects(frame, *area)
 	if len(bands) == 0 {
 		return nil, false, nil
 	}

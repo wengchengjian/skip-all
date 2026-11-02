@@ -1,6 +1,9 @@
 package storyskip
 
 import (
+	"context"
+	"image"
+	"image/color"
 	"testing"
 	"time"
 
@@ -250,5 +253,118 @@ func TestConfirmDialogFallbackThrottled(t *testing.T) {
 	}
 	if result, _ := step(t, session, rt, 2); result.State != "确认弹窗" {
 		t.Fatalf("超过间隔后应点确认, state = %q", result.State)
+	}
+}
+
+// drawOptionButton 画一枚过场剧情的描边选项按钮：空心白框 + 框内"文字" + 紧贴左侧的实心按键提示。
+func drawOptionButton(img *image.RGBA, box geom.Rect, keycap geom.Rect) {
+	fill := func(r geom.Rect) {
+		for y := r.Y1; y < r.Y2; y++ {
+			for x := r.X1; x < r.X2; x++ {
+				img.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+			}
+		}
+	}
+	fill(geom.Rect{X1: box.X1, Y1: box.Y1, X2: box.X2, Y2: box.Y1 + 2}) // 上描边
+	fill(geom.Rect{X1: box.X1, Y1: box.Y2 - 2, X2: box.X2, Y2: box.Y2}) // 下描边
+	fill(geom.Rect{X1: box.X1, Y1: box.Y1, X2: box.X1 + 2, Y2: box.Y2}) // 左描边
+	fill(geom.Rect{X1: box.X2 - 2, Y1: box.Y1, X2: box.X2, Y2: box.Y2}) // 右描边
+	for i := 0; i < 3; i++ {                                            // 框内三个字
+		x := box.X1 + 20 + i*30
+		fill(geom.Rect{X1: x, Y1: box.Y1 + 13, X2: x + 20, Y2: box.Y1 + 35})
+	}
+	fill(keycap) // 按键提示是实心小块
+}
+
+func stepFrame(t *testing.T, session *Session, frame assist.Frame) (assist.Result, []assist.Action) {
+	t.Helper()
+	result, actions, err := session.Step(context.Background(), frame)
+	if err != nil {
+		t.Fatalf("执行失败: %v", err)
+	}
+	return result, actions
+}
+
+func TestTextStoryOptionClickedWithoutSkipIcon(t *testing.T) {
+	// 过场选项画面：没有跳过图标、没有字幕，只有一枚描边选项按钮，画面几乎全黑。
+	box := geom.Rect{X1: 1400, Y1: 637, X2: 1600, Y2: 679}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	drawOptionButton(img, box, geom.Rect{X1: 1343, Y1: 648, X2: 1365, Y2: 669})
+	rt := &fakeRuntime{screens: textScreens()}
+	session, err := NewFeature(textSpec()).NewSession(rt, assist.Settings{"mode": "skip"})
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	result, actions := stepFrame(t, session.(*Session), assist.Frame{Image: img, At: time.Now()})
+	if result.State != "点击右方选项" {
+		t.Fatalf("state = %q actions = %+v, want 点击右方选项", result.State, actions)
+	}
+	want := geom.Point{X: (box.X1 + box.X2) / 2, Y: (box.Y1 + box.Y2) / 2}
+	checkActions(t, actions, []assist.Action{{Kind: assist.ActionClick, Point: want}})
+}
+
+func TestTextStoryOptionNeedsDarkBackground(t *testing.T) {
+	// 同样的描边按钮出现在亮背景上（菜单/背包那种界面）不算剧情选项，什么都不点。
+	box := geom.Rect{X1: 1400, Y1: 637, X2: 1600, Y2: 679}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 0; y < 1080; y++ {
+		for x := 0; x < 1920; x++ {
+			img.SetRGBA(x, y, color.RGBA{120, 120, 120, 255})
+		}
+	}
+	drawOptionButton(img, box, geom.Rect{X1: 1343, Y1: 648, X2: 1365, Y2: 669})
+	rt := &fakeRuntime{screens: textScreens()}
+	session, err := NewFeature(textSpec()).NewSession(rt, assist.Settings{"mode": "skip"})
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	result, actions := stepFrame(t, session.(*Session), assist.Frame{Image: img, At: time.Now()})
+	if result.State != "等待剧情画面" || len(actions) != 0 {
+		t.Fatalf("亮底面上的描边按钮不该被点: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestTextStoryOptionNeedsDarkScreen(t *testing.T) {
+	// 选项区域虽然是黑的，但整帧是亮的（菜单里也可能有黑面板），不算过场黑屏。
+	box := geom.Rect{X1: 1400, Y1: 637, X2: 1600, Y2: 679}
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 0; y < 1080; y++ {
+		for x := 0; x < 1920; x++ {
+			img.SetRGBA(x, y, color.RGBA{200, 200, 200, 255})
+		}
+	}
+	for y := 300; y < 760; y++ {
+		for x := 1150; x < 1900; x++ {
+			img.SetRGBA(x, y, color.RGBA{0, 0, 0, 255})
+		}
+	}
+	drawOptionButton(img, box, geom.Rect{X1: 1343, Y1: 648, X2: 1365, Y2: 669})
+	rt := &fakeRuntime{screens: textScreens()}
+	session, err := NewFeature(textSpec()).NewSession(rt, assist.Settings{"mode": "skip"})
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	result, actions := stepFrame(t, session.(*Session), assist.Frame{Image: img, At: time.Now()})
+	if result.State != "等待剧情画面" || len(actions) != 0 {
+		t.Fatalf("整帧不黑时不该点选项: state = %q actions = %+v", result.State, actions)
+	}
+}
+
+func TestTextStoryOptionIgnoresBrightBlob(t *testing.T) {
+	// 过场特效的亮斑（实心、缺描边）不能当成选项，否则会在大世界里乱点。
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 503; y < 514; y++ {
+		for x := 1150; x < 1287; x++ {
+			img.SetRGBA(x, y, color.RGBA{240, 240, 240, 255})
+		}
+	}
+	rt := &fakeRuntime{screens: textScreens()}
+	session, err := NewFeature(textSpec()).NewSession(rt, assist.Settings{"mode": "skip"})
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	result, actions := stepFrame(t, session.(*Session), assist.Frame{Image: img, At: time.Now()})
+	if result.State != "等待剧情画面" || len(actions) != 0 {
+		t.Fatalf("亮斑不该被点: state = %q actions = %+v", result.State, actions)
 	}
 }

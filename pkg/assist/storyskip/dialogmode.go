@@ -26,6 +26,9 @@ type DialogMode interface {
 	AllowOptions(inDialog, storyVisible bool) bool
 	// SkipStoryBarOCR 报告剧情栏是否只用模板、不跑 OCR。
 	SkipStoryBarOCR() bool
+	// DetectsOptionButtons 报告该游戏的剧情选项是不是“描边按钮”样式（鸣潮过场选项）。
+	// 为真时按按钮外形定位点击点，避免把画面里的亮斑当成选项。
+	DetectsOptionButtons() bool
 }
 
 // MaskMode 是有灰底对话框的界面（绝区零）。
@@ -106,19 +109,22 @@ func (MaskMode) AllowOptions(inDialog, storyVisible bool) bool { return true }
 // SkipStoryBarOCR 绝区零的跳过/菜单是文字，必须 OCR。
 func (MaskMode) SkipStoryBarOCR() bool { return false }
 
+// DetectsOptionButtons 绝区零的选项是对话框里的文字行，没有描边按钮。
+func (MaskMode) DetectsOptionButtons() bool { return false }
+
 // TextMode 是没有对话框底板、只有白色字幕的界面（鸣潮）。
 type TextMode struct{}
 
 var _ DialogMode = TextMode{}
 
 // InDialog 要求同时有字幕行和剧情 UI 证据：大世界底部也有白字（交互/任务提示），
-// 只看字幕会把它们当成对话。
+// 只看字幕会把它们当成对话。过场剧情只有描边选项按钮、没有跳过图标，也算在剧情里。
 func (TextMode) InDialog(s *Session, frame assist.Frame) (bool, error) {
 	area, err := s.area(s.spec.Screen, s.spec.DialogArea)
 	if err != nil {
 		return false, err
 	}
-	return s.subtitleVisible(frame, *area) && s.storyEntryStrict(frame), nil
+	return (s.subtitleVisible(frame, *area) && s.storyEntryStrict(frame)) || s.storyOptionVisible(frame), nil
 }
 
 // FastDialog 同 InDialog，但不跑 OCR。
@@ -126,9 +132,10 @@ func (TextMode) FastDialog(s *Session, frame assist.Frame) (bool, error) {
 	return TextMode{}.InDialog(s, frame)
 }
 
-// StoryEntry 要求模板真的命中剧情 UI，不吃"没配置菜单区域就算可见"的默认值。
+// StoryEntry 要求模板真的命中剧情 UI，不吃"没配置菜单区域就算可见"的默认值；
+// 过场选项画面是唯一例外（这种画面根本不画跳过图标）。
 func (TextMode) StoryEntry(s *Session, frame assist.Frame) (bool, error) {
-	return s.storyEntryStrict(frame), nil
+	return s.storyEntryStrict(frame) || s.storyOptionVisible(frame), nil
 }
 
 // Advance 点字幕区域推进；没配区域时退回点当前光标。
@@ -150,3 +157,6 @@ func (TextMode) AllowOptions(inDialog, storyVisible bool) bool {
 
 // SkipStoryBarOCR 鸣潮的跳过是图标，只用模板，不为剧情栏加载 OCR。
 func (TextMode) SkipStoryBarOCR() bool { return true }
+
+// DetectsOptionButtons 鸣潮的过场选项是描边按钮（「（睁开眼睛）」那种），要按外形找。
+func (TextMode) DetectsOptionButtons() bool { return true }
