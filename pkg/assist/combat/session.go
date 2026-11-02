@@ -78,6 +78,13 @@ type Session struct {
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
+	// 设置里给了节奏就用设置，否则用 Spec 默认值。
+	if cfg.interval > 0 {
+		spec.Interval = cfg.interval
+	}
+	if cfg.hold > 0 {
+		spec.Hold = cfg.hold
+	}
 	return &Session{rt: rt, spec: spec, cfg: cfg, lastLiberation: make(map[string]time.Time), lastHeavy: make(map[string]time.Time), lastSkill: make(map[string]time.Time), lastPerform: make(map[string]time.Time), lastEcho: make(map[string]time.Time), cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
 }
 

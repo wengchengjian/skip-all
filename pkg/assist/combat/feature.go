@@ -98,6 +98,9 @@ type sessionSettings struct {
 	noHealer     bool
 	noConcerto   bool
 	extOff       map[string]bool
+	// interval/hold 是设置里覆盖的节奏；0 表示用 Spec 的默认值。
+	interval time.Duration
+	hold     time.Duration
 }
 
 // disabledExt 报告某个游戏专属能力是否被设置关掉。
@@ -137,11 +140,13 @@ func parseSettings(settings assist.Settings, spec Spec) (sessionSettings, error)
 		if value <= 0 {
 			return cfg, fmt.Errorf("设置 %s 必须大于 0", SettingInterval)
 		}
+		cfg.interval = time.Duration(value * float64(time.Second))
 	}
 	if value, ok := floatSetting(settings, SettingHold); ok {
 		if value < 0 {
 			return cfg, fmt.Errorf("设置 %s 不能为负数", SettingHold)
 		}
+		cfg.hold = time.Duration(value * float64(time.Second))
 	}
 	return cfg, nil
 }
