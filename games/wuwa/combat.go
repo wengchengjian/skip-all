@@ -150,6 +150,7 @@ func combatSpec() combat.Spec {
 			"char_camellya": true,
 			"char_jinhsi":   true,
 		},
+		SwitchIntroAfter: map[string]time.Duration{"char_luhesi": 24 * time.Second},
 		// 上游 get_switch_priority 的 NO 锁：Brant 的 perform_anchor<4s、
 		// Encore 的 last_heavy<4.6s。用最近一次技能/重击时间近似。
 		SwitchNoAfterSkill:      map[string]time.Duration{"char_brant": 4 * time.Second, "char_zani": 1600 * time.Millisecond},

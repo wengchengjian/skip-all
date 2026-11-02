@@ -61,6 +61,29 @@ func TestSwitchIntroMUST(t *testing.T) {
 	}
 }
 
+// TestSwitchIntroAfter 验证 Luhesi 的 last_intro > 24s + has_intro -> MUST。
+func TestSwitchIntroAfter(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 1, ids: []string{"a", "b", "c"}}
+	spec.Roles = map[string]Role{"a": RoleSupport, "b": RoleMainDPS, "c": RoleSubDPS}
+	spec.SwitchIntroAfter = map[string]time.Duration{"a": 24 * time.Second}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	session.lastPerform["a"] = base.Add(-25 * time.Second)
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base})
+	if len(actions) != 1 || actions[0].Key != "1" {
+		t.Fatalf("a 上次在场超过 24 秒，应被 MUST 切入，actions=%+v", actions)
+	}
+}
+
 // TestResonanceMustSwitch 验证 Encore 的 can_resonance_step2 -> MUST：
 // 候选角色最近一次共鸣技能在 2 秒窗口内时优先切给他。
 func TestResonanceMustSwitch(t *testing.T) {

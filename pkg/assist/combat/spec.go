@@ -202,6 +202,9 @@ type Spec struct {
 	// SwitchIntroMUST 是"只要本次是协奏入场就必须切给他"的候选表。
 	// 对应上游 Camellya / Jinhsi 的 get_switch_priority() 里 has_intro -> MUST。
 	SwitchIntroMUST map[string]bool
+	// SwitchIntroAfter 是"上次在场超过 N 秒后，本次协奏入场必须切给他"的表。
+	// 对应上游 Luhesi 的 get_switch_priority(): time.time()-last_intro > 24 and has_intro -> MUST。
+	SwitchIntroAfter map[string]time.Duration
 	// SwitchNoAfterHeavy / SwitchNoAfterSkill / SwitchNoAfterLiberation / SwitchNoAfterPerform
 	// 是候选角色的 NO 锁：最近的重击/技能/解放/在场时间还在窗口内时，
 	// 上游 get_switch_priority() 返回 NO，不优先切给他。

@@ -869,7 +869,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.switchLocked(id, now) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.synergyAfterBonus(id, agent, now) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.synergyAfterBonus(id, agent, now) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id, now)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
 		}
@@ -963,10 +963,16 @@ func (s *Session) switchLocked(agent string, now time.Time) bool {
 }
 
 // introMustBonus 给"只要协奏入场就必须切"的候选角色 MUST 级加分：
-// 对应上游 Camellya / Jinhsi 的 get_switch_priority() 里 has_intro -> MUST。
-func (s *Session) introMustBonus(agent string) float64 {
+// 对应上游 Camellya / Jinhsi 的 get_switch_priority() 里 has_intro -> MUST；
+// Luhesi 的 last_intro > 24s 用最近一次在场时间近似。
+func (s *Session) introMustBonus(agent string, now time.Time) float64 {
 	if s.spec.SwitchIntroMUST[agent] {
 		return synergyScore
+	}
+	if d := s.spec.SwitchIntroAfter[agent]; d > 0 {
+		if at, ok := s.lastPerform[agent]; ok && now.Sub(at) >= d {
+			return synergyScore
+		}
 	}
 	return 0
 }
