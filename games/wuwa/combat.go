@@ -146,8 +146,12 @@ func combatSpec() combat.Spec {
 			"char_camellya": true,
 			"char_jinhsi":   true,
 		},
-		BuffTimes: agentBuffTime,
-		Switch:    &combat.SwitchPolicy{MinInterval: 3 * time.Second},
+		// 上游 get_switch_priority 的 NO 锁：Brant 的 perform_anchor<4s、
+		// Encore 的 last_heavy<4.6s。用最近一次技能/重击时间近似。
+		SwitchNoAfterSkill: map[string]time.Duration{"char_brant": 4 * time.Second},
+		SwitchNoAfterHeavy: map[string]time.Duration{"char_encore": 4600 * time.Millisecond},
+		BuffTimes:          agentBuffTime,
+		Switch:             &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 角色专属连招（上游 do_perform() 的出手顺序）。
 		PlansByAgent: agentPlans,
 		// 入场：上游 wait_down()/wait_intro() —— 有入场技时持续点普攻，

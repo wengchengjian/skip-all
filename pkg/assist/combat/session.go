@@ -54,8 +54,11 @@ type Session struct {
 	// outroAgent 是上一次切走的角色模板 id。上游 check_outro() 在入场时
 	// 取队伍里 last_switch_time 最大的队友，就是刚放完延奏的那个人。
 	outroAgent string
-	// lastLiberation 记录每个角色最近一次按解放的时刻（上游 last_liberation/liberation_time）。
+	// lastLiberation/lastHeavy/lastSkill 记录每个角色最近一次对应动作的时刻，
+	// 供 still_in_liberation 与 get_switch_priority 的 NO 锁使用。
 	lastLiberation map[string]time.Time
+	lastHeavy      map[string]time.Time
+	lastSkill      map[string]time.Time
 	// flyingChecked/hasLavitator 是开战后用 edge_levitator 模板确认的一次性状态。
 	flyingChecked bool
 	hasLavitator  bool
@@ -73,7 +76,7 @@ type Session struct {
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg, lastLiberation: make(map[string]time.Time), cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
+	return &Session{rt: rt, spec: spec, cfg: cfg, lastLiberation: make(map[string]time.Time), lastHeavy: make(map[string]time.Time), lastSkill: make(map[string]time.Time), cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
 }
 
 // cdEntry 是冷却 OCR 的短时缓存，避免每帧都对技能按钮跑 OCR。
@@ -107,6 +110,8 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		s.agentID = ""
 		s.outroAgent = ""
 		s.lastLiberation = make(map[string]time.Time)
+		s.lastHeavy = make(map[string]time.Time)
+		s.lastSkill = make(map[string]time.Time)
 		s.flyingChecked = false
 		s.hasLavitator = false
 		s.introLeft = nil
@@ -430,6 +435,11 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 		if s.spec.Keys.Skill == "" || !s.ready(frame, StepSkill) || !s.forteAllows(frame) {
 			return assist.Action{}, "", false
 		}
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		s.noteSkill(frame, now)
 		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Skill}, "技能", true
 	case StepEcho:
 		if s.spec.Keys.Echo == "" || s.cfg.noEcho || !s.ready(frame, StepEcho) {
@@ -456,6 +466,11 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 		if hold <= 0 {
 			hold = 600 * time.Millisecond // 上游 heavy_attack(duration=0.6)
 		}
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		s.noteHeavy(frame, now)
 		return assist.Action{Kind: assist.ActionClickHold, Point: s.spec.AttackPoint, Duration: hold}, "重击", true
 	case StepKey:
 		if step.Key == "" {
@@ -650,6 +665,20 @@ func (s *Session) noteLiberation(frame assist.Frame, now time.Time) {
 	s.lastLiberation[agent] = now
 }
 
+func (s *Session) noteHeavy(frame assist.Frame, now time.Time) {
+	agent := s.currentAgent(frame)
+	if agent != "" {
+		s.lastHeavy[agent] = now
+	}
+}
+
+func (s *Session) noteSkill(frame assist.Frame, now time.Time) {
+	agent := s.currentAgent(frame)
+	if agent != "" {
+		s.lastSkill[agent] = now
+	}
+}
+
 // inLiberation 对应上游 BaseChar.still_in_liberation()：
 // 当前角色最近一次解放后未超过该角色的窗口（基类 12 秒，Encore 9.5、Xiangliyao 25）。
 func (s *Session) inLiberation(frame assist.Frame, now time.Time) bool {
@@ -673,16 +702,20 @@ func (s *Session) inLiberationFor(agent string, now time.Time) bool {
 	return now.Sub(at) < window
 }
 
-// noteAction 在扩展返回动作时补记解放（扩展直接按了爆发键的情况）。
+// noteAction 在扩展返回动作时补记动作时间（扩展直接按键/重击的情况）。
 func (s *Session) noteAction(action assist.Action, frame assist.Frame) {
-	if s.spec.Keys.Liberation == "" || action.Kind != assist.ActionKeyTap || action.Key != s.spec.Keys.Liberation {
-		return
-	}
 	now := frame.At
 	if now.IsZero() {
 		now = time.Now()
 	}
-	s.noteLiberation(frame, now)
+	switch {
+	case action.Kind == assist.ActionClickHold:
+		s.noteHeavy(frame, now)
+	case action.Kind == assist.ActionKeyTap && s.spec.Keys.Liberation != "" && action.Key == s.spec.Keys.Liberation:
+		s.noteLiberation(frame, now)
+	case action.Kind == assist.ActionKeyTap && s.spec.Keys.Skill != "" && action.Key == s.spec.Keys.Skill:
+		s.noteSkill(frame, now)
+	}
 }
 
 func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Action, bool) {
@@ -771,6 +804,10 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.spec.Roles[id] == RoleHealer && s.healerLocked(i, now) {
 			continue
 		}
+		// 上游 get_switch_priority 的 NO 锁：最近重击/技能还在窗口内时跳过。
+		if s.switchLocked(id, now) {
+			continue
+		}
 		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.liberationBonus(id, now) + s.introMustBonus(id)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
@@ -823,6 +860,22 @@ func (s *Session) synergyBonus(candidate, current string) float64 {
 		}
 	}
 	return 0
+}
+
+// switchLocked 对应上游 get_switch_priority() 返回 SwitchPriority.NO 的冷却锁：
+// 候选角色最近的重击/技能还在各自窗口内时，不参与本次切人打分。
+func (s *Session) switchLocked(agent string, now time.Time) bool {
+	if d := s.spec.SwitchNoAfterHeavy[agent]; d > 0 {
+		if at, ok := s.lastHeavy[agent]; ok && now.Sub(at) < d {
+			return true
+		}
+	}
+	if d := s.spec.SwitchNoAfterSkill[agent]; d > 0 {
+		if at, ok := s.lastSkill[agent]; ok && now.Sub(at) < d {
+			return true
+		}
+	}
+	return false
 }
 
 // introMustBonus 给"只要协奏入场就必须切"的候选角色 MUST 级加分：
