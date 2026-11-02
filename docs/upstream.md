@@ -147,7 +147,7 @@
 
 | 游戏 | 上游判据 | 本项目 |
 | --- | --- | --- |
-| 鸣潮 | `available()` → `box_highlighted()`：技能按钮区域里 `text_white_color`（253-255）像素占比 > 0 即可用（另外还有 CD 的 OCR 判断） | `combat.Spec.Ready`：共鸣技能/声骸/共鸣解放三个按钮区域（上游 `box_resonance` / `box_echo` / `box_liberation` 坐标折半），纯白占比 >=0.2%，不用就跳过该动作 |
+| 鸣潮 | `available()` → `box_highlighted()`：技能按钮区域里 `text_white_color`（244-255，`src/__init__.py`）像素占比 > 0 即可用（另外还有 CD 的 OCR 判断） | `combat.Spec.Ready`：共鸣技能/声骸/共鸣解放三个按钮区域（上游 `box_resonance` / `box_echo` / `box_liberation` 坐标折半），纯白占比 >=0.2%，不用就跳过该动作 |
 | 绝区零 | 按角色属性分别判定特殊技/终结技（`agent.py` 的 `SPECIAL_*` / `ULTIMATE_*` 色域） | 统一按按钮亮度近似：特殊攻击 (1620,917)-(1720,1017)、终结技 (1728,778)-(1826,876)，亮起占比 >=5% 才放 |
 
 没配判据的动作照旧放（不会因为缺配置停摆）。

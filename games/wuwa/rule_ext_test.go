@@ -44,7 +44,7 @@ func TestRuleExtConditions(t *testing.T) {
 		Team:     ruleTeam{agent: "char_jiyan"},
 		Skill:    geom.Rect{X1: 1592, Y1: 938, X2: 1660, Y2: 995},
 		Forte:    geom.Rect{X1: 1125, Y1: 996, X2: 1156, Y2: 1008},
-		Ready:    [2][3]uint8{{253, 253, 253}, {255, 255, 255}},
+		Ready:    [2][3]uint8{{244, 244, 244}, {255, 255, 255}},
 		ForteRGB: [2][3]uint8{{244, 246, 250}, {255, 255, 255}},
 		Rules: map[string][]wuwaRule{
 			"char_jiyan": {
@@ -119,7 +119,7 @@ func TestRuleExtOutroRules(t *testing.T) {
 		OutroRules: agentOutroRules,
 		Skill:      geom.Rect{X1: 1592, Y1: 938, X2: 1660, Y2: 995},
 		Forte:      geom.Rect{X1: 1125, Y1: 996, X2: 1156, Y2: 1008},
-		Ready:      [2][3]uint8{{253, 253, 253}, {255, 255, 255}},
+		Ready:      [2][3]uint8{{244, 244, 244}, {255, 255, 255}},
 		ForteRGB:   [2][3]uint8{{244, 246, 250}, {255, 255, 255}},
 	}
 	ext.SetCombatState(combat.CombatState{InIntro: true, LastOutro: "char_lupa"})

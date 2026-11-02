@@ -14,7 +14,7 @@
 | 切人确认 | `switch_next_char` 里循环复查 `in_team()`，没切过去补普攻 | `Session` 的 800ms 复查窗口 |
 | 角色识别 | `in_team()`：队伍栏三个数字标签缺一个即为当前角色 | `wuwaTeam`（模板 69 个） |
 | 后台大招就绪 | `update_lib_portrait_icon()`：`lib_mark_char_N` 里找 `lib_ready_<元素>`，阈值 0.8 | `UltReady`（3 槽位、6 模板） |
-| 技能就绪 / 冷却 | `available()` = 白像素（253-255）> 0 且无 CD 数字 | `Ready`（3 个按钮）+ `Cooldowns` |
+| 技能就绪 / 冷却 | `available()` = 白像素（244-255）> 0 且无 CD 数字 | `Ready`（3 个按钮）+ `Cooldowns` |
 | 共鸣回路提示 | `is_mouse_forte_full()` / `is_e_forte_full()`，阈值 0.6 | `wuwaForteExt`（强化 E / 重击） |
 | 回路满判据 | `is_forte_full()`：`(2251,1993)-(2311,2016)`/4K，近白占比 > 0.08 | `ForteFull` + `ForteGate`（3 个角色） |
 | 入场等待 | `wait_down()` / `wait_intro()`：点普攻直到技能可用，超时 1.2 秒 | `Spec.Intro` |

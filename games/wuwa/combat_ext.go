@@ -68,7 +68,7 @@ func wuwaExtensions(team combat.Team) []combat.Extension {
 			Echo:       geom.Rect{X1: 1685, Y1: 938, X2: 1753, Y2: 996},
 			Liberation: geom.Rect{X1: 1786, Y1: 938, X2: 1849, Y2: 995},
 			Forte:      geom.Rect{X1: 1125, Y1: 996, X2: 1156, Y2: 1008},
-			Ready:      [2][3]uint8{{253, 253, 253}, {255, 255, 255}},
+			Ready:      [2][3]uint8{{244, 244, 244}, {255, 255, 255}},
 			ForteRGB:   [2][3]uint8{{244, 246, 250}, {255, 255, 255}},
 			Rules:      agentRules,
 			OutroRules: agentOutroRules,

@@ -91,9 +91,9 @@ func TestConcertoColorsMatchUpstream(t *testing.T) {
 			t.Errorf("第 %d 组协奏色 = %v，应当 = %v", i, spec.Concerto.Colors[i], want[i])
 		}
 	}
-	// 技能就绪用上游 text_white_color（253-255）。
+	// 技能就绪用上游 text_white_color（244-255，src/__init__.py）。
 	ready := spec.Ready[combat.StepSkill]
-	if ready.ColorRange != [2][3]uint8{{253, 253, 253}, {255, 255, 255}} {
+	if ready.ColorRange != [2][3]uint8{{244, 244, 244}, {255, 255, 255}} {
 		t.Errorf("技能就绪色 = %v，应当与上游 text_white_color 一致", ready.ColorRange)
 	}
 }
