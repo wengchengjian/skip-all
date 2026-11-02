@@ -798,11 +798,16 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 // switchHeld 对应上游 Zani/Carlotta 重写的 wait_switch()：
 // 当前角色最近的重击/声骸动画还没结束、且仍处于入场窗口时，先不切走。
 func (s *Session) switchHeld(frame assist.Frame, now time.Time) bool {
-	if s.introUntil.IsZero() {
-		return false
-	}
 	agent := s.currentAgent(frame)
 	if agent == "" {
+		return false
+	}
+	if triggers := s.spec.HoldSwitchAfterOutro[agent]; len(triggers) > 0 && s.outroAgent != "" {
+		if d := triggers[s.outroAgent]; d > 0 && !s.switchAt.IsZero() && now.Sub(s.switchAt) < d {
+			return true
+		}
+	}
+	if s.introUntil.IsZero() {
 		return false
 	}
 	if d := s.spec.HoldSwitchAfterHeavy[agent]; d > 0 {

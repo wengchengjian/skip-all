@@ -216,6 +216,9 @@ type Spec struct {
 	// 当前角色最近的重击/声骸还没结束动画时，先不切走。
 	HoldSwitchAfterHeavy map[string]time.Duration
 	HoldSwitchAfterEcho  map[string]time.Duration
+	// HoldSwitchAfterOutro 是 check_outro 里只改循环时长的分支：
+	// 当前角色从指定延奏来源入场后，在其 timeout 内保持站场。
+	HoldSwitchAfterOutro map[string]map[string]time.Duration
 	Switch               *SwitchPolicy // 切人规则，留空用默认间隔
 	Interval             time.Duration // 每步之间的间隔
 	Hold                 time.Duration // 命中证据后保持战斗态的时间

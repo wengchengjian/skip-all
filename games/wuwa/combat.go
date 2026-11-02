@@ -161,8 +161,13 @@ func combatSpec() combat.Spec {
 		// Cantarella 的 perform_under_outro 在 last_heavy<8s 内继续循环。
 		HoldSwitchAfterHeavy: map[string]time.Duration{"char_zani": 2200 * time.Millisecond, "char_cantarella": 8 * time.Second},
 		HoldSwitchAfterEcho:  map[string]time.Duration{"char_carlotta": 2500 * time.Millisecond},
-		BuffTimes:            agentBuffTime,
-		Switch:               &combat.SwitchPolicy{MinInterval: 3 * time.Second},
+		// check_outro 只改循环时长的分支：Hiyuki<-Linnai 18s、Augusta<-Iuno 14s。
+		HoldSwitchAfterOutro: map[string]map[string]time.Duration{
+			"char_hiyuki":  {"char_linnai": 18 * time.Second},
+			"char_augusta": {"char_iuno": 14 * time.Second},
+		},
+		BuffTimes: agentBuffTime,
+		Switch:    &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 角色专属连招（上游 do_perform() 的出手顺序）。
 		PlansByAgent: agentPlans,
 		// 入场：上游 wait_down()/wait_intro() —— 有入场技时持续点普攻，
