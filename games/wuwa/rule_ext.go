@@ -230,6 +230,8 @@ func (p *wuwaCondParser) parseAtom() bool {
 		return p.ext.state.InLiberation
 	case "需要速切":
 		return p.ext.state.NeedFastPerform
+	case "共鸣二段":
+		return p.ext.state.CanResonanceStep2
 	}
 	// 延奏=char_xxx 对应上游 check_outro()：入场时判断刚切走的是谁。
 	// check_outro() 在 has_intro 为 false 时返回 'null'，所以必须叠加入场窗口。

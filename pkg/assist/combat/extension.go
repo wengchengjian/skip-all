@@ -36,6 +36,8 @@ type CombatState struct {
 	// NeedFastPerform 表示队友里有人对当前角色返回 MUST（上游 need_fast_perform()），
 	// 当前角色应当尽快收尾让位。
 	NeedFastPerform bool
+	// CanResonanceStep2 表示当前角色最近一次共鸣技能还在 can_resonance_step2() 窗口内。
+	CanResonanceStep2 bool
 }
 
 // StateAware 是扩展可选实现的状态回调。

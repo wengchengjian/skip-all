@@ -506,13 +506,14 @@ func (s *Session) pushCombatState(frame assist.Frame, now time.Time) {
 			s.lastPerform[agent] = now
 		}
 		sa.SetCombatState(CombatState{
-			Agent:           agent,
-			ConcertoFull:    s.concertoLit(frame),
-			InIntro:         !s.introUntil.IsZero(),
-			LastOutro:       s.outroAgent,
-			Flying:          s.flying(frame),
-			InLiberation:    s.inLiberation(frame, now),
-			NeedFastPerform: s.needFastPerform(frame, now),
+			Agent:             agent,
+			ConcertoFull:      s.concertoLit(frame),
+			InIntro:           !s.introUntil.IsZero(),
+			LastOutro:         s.outroAgent,
+			Flying:            s.flying(frame),
+			InLiberation:      s.inLiberation(frame, now),
+			NeedFastPerform:   s.needFastPerform(frame, now),
+			CanResonanceStep2: s.canResonanceStep2For(agent, now),
 		})
 	}
 }
@@ -626,7 +627,7 @@ func (s *Session) needFastPerform(frame assist.Frame, now time.Time) bool {
 		if id == "" || id == current {
 			continue
 		}
-		if s.synergyBonus(id, current) > 0 || s.liberationBonus(id, now) > 0 {
+		if s.synergyBonus(id, current) > 0 || s.liberationBonus(id, now) > 0 || s.resonanceBonus(id, now) > 0 {
 			return true
 		}
 	}
@@ -706,6 +707,13 @@ func (s *Session) inLiberationFor(agent string, now time.Time) bool {
 		window = w
 	}
 	return now.Sub(at) < window
+}
+
+// canResonanceStep2For 对应上游 BaseChar.can_resonance_step2()：
+// 最近一次共鸣技能在 2 秒窗口内（Encore 的 get_switch_priority 用默认 delay=2）。
+func (s *Session) canResonanceStep2For(agent string, now time.Time) bool {
+	at, ok := s.lastSkill[agent]
+	return ok && now.Sub(at) < 2*time.Second
 }
 
 // noteAction 在扩展返回动作时补记动作时间（扩展直接按键/重击的情况）。
@@ -814,7 +822,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.switchLocked(id, now) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.liberationBonus(id, now) + s.introMustBonus(id)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
 		}
@@ -898,6 +906,18 @@ func (s *Session) switchLocked(agent string, now time.Time) bool {
 // 对应上游 Camellya / Jinhsi 的 get_switch_priority() 里 has_intro -> MUST。
 func (s *Session) introMustBonus(agent string) float64 {
 	if s.spec.SwitchIntroMUST[agent] {
+		return synergyScore
+	}
+	return 0
+}
+
+// resonanceBonus 给"最近共鸣技能仍在 can_resonance_step2 窗口内"的候选角色 MUST 级加分：
+// 对应上游 Encore 的 get_switch_priority() -> still_in_liberation() or can_resonance_step2() 返回 MUST。
+func (s *Session) resonanceBonus(agent string, now time.Time) float64 {
+	if !s.spec.ResonanceMustSwitch[agent] {
+		return 0
+	}
+	if s.canResonanceStep2For(agent, now) {
 		return synergyScore
 	}
 	return 0

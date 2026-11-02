@@ -60,3 +60,33 @@ func TestSwitchIntroMUST(t *testing.T) {
 		t.Fatalf("协奏入场时 a 应被 MUST 切入，actions=%+v", actions)
 	}
 }
+
+// TestResonanceMustSwitch 验证 Encore 的 can_resonance_step2 -> MUST：
+// 候选角色最近一次共鸣技能在 2 秒窗口内时优先切给他。
+func TestResonanceMustSwitch(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 1, ids: []string{"a", "b", "c"}}
+	spec.Roles = map[string]Role{"a": RoleSupport, "b": RoleMainDPS, "c": RoleSubDPS}
+	spec.ResonanceMustSwitch = map[string]bool{"a": true}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	session.lastSkill["a"] = base
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base.Add(time.Second)})
+	if len(actions) != 1 || actions[0].Key != "1" {
+		t.Fatalf("共鸣二段窗口内 a 应被 MUST 切入，actions=%+v", actions)
+	}
+	session2 := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	session2.lastSkill["a"] = base.Add(-3 * time.Second)
+	_, actions = step(t, session2, assist.Frame{Image: concertoFullFrame(), At: base})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("窗口过期后应按定位切 c，actions=%+v", actions)
+	}
+}

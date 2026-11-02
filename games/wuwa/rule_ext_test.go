@@ -146,6 +146,7 @@ func TestRuleExtFlyingAndLiberationAtoms(t *testing.T) {
 			{Cond: "飞行中", Ops: []combat.Step{{Kind: combat.StepHeavy}}},
 			{Cond: "解放中", Ops: []combat.Step{{Kind: combat.StepAttack}}},
 			{Cond: "需要速切", Ops: []combat.Step{{Kind: combat.StepEcho}}},
+			{Cond: "共鸣二段", Ops: []combat.Step{{Kind: combat.StepLiberation}}},
 			{Cond: "1", Ops: []combat.Step{{Kind: combat.StepSkill}}},
 		},
 	}
@@ -157,6 +158,7 @@ func TestRuleExtFlyingAndLiberationAtoms(t *testing.T) {
 		{"飞行中", combat.CombatState{Flying: true}, "规则-飞行中"},
 		{"解放中", combat.CombatState{InLiberation: true}, "规则-解放中"},
 		{"需要速切", combat.CombatState{NeedFastPerform: true}, "规则-需要速切"},
+		{"共鸣二段", combat.CombatState{CanResonanceStep2: true}, "规则-共鸣二段"},
 		{"都不成立", combat.CombatState{}, "规则-1"},
 	}
 	for _, c := range cases {

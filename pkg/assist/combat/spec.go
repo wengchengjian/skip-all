@@ -206,10 +206,13 @@ type Spec struct {
 	SwitchNoAfterSkill      map[string]time.Duration
 	SwitchNoAfterLiberation map[string]time.Duration
 	SwitchNoAfterPerform    map[string]time.Duration
-	Switch                  *SwitchPolicy // 切人规则，留空用默认间隔
-	Interval                time.Duration // 每步之间的间隔
-	Hold                    time.Duration // 命中证据后保持战斗态的时间
-	IdleWait                time.Duration // 不在战斗时的等待
+	// ResonanceMustSwitch 是"候选角色最近一次共鸣技能仍在 can_resonance_step2 窗口内时 MUST"的表。
+	// 对应上游 Encore 的 get_switch_priority(): still_in_liberation() or can_resonance_step2() -> MUST。
+	ResonanceMustSwitch map[string]bool
+	Switch              *SwitchPolicy // 切人规则，留空用默认间隔
+	Interval            time.Duration // 每步之间的间隔
+	Hold                time.Duration // 命中证据后保持战斗态的时间
+	IdleWait            time.Duration // 不在战斗时的等待
 	// LiberationWindows 是各角色"解放动画仍在进行"的时长（上游 still_in_liberation 的
 	// 12 秒基类值，Encore 9.5 秒、Xiangliyao 25 秒各自重写）；缺省 12 秒。
 	LiberationWindows map[string]time.Duration

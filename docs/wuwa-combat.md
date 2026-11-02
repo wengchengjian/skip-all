@@ -9,7 +9,7 @@
 | 战斗判据 | `has_health_bar()`：整帧找 `enemy_health_color_red`（174-225 / 55-85 / 55-76），宽≥50、高 5-14 | `games/wuwa/combat.go` 的 `HealthBar` |
 | 首领判据 | `is_boss()`：`(1269,58)-(2533,200)`/4K 的 `boss_health_color` 且区域内恰好一条 | `BossBar`（折半 `(634,29)-(1266,100)`） |
 | 协奏满切人 | `get_current_con()` 必须等于 1；`_ensure_ring_index()` 先认同色再单色计数 | `Concerto`（门限 0.95）+ `vision.RingCoverages` |
-| 切人打分 | `get_switch_priority` / `_choose_switch_target` / `_unbuffed_support_target` | `SwitchPolicy` + `Roles` + `BuffTimes`（57 个角色增益时长）+ `SwitchSynergy`（14 个协同对）+ `LiberationMustSwitch`（Brant/Encore/Lupa 在解放窗口内 MUST）+ `SwitchIntroMUST`（Camellya/Jinhsi 入场 MUST）+ `SwitchNoAfterHeavy/Skill/Liberation/Perform`（Encore/Brant/Phrolova/Douling 的 NO 锁） |
+| 切人打分 | `get_switch_priority` / `_choose_switch_target` / `_unbuffed_support_target` | `SwitchPolicy` + `Roles` + `BuffTimes`（57 个角色增益时长）+ `SwitchSynergy`（14 个协同对）+ `LiberationMustSwitch`（Brant/Encore/Lupa 在解放窗口内 MUST）+ `SwitchIntroMUST`（Camellya/Jinhsi 入场 MUST）+ `SwitchNoAfterHeavy/Skill/Liberation/Perform`（Encore/Brant/Phrolova/Douling 的 NO 锁）+ `ResonanceMustSwitch`（Encore 共鸣二段 MUST） |
 | 治疗位换入冷却 | `HEALER_FULL_CON_SWITCH_LOCKOUT = 16` 秒 | `SwitchPolicy.HealerLockout` |
 | 切人确认 | `switch_next_char` 里循环复查 `in_team()`，没切过去补普攻 | `Session` 的 800ms 复查窗口 |
 | 角色识别 | `in_team()`：队伍栏三个数字标签缺一个即为当前角色 | `wuwaTeam`（模板 69 个） |
@@ -23,7 +23,7 @@
 | 重击 | `heavy_attack(duration=0.6)` / `heavy_click_forte()` | `StepHeavy` → `ActionClickHold` → `Input.ClickHold`（16 个角色用到） |
 | 空中判据 | `BaseChar.flying()`：`edge_levitator` 模板确认滑翔装置（阈值 0.65），图标区白色占比 < 0.1 算在空中 | `FlyingCheck` + `CombatState.Flying` |
 | 角色连招 | 各 `do_perform()` 里出手顺序 | `agentPlans`（55 个角色） |
-| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**171 条角色专属规则（54 个角色）+ BaseChar 回退规则（其余 3 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 飞行中 / 解放中 / 需要速切 / 延奏=<角色id> |
+| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**171 条角色专属规则（54 个角色）+ BaseChar 回退规则（其余 3 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 飞行中 / 解放中 / 需要速切 / 共鸣二段 / 延奏=<角色id> |
 | 速切判定 | `need_fast_perform()`：队友里有人对当前角色返回 MUST | `CombatState.NeedFastPerform` |
 | 角色定位 | `char_type` | `agentRoles`（57 个） |
 
@@ -33,7 +33,7 @@
 | --- | --- | --- |
 | 逐条件连招里**无法表达**的部分 | 见下 | 条件依赖上游内部计时器（`crisis_time_left`、`nightfall_time_left`、`last_heavy` 等），屏幕上观测不到；这类条件所在的分支**被降级为无条件规则或直接跳过**，不假装精确 |
 
-机械提取时统计到的条件出现次数（来自生成脚本输出；其中 `is_con_full` / `has_intro` / `check_outro` / `flying` / `still_in_liberation` / `need_fast_perform` 已映射成规则原子）：
+机械提取时统计到的条件出现次数（来自生成脚本输出；其中 `is_con_full` / `has_intro` / `check_outro` / `flying` / `still_in_liberation` / `need_fast_perform` / `can_resonance_step2` 已映射成规则原子）：
 
 ```text
 flying 35   is_con_full 11   check_outro 8   has_intro 7   still_in_liberation 4   can_resonance_step2 1

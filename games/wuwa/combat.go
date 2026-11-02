@@ -152,6 +152,7 @@ func combatSpec() combat.Spec {
 		SwitchNoAfterHeavy:      map[string]time.Duration{"char_encore": 4600 * time.Millisecond},
 		SwitchNoAfterLiberation: map[string]time.Duration{"char_phrolova": 24 * time.Second},
 		SwitchNoAfterPerform:    map[string]time.Duration{"char_douling": 8 * time.Second},
+		ResonanceMustSwitch:     map[string]bool{"char_encore": true},
 		BuffTimes:               agentBuffTime,
 		Switch:                  &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 角色专属连招（上游 do_perform() 的出手顺序）。

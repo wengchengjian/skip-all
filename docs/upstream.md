@@ -346,7 +346,7 @@
 
 上游 57 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**171 条规则覆盖 54 个角色**，其余 3 个角色回退到上游 `BaseChar.do_perform()` 的保守动作（声骸→解放→技能→重击）。
 
-可表达原子：`技能可用`（上游 `resonance_available`）、`声骸可用`、`解放可用`、`回路满`/`回路未满`（`is_forte_full`）、`协奏满`（`is_con_full`）、`入场中`（`has_intro`）、`延奏=<角色id>`（`check_outro`）、`飞行中`（`flying`）、`解放中`（`still_in_liberation`）、`需要速切`（`need_fast_perform`）。
+可表达原子：`技能可用`（上游 `resonance_available`）、`声骸可用`、`解放可用`、`回路满`/`回路未满`（`is_forte_full`）、`协奏满`（`is_con_full`）、`入场中`（`has_intro`）、`延奏=<角色id>`（`check_outro`）、`飞行中`（`flying`）、`解放中`（`still_in_liberation`）、`需要速切`（`need_fast_perform`）、`共鸣二段`（`can_resonance_step2`）。
 
 后五个原子需要**会话状态**（环是否满、是否还在入场窗口、刚切走的队友是谁、是否在空中、是否还在解放动画），扩展自己从像素看不出来，因此加了可选接口 `combat.StateAware`：实现了它的扩展每帧先收到 `combat.CombatState{Agent, ConcertoFull, InIntro, LastOutro, Flying, InLiberation}`。
 
