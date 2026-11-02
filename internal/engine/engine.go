@@ -49,6 +49,10 @@ type Input interface {
 	Click(geom.Point) error
 	MiddleClick(geom.Point) error
 	ClickHold(geom.Point, time.Duration) error
+	// Press 按下左键并保持，Release 抬起。按住时长超过一拍时用这两个，
+	// 调用方不必在按住期间阻塞，可以继续截图决策。
+	Press(geom.Point) error
+	Release() error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error
@@ -100,6 +104,8 @@ type Engine struct {
 	// 最近一拍的时间轴信息，用于观测节拍是否被截图/识别拖慢。
 	tickID  uint64
 	tickLag time.Duration
+	// releaseAt/releaseTimer 管理异步按住的抬起时间。
+	releaseTimer *time.Timer
 	// gatePaused 表示当前暂停是"游戏进程不在"造成的自动暂停，进程回来后自动恢复。
 	gatePaused bool
 	// userPaused 表示用户按了暂停；此时进程回来也不自动恢复。
@@ -209,6 +215,7 @@ func (e *Engine) Pause() {
 	}
 	e.mu.Unlock()
 	if changed {
+		e.stopPendingRelease()
 		_ = e.input.ReleaseAll()
 		e.emit("info", "已暂停")
 	}
@@ -309,6 +316,7 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 			e.state = StateStopped
 		}
 		e.mu.Unlock()
+		e.stopPendingRelease()
 		_ = e.input.ReleaseAll()
 		if closer, ok := e.input.(interface{ Close() error }); ok {
 			_ = closer.Close()
@@ -532,6 +540,7 @@ func (e *Engine) gateProcess() bool {
 	}
 	e.mu.Unlock()
 	if paused {
+		e.stopPendingRelease()
 		_ = e.input.ReleaseAll()
 		e.emit("info", "游戏进程已退出，已暂停")
 	}
@@ -576,6 +585,10 @@ func actionSummary(actions []assist.Action) string {
 			parts = append(parts, "点击当前光标")
 		case assist.ActionClickHold:
 			parts = append(parts, fmt.Sprintf("按住(%d,%d) %s", action.Point.X, action.Point.Y, action.Duration))
+		case assist.ActionHold:
+			parts = append(parts, fmt.Sprintf("按住(%d,%d)", action.Point.X, action.Point.Y))
+		case assist.ActionRelease:
+			parts = append(parts, "抬起")
 		case assist.ActionKeyTap:
 			parts = append(parts, "按键 "+action.Key)
 		case assist.ActionWait:
@@ -583,6 +596,46 @@ func actionSummary(actions []assist.Action) string {
 		}
 	}
 	return strings.Join(parts, " + ")
+}
+
+// isHolding 报告当前是否处于异步按住状态。
+func (e *Engine) isHolding() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.releaseTimer != nil
+}
+
+// scheduleRelease 在 hold 之后抬起左键，不阻塞调用方。
+func (e *Engine) scheduleRelease(hold time.Duration) {
+	e.mu.Lock()
+	if e.releaseTimer != nil {
+		e.releaseTimer.Stop()
+	}
+	e.releaseTimer = time.AfterFunc(hold, func() {
+		e.mu.Lock()
+		e.releaseTimer = nil
+		e.mu.Unlock()
+		if err := e.input.Release(); err != nil {
+			e.emit("warn", "抬起左键失败: "+err.Error())
+		}
+	})
+	e.mu.Unlock()
+}
+
+// stopPendingRelease 取消尚未触发的抬起并立即抬起，供停止/暂停使用。
+func (e *Engine) stopPendingRelease() {
+	e.mu.Lock()
+	timer := e.releaseTimer
+	e.releaseTimer = nil
+	e.mu.Unlock()
+	if timer != nil {
+		timer.Stop()
+		// 连招里每拍都会重新按住，抬起定时器一直被推后；
+		// 停止/暂停时必须主动抬起，否则键会一直按着。
+		if err := e.input.Release(); err != nil {
+			e.emit("warn", "抬起左键失败: "+err.Error())
+		}
+	}
 }
 
 func (e *Engine) executeActions(ctx context.Context, actions []assist.Action) error {
@@ -604,8 +657,30 @@ func (e *Engine) executeActions(ctx context.Context, actions []assist.Action) er
 				return fmt.Errorf("当前光标点击失败: %w", err)
 			}
 		case assist.ActionClickHold:
+			// 按住时长超过一拍就拆成 Press/Release：600ms 的重击如果同步阻塞，
+			// 引擎在按住期间不截图、不决策，等于失明半秒（实测 2.8 秒只推进 5 帧）。
+			if action.Duration > maxBlockingHold {
+				// 已经按住了就不要再按：连招会连着几拍都要求重击，
+				// 每次都重新按下会把抬起时间无限推后，键就一直按着。
+				// 只在空闲时按下，抬起由第一次按下时定的定时器负责。
+				if !e.isHolding() {
+					if err := e.input.Press(action.Point); err != nil {
+						return fmt.Errorf("按住失败: %w", err)
+					}
+					e.scheduleRelease(action.Duration)
+				}
+				continue
+			}
 			if err := e.input.ClickHold(action.Point, action.Duration); err != nil {
 				return fmt.Errorf("按住点击失败: %w", err)
+			}
+		case assist.ActionHold:
+			if err := e.input.Press(action.Point); err != nil {
+				return fmt.Errorf("按住失败: %w", err)
+			}
+		case assist.ActionRelease:
+			if err := e.input.Release(); err != nil {
+				return fmt.Errorf("抬起失败: %w", err)
 			}
 		case assist.ActionKeyTap:
 			if err := e.input.KeyTap(action.Key); err != nil {

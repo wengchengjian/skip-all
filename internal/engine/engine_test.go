@@ -31,11 +31,16 @@ type fakeInput struct {
 	middleClicks atomic.Int32
 	clicks       atomic.Int32
 	keys         atomic.Int32
+	holds        atomic.Int32
+	releases     atomic.Int32
 }
 
 func (f *fakeInput) Click(geom.Point) error { f.clicks.Add(1); return nil }
 
 func (f *fakeInput) ClickHold(_ geom.Point, _ time.Duration) error { return nil }
+
+func (f *fakeInput) Press(geom.Point) error { f.holds.Add(1); return nil }
+func (f *fakeInput) Release() error         { f.releases.Add(1); return nil }
 
 func (f *fakeInput) MiddleClick(geom.Point) error { f.middleClicks.Add(1); return nil }
 func (f *fakeInput) ClickCurrent() error          { f.clicks.Add(1); return nil }

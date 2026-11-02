@@ -33,6 +33,11 @@ const (
 	ActionKeyTap
 	// ActionClickHold 在 Point 处按住左键 Duration 时长再抬起（重击/蓄力）。
 	ActionClickHold
+	// ActionHold 在 Point 处按住左键不放，由后续的 ActionRelease 抬起。
+	// 用于"按住要持续很久"的动作：引擎不必在按住期间阻塞等待，还能继续截图决策。
+	ActionHold
+	// ActionRelease 抬起 ActionHold 按住的左键。
+	ActionRelease
 	ActionWait
 )
 

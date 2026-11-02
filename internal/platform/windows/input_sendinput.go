@@ -150,10 +150,16 @@ type Input struct {
 	win        *Window
 	activate   func() error
 	pressed    map[uint16]bool // 记录按下未释放的键，值为是否扩展键
-	background bool
-	cursorMode string
-	gamepad    *XboxGamepad
-	gamepadErr error
+	held       bool            // Press 按住了左键、尚未 Release
+	heldTarget uintptr         // 后台模式下按下的目标窗口
+	heldLParam uintptr         // 后台模式下按下时的 lParam，抬起要原样带回去
+	// cursorSaved 是按住期间暂存的光标位置（仅在需要移动光标的后台模式下用）。
+	cursorSaved    winPoint
+	cursorHasSaved bool
+	background     bool
+	cursorMode     string
+	gamepad        *XboxGamepad
+	gamepadErr     error
 }
 
 // 编译期断言：Input 可直接作为 engine.Input 使用。
@@ -161,6 +167,9 @@ var _ interface {
 	Click(geom.Point) error
 	MiddleClick(geom.Point) error
 	ClickCurrent() error
+	ClickHold(geom.Point, time.Duration) error
+	Press(geom.Point) error
+	Release() error
 	KeyTap(string) error
 	ReleaseAll() error
 } = (*Input)(nil)
@@ -220,7 +229,63 @@ func (i *Input) SetActivateFunc(fn func() error) {
 	i.activate = fn
 }
 
-// Click 把 1920x1080 逻辑坐标换算成客户区坐标后点击。
+// Press 在指定位置按下左键并保持，直到 Release 被调用。
+// 与 ClickHold 的区别：按住时长由调用方控制，调用方不必在按住期间阻塞。
+// 重击要按 600ms，而一次决策拍只有 100ms；用 Press/Release 可以让引擎
+// 在按住期间继续截图和决策，不会"失明"半秒。
+func (i *Input) Press(p geom.Point) error {
+	if i == nil || i.win == nil {
+		return ErrWindowNotFound
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	rect, err := i.win.ClientRect()
+	if err != nil {
+		return err
+	}
+	pt, err := scalePoint(p, rect.Width(), rect.Height())
+	if err != nil {
+		return err
+	}
+	if i.background {
+		return i.backgroundPressLocked(pt, i.shouldMoveCursor(), leftButton)
+	}
+	// 前台模式：光标落到物理坐标上，抬起时不需要坐标。
+	if err := i.ensureActiveLocked(); err != nil {
+		return err
+	}
+	if r, _, _ := procSetCursorPos.Call(uintptr(rect.X1+pt.X), uintptr(rect.Y1+pt.Y)); r == 0 {
+		return fmt.Errorf("移动鼠标失败: %w", lastErr("SetCursorPos"))
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := sendMouseEvent(mouseEventLeftDown, 0, 0); err != nil {
+		return err
+	}
+	i.held = true
+	return nil
+}
+
+// Release 抬起 Press 按住的左键。没有按下时是空操作。
+func (i *Input) Release() error {
+	if i == nil || i.win == nil {
+		return ErrWindowNotFound
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if !i.held {
+		return nil
+	}
+	i.held = false
+	if i.background {
+		return i.backgroundReleaseLocked(leftButton)
+	}
+	if err := sendMouseEvent(mouseEventLeftUp, 0, 0); err != nil {
+		_ = sendMouseEvent(mouseEventLeftUp, 0, 0)
+		return err
+	}
+	return nil
+}
+
 // ClickHold 在指定位置按住左键 hold 时长再抬起（重击/蓄力）。
 func (i *Input) ClickHold(p geom.Point, hold time.Duration) error {
 	if i == nil || i.win == nil {
@@ -404,6 +469,15 @@ func (i *Input) ReleaseAll() error {
 		}
 		return firstErr
 	}
+	// Press 按住的左键也要在停止/暂停时抬起，否则会一直按住。
+	if i.held {
+		i.held = false
+		if i.background && i.heldTarget != 0 {
+			_ = i.backgroundReleaseLocked(leftButton)
+		} else {
+			_ = sendMouseEvent(mouseEventLeftUp, 0, 0)
+		}
+	}
 	for _, flags := range []uint32{mouseEventLeftUp, mouseEventRightUp, mouseEventMiddleUp} {
 		if err := sendMouseEvent(flags, 0, 0); err != nil && firstErr == nil {
 			firstErr = err
@@ -478,6 +552,62 @@ var (
 	leftButton   = mouseButton{down: wmLButtonDown, up: wmLButtonUp, flag: mkLButton}
 	middleButton = mouseButton{down: wmMButtonDown, up: wmMButtonUp, flag: mkMButton}
 )
+
+// backgroundPressLocked 后台按下左键并保持；抬起用 backgroundReleaseLocked。
+// 按下时的 lParam 与目标窗口要记下来，抬起必须发往同一个窗口、带同一个坐标，
+// 否则游戏会收到一次"在别处松开"的消息。
+func (i *Input) backgroundPressLocked(p geom.Point, moveCursor bool, button mouseButton) error {
+	if i == nil || i.win == nil {
+		return ErrWindowNotFound
+	}
+	hwnd := i.win.Handle()
+	if hwnd == 0 {
+		return ErrWindowNotFound
+	}
+	if moveCursor {
+		rect, err := i.win.ClientRect()
+		if err != nil {
+			return err
+		}
+		saved, hasSaved := cursorPos()
+		if r, _, _ := procSetCursorPos.Call(uintptr(rect.X1+p.X), uintptr(rect.Y1+p.Y)); r == 0 {
+			return fmt.Errorf("移动鼠标失败: %w", lastErr("SetCursorPos"))
+		}
+		if hasSaved {
+			// 按住期间光标留在目标上，抬起后再归位。
+			i.cursorSaved, i.cursorHasSaved = saved, true
+		}
+	}
+	target, lparam := i.clickTarget(hwnd, p)
+	_, _, _ = procSendMessage.Call(hwnd, wmActivate, waActive, 0)
+	if target != hwnd {
+		_, _, _ = procSendMessage.Call(target, wmActivate, waActive, 0)
+	}
+	time.Sleep(10 * time.Millisecond)
+	_ = postMessage(target, wmMouseMove, 0, lparam)
+	time.Sleep(10 * time.Millisecond)
+	if err := postMessage(target, button.down, button.flag, lparam); err != nil {
+		return err
+	}
+	i.held = true
+	i.heldTarget = target
+	i.heldLParam = lparam
+	return nil
+}
+
+func (i *Input) backgroundReleaseLocked(button mouseButton) error {
+	if err := postMessage(i.heldTarget, button.up, 0, i.heldLParam); err != nil {
+		_ = postMessage(i.heldTarget, button.up, 0, i.heldLParam)
+		return err
+	}
+	if i.cursorHasSaved {
+		_, _, _ = procSetCursorPos.Call(uintptr(i.cursorSaved.X), uintptr(i.cursorSaved.Y))
+		i.cursorHasSaved = false
+	}
+	i.heldTarget = 0
+	i.heldLParam = 0
+	return nil
+}
 
 // backgroundHoldAtLocked 是按住版本的 backgroundClickAtLocked。
 func (i *Input) backgroundHoldAtLocked(p geom.Point, moveCursor bool, button mouseButton, hold time.Duration) error {

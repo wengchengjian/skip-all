@@ -42,6 +42,8 @@ type Input interface {
 	Click(geom.Point) error
 	MiddleClick(geom.Point) error
 	ClickHold(geom.Point, time.Duration) error
+	Press(geom.Point) error
+	Release() error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error
@@ -118,6 +120,8 @@ func (unsupportedCapturer) Close() error                           { return nil 
 type unsupportedInput struct{}
 
 func (unsupportedInput) Click(geom.Point) error { return ErrUnsupported }
+func (unsupportedInput) Press(geom.Point) error { return ErrUnsupported }
+func (unsupportedInput) Release() error         { return ErrUnsupported }
 
 func (unsupportedInput) MiddleClick(geom.Point) error { return ErrUnsupported }
 func (unsupportedInput) ClickCurrent() error          { return ErrUnsupported }

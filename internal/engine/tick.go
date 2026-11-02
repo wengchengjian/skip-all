@@ -31,6 +31,10 @@ type tickClock struct {
 // maxLagFactor 是允许的落后倍数：超过就直接跳到当前时间。
 const maxLagFactor = 5
 
+// maxBlockingHold 是可以同步阻塞执行的最长按住时长。
+// 超过它就走 Press + 定时 Release，让引擎在按住期间继续截图决策。
+const maxBlockingHold = 100 * time.Millisecond
+
 func newTickClock(interval time.Duration) *tickClock {
 	if interval <= 0 {
 		interval = 200 * time.Millisecond

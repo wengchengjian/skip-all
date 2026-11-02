@@ -44,6 +44,9 @@ type Input interface {
 	Click(geom.Point) error
 	MiddleClick(geom.Point) error
 	ClickHold(geom.Point, time.Duration) error
+	// Press 按下左键并保持，Release 抬起；用于按住期间不阻塞调用方。
+	Press(geom.Point) error
+	Release() error
 	ClickCurrent() error
 	KeyTap(string) error
 	ReleaseAll() error
@@ -130,6 +133,8 @@ func (unsupportedCapturer) Close() error                           { return nil 
 type unsupportedInput struct{ err error }
 
 func (u unsupportedInput) Click(geom.Point) error { return u.err }
+func (u unsupportedInput) Press(geom.Point) error { return u.err }
+func (u unsupportedInput) Release() error         { return u.err }
 
 func (u unsupportedInput) MiddleClick(geom.Point) error { return u.err }
 
