@@ -59,6 +59,9 @@ func Find(titles, processNames []string) (Window, error) {
 // ProcessAlive 报告游戏进程是否仍在运行。
 func ProcessAlive(names []string) bool { return win.ProcessAlive(names) }
 
+// ProcessUsage 返回本进程的 CPU 占用率（%）与工作集（MB），供托盘显示性能占用。
+func ProcessUsage() (cpuPercent, memMB float64) { return win.ProcessUsage() }
+
 // NewCapturer 创建截图器。
 func NewCapturer(w Window) Capturer {
 	ww, ok := w.(*win.Window)

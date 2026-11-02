@@ -101,6 +101,31 @@ type ConfigView struct {
 	Games map[string]config.GameConfig `json:"games"`
 }
 
+// GameStateView 是托盘里一个游戏的进程与会话状态。
+type GameStateView struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	ProcessRunning bool   `json:"processRunning"`
+	State          string `json:"state"`
+	Message        string `json:"message"`
+}
+
+// FeatureToggleView 是一个功能在全部游戏上的启用状态；全部启用才算启用。
+type FeatureToggleView struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+// TrayStateView 是托盘菜单与提示需要的一次性快照。
+type TrayStateView struct {
+	Games    []GameStateView     `json:"games"`
+	Features []FeatureToggleView `json:"features"`
+	Status   StatusView          `json:"status"`
+	CPU      float64             `json:"cpu"`
+	MemoryMB float64             `json:"memoryMb"`
+}
+
 // StatusView 是当前运行状态。
 type StatusView struct {
 	State       string             `json:"state"`
@@ -708,6 +733,98 @@ func (s *Service) GetStatus() StatusView {
 		status.FeatureName = "全部游戏"
 	}
 	return status
+}
+
+// GetTrayState 汇总托盘要显示的内容：游戏列表与状态、功能开关、性能占用。
+func (s *Service) GetTrayState() TrayStateView {
+	all := games.All()
+	s.mu.Lock()
+	states := make([]GameStateView, 0, len(all))
+	for _, game := range all {
+		item := GameStateView{ID: game.ID(), Name: game.Name(), State: string(engine.StateIdle)}
+		if sess, ok := s.sessions[game.ID()]; ok {
+			st := sess.eng.Status()
+			item.State = string(st.State)
+			item.Message = st.LastMessage
+		}
+		states = append(states, item)
+	}
+	features := s.featureTogglesLocked(all)
+	s.mu.Unlock()
+
+	for i, game := range all {
+		states[i].ProcessRunning = platform.ProcessAlive(game.ProcessNames())
+	}
+	cpu, mem := platform.ProcessUsage()
+	return TrayStateView{Games: states, Features: features, Status: s.GetStatus(), CPU: cpu, MemoryMB: mem}
+}
+
+// featureTogglesLocked 汇总功能在全部游戏上的启用状态；全部游戏都启用才算启用。调用方需持有 s.mu。
+func (s *Service) featureTogglesLocked(all []assist.Game) []FeatureToggleView {
+	var out []FeatureToggleView
+	index := make(map[string]int)
+	for _, game := range all {
+		for _, f := range game.Features() {
+			i, ok := index[f.ID()]
+			if !ok {
+				out = append(out, FeatureToggleView{ID: f.ID(), Name: f.Name(), Enabled: true})
+				i = len(out) - 1
+				index[f.ID()] = i
+			}
+			if !s.featureEnabledLocked(game.ID(), f.ID()) {
+				out[i].Enabled = false
+			}
+		}
+	}
+	return out
+}
+
+// SetFeatureEnabledEverywhere 在全部游戏上启用/停用某个功能；运行中的会话按新配置重启。
+// 玩家同一时间只玩一个游戏，托盘里的功能开关就没必要再按游戏区分。
+func (s *Service) SetFeatureEnabledEverywhere(featureID string, enabled bool) error {
+	all := games.All()
+	s.mu.Lock()
+	saved := make(map[string]config.GameConfig, len(all))
+	for _, game := range all {
+		cfg := s.gameConfigLocked(game.ID())
+		if cfg.Features == nil {
+			cfg.Features = make(map[string]config.StorySkipConfig, 2)
+		}
+		fc := cfg.Features[featureID]
+		fc.Enabled = enabled
+		cfg.Features[featureID] = fc
+		s.gameCfg[game.ID()] = cfg
+		saved[game.ID()] = cfg
+	}
+	s.mu.Unlock()
+	for id, cfg := range saved {
+		if err := config.SaveGame(gameConfigFile(s.dataDir, id), cfg); err != nil {
+			return err
+		}
+	}
+	s.appendLog("info", featureLabel(all, featureID)+" "+enabledText(enabled)+"（全部游戏）")
+	s.restartRunning()
+	return nil
+}
+
+// featureLabel 找功能的中文名，找不到就用 ID。
+func featureLabel(all []assist.Game, featureID string) string {
+	for _, game := range all {
+		for _, f := range game.Features() {
+			if f.ID() == featureID {
+				return f.Name()
+			}
+		}
+	}
+	return featureID
+}
+
+// enabledText 把开关状态转成日志用词。
+func enabledText(enabled bool) string {
+	if enabled {
+		return "已启用"
+	}
+	return "已停用"
 }
 
 func (s *Service) isExcluded(gameID string) bool {

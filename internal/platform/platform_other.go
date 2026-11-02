@@ -55,6 +55,9 @@ func Find(titles, processNames []string) (Window, error) { return nil, ErrUnsupp
 // ProcessAlive 在非 Windows 平台不做进程门控。
 func ProcessAlive([]string) bool { return true }
 
+// ProcessUsage 在非 Windows 平台不统计性能占用。
+func ProcessUsage() (cpuPercent, memMB float64) { return 0, 0 }
+
 // NewCapturer 在非 Windows 平台返回占位截图器。
 func NewCapturer(w Window) Capturer { return unsupportedCapturer{} }
 

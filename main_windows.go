@@ -4,6 +4,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -23,9 +24,13 @@ var assets embed.FS
 //go:embed build/windows/icon.ico
 var trayIcon []byte
 
-// windowReleaseDelay 是关闭主窗口后销毁窗口、释放 WebView 内存的延迟：
-// 这段时间内重新打开不用重建窗口，超时后回到纯托盘的轻量模式。
-const windowReleaseDelay = 30 * time.Second
+const (
+	// windowReleaseDelay 是关闭主窗口后销毁窗口、释放 WebView 内存的延迟：
+	// 这段时间内重新打开不用重建窗口，超时后回到纯托盘的轻量模式。
+	windowReleaseDelay = 30 * time.Second
+	// trayRefreshInterval 是托盘菜单与提示的刷新间隔。
+	trayRefreshInterval = 2 * time.Second
+)
 
 var (
 	wailsApp *application.App
@@ -87,6 +92,11 @@ func main() {
 		time.Sleep(500 * time.Millisecond)
 		startAll()
 	}()
+	// 后台先把主窗口建好（隐藏），双击托盘时就能立刻显示，不用等 WebView 冷启动。
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		prewarmMainWindow()
+	}()
 
 	log.Printf("轻量模式：仅托盘运行，双击托盘图标打开主界面")
 	if err := wailsApp.Run(); err != nil {
@@ -94,20 +104,63 @@ func main() {
 	}
 }
 
-// setupTray 建立托盘图标与右键菜单：轻量模式下这是唯一常驻的界面。
-func setupTray() {
+// trayUI 保存托盘菜单里需要随状态刷新的条目。
+type trayUI struct {
+	tray     *application.SystemTray
+	games    map[string]*application.MenuItem
+	features map[string]*application.MenuItem
+	pause    *application.MenuItem
+	usage    *application.MenuItem
+}
+
+// setupTray 建立托盘图标与菜单：轻量模式下这是唯一常驻的界面。
+// 菜单里放游戏列表与状态、功能开关、会话控制、性能占用。
+func setupTray() *trayUI {
+	ui := &trayUI{
+		games:    make(map[string]*application.MenuItem),
+		features: make(map[string]*application.MenuItem),
+	}
 	tray := wailsApp.SystemTray.New()
+	ui.tray = tray
 	if len(trayIcon) > 0 {
 		tray.SetIcon(trayIcon)
 	}
-	tray.SetTooltip("SkipAll · 待命")
+	tray.SetTooltip("SkipAll")
 
+	state := appSvc.GetTrayState()
 	menu := wailsApp.NewMenu()
 	menu.Add("打开主界面").OnClick(func(*application.Context) { openMainWindow() })
 	menu.AddSeparator()
+
+	// 游戏列表：只展示进程与会话状态，玩家同一时间只玩一个游戏。
+	for _, game := range state.Games {
+		item := menu.Add(gameLabel(game))
+		item.SetEnabled(false)
+		ui.games[game.ID] = item
+	}
+	menu.AddSeparator()
+
+	// 功能开关：一次只玩一个游戏，开关直接作用于全部游戏。
+	for _, feature := range state.Features {
+		featureID := feature.ID
+		item := menu.AddCheckbox(feature.Name, feature.Enabled)
+		item.OnClick(func(ctx *application.Context) {
+			if err := appSvc.SetFeatureEnabledEverywhere(featureID, ctx.IsChecked()); err != nil {
+				log.Printf("切换功能 %s 失败: %v", featureID, err)
+			}
+		})
+		ui.features[feature.ID] = item
+	}
+	menu.AddSeparator()
+
 	menu.Add("开始").OnClick(func(*application.Context) { startAll() })
-	menu.Add("暂停 / 继续").OnClick(func(*application.Context) { togglePause() })
+	ui.pause = menu.Add("暂停")
+	ui.pause.OnClick(func(*application.Context) { togglePause() })
 	menu.Add("停止").OnClick(func(*application.Context) { appSvc.StopAll() })
+	menu.AddSeparator()
+
+	ui.usage = menu.Add(usageLabel(state))
+	ui.usage.SetEnabled(false)
 	menu.AddSeparator()
 	menu.Add("退出").OnClick(func(*application.Context) { quitApp() })
 	tray.SetMenu(menu)
@@ -116,38 +169,120 @@ func setupTray() {
 	tray.OnClick(openMainWindow)
 	tray.OnDoubleClick(openMainWindow)
 
-	go refreshTrayTooltip(tray)
+	go ui.refreshLoop()
+	return ui
 }
 
-// refreshTrayTooltip 定时把运行状态写进托盘提示，不开窗口也能看出在干什么。
-func refreshTrayTooltip(tray *application.SystemTray) {
-	ticker := time.NewTicker(2 * time.Second)
+// refreshLoop 定期把运行状态、功能开关和性能占用刷到托盘上。
+func (ui *trayUI) refreshLoop() {
+	ticker := time.NewTicker(trayRefreshInterval)
 	defer ticker.Stop()
 	for range ticker.C {
 		if quitting.Load() {
 			return
 		}
-		tray.SetTooltip("SkipAll · " + statusText(appSvc.GetStatus()))
+		ui.refresh()
 	}
 }
 
-// statusText 把状态压成一句中文，给托盘提示用。
-func statusText(status app.StatusView) string {
+func (ui *trayUI) refresh() {
+	state := appSvc.GetTrayState()
+	for _, game := range state.Games {
+		if item, ok := ui.games[game.ID]; ok {
+			item.SetLabel(gameLabel(game))
+		}
+	}
+	for _, feature := range state.Features {
+		if item, ok := ui.features[feature.ID]; ok {
+			item.SetChecked(feature.Enabled)
+		}
+	}
+	if state.Status.Paused {
+		ui.pause.SetLabel("继续")
+	} else {
+		ui.pause.SetLabel("暂停")
+	}
+	ui.usage.SetLabel(usageLabel(state))
+	ui.tray.SetTooltip(tooltipText(state))
+}
+
+// gameLabel 把游戏状态压成菜单里的一行。
+func gameLabel(game app.GameStateView) string {
+	mark := "○"
+	text := "未运行"
+	if game.ProcessRunning {
+		mark = "●"
+		text = "已启动"
+	}
+	switch engine.State(game.State) {
+	case engine.StateRunning:
+		text = "运行中"
+	case engine.StatePaused:
+		text = "已暂停"
+	case engine.StateError:
+		text = "异常"
+	}
+	return mark + " " + game.Name + " · " + text
+}
+
+// usageLabel 生成性能占用那一行。
+func usageLabel(state app.TrayStateView) string {
+	return fmt.Sprintf("CPU %.1f%% · 内存 %.0f MB", state.CPU, state.MemoryMB)
+}
+
+// tooltipText 生成托盘提示：当前状态 + 游戏 + 帧率 + 内存。
+func tooltipText(state app.TrayStateView) string {
+	status := state.Status
+	text := "SkipAll · 未检测到游戏"
 	switch engine.State(status.State) {
 	case engine.StateRunning:
-		if status.FeatureName != "" {
-			return "运行中 · " + status.FeatureName
+		text = "SkipAll · 运行中"
+		if name := runningGameName(state); name != "" {
+			text = "SkipAll · " + name + " 运行中"
 		}
-		return "运行中"
+		if status.FPS > 0 {
+			text = fmt.Sprintf("%s · %.0f FPS", text, status.FPS)
+		}
 	case engine.StatePaused:
-		return "已暂停"
+		text = "SkipAll · 已暂停"
 	case engine.StateError:
-		if status.Error != "" {
-			return "异常 · " + status.Error
+		text = "SkipAll · 异常"
+	default:
+		for _, game := range state.Games {
+			if game.ProcessRunning {
+				text = "SkipAll · " + game.Name + " 已启动，等待识别"
+				break
+			}
 		}
-		return "异常"
 	}
-	return "待命"
+	return fmt.Sprintf("%s · %.0fMB", text, state.MemoryMB)
+}
+
+// runningGameName 返回正在跑会话的游戏名。
+func runningGameName(state app.TrayStateView) string {
+	for _, game := range state.Games {
+		if engine.State(game.State) == engine.StateRunning {
+			return game.Name
+		}
+	}
+	return ""
+}
+
+// prewarmMainWindow 后台提前创建隐藏的主窗口，让第一次双击立刻可见；
+// 一直没打开就按轻量模式规则延迟销毁。
+func prewarmMainWindow() {
+	windowMu.Lock()
+	created := false
+	if mainWindow == nil && !quitting.Load() {
+		var unhook func()
+		mainWindow, unhook = newMainWindow()
+		unhookClose = unhook
+		created = true
+	}
+	windowMu.Unlock()
+	if created {
+		scheduleWindowRelease()
+	}
 }
 
 // openMainWindow 按需创建主窗口并显示；轻量模式下这是唯一创建窗口的入口。
@@ -168,7 +303,7 @@ func openMainWindow() {
 	window.Focus()
 }
 
-// newMainWindow 创建主窗口，并把关闭行为改成"隐藏 + 延迟释放"。
+// newMainWindow 创建（隐藏的）主窗口，并把关闭行为改成"隐藏 + 延迟释放"。
 // 调用方需持有 windowMu。
 func newMainWindow() (*application.WebviewWindow, func()) {
 	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
@@ -178,6 +313,7 @@ func newMainWindow() (*application.WebviewWindow, func()) {
 		MinWidth:         880,
 		MinHeight:        620,
 		URL:              "/",
+		Hidden:           true,
 		InitialPosition:  application.WindowCentered,
 		BackgroundColour: application.NewRGB(243, 246, 251),
 	})

@@ -62,6 +62,13 @@ export function GetStatus(): $CancellablePromise<$models.StatusView> {
 }
 
 /**
+ * GetTrayState 汇总托盘要显示的内容：游戏列表与状态、功能开关、性能占用。
+ */
+export function GetTrayState(): $CancellablePromise<$models.TrayStateView> {
+    return $Call.ByID(3919397552);
+}
+
+/**
  * GetUpdateInfo 返回最近一次检查结果。
  */
 export function GetUpdateInfo(): $CancellablePromise<$models.UpdateView> {
@@ -137,6 +144,14 @@ export function ResumeAll(): $CancellablePromise<void> {
  */
 export function SaveConfig(view: $models.ConfigView): $CancellablePromise<void> {
     return $Call.ByID(4088376018, view);
+}
+
+/**
+ * SetFeatureEnabledEverywhere 在全部游戏上启用/停用某个功能；运行中的会话按新配置重启。
+ * 玩家同一时间只玩一个游戏，托盘里的功能开关就没必要再按游戏区分。
+ */
+export function SetFeatureEnabledEverywhere(featureID: string, enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2427398698, featureID, enabled);
 }
 
 /**

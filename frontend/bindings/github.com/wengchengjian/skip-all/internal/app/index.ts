@@ -11,9 +11,12 @@ export type {
     ConfigView,
     DoctorReport,
     FeatureStateView,
+    FeatureToggleView,
     FeatureView,
+    GameStateView,
     GameView,
     LogEntry,
     StatusView,
+    TrayStateView,
     UpdateView
 } from "./models.js";

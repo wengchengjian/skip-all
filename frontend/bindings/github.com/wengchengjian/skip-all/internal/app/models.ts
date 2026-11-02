@@ -48,6 +48,15 @@ export interface FeatureStateView {
 }
 
 /**
+ * FeatureToggleView 是一个功能在全部游戏上的启用状态；全部启用才算启用。
+ */
+export interface FeatureToggleView {
+    "id": string;
+    "name": string;
+    "enabled": boolean;
+}
+
+/**
  * FeatureView 是功能列表项。
  */
 export interface FeatureView {
@@ -55,6 +64,17 @@ export interface FeatureView {
     "name": string;
     "description": string;
     "defaults": { [_ in string]?: any } | null;
+}
+
+/**
+ * GameStateView 是托盘里一个游戏的进程与会话状态。
+ */
+export interface GameStateView {
+    "id": string;
+    "name": string;
+    "processRunning": boolean;
+    "state": string;
+    "message": string;
 }
 
 /**
@@ -92,6 +112,17 @@ export interface StatusView {
     "targetFps": number;
     "ocrBackend": string;
     "features": FeatureStateView[] | null;
+}
+
+/**
+ * TrayStateView 是托盘菜单与提示需要的一次性快照。
+ */
+export interface TrayStateView {
+    "games": GameStateView[] | null;
+    "features": FeatureToggleView[] | null;
+    "status": StatusView;
+    "cpu": number;
+    "memoryMb": number;
 }
 
 /**

@@ -67,6 +67,78 @@ func TestServiceExcludedGames(t *testing.T) {
 	}
 }
 
+func TestGetTrayStateListsGamesAndFeatures(t *testing.T) {
+	svc, err := NewService(Options{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	defer svc.Shutdown()
+
+	state := svc.GetTrayState()
+	if len(state.Games) != len(games.All()) {
+		t.Fatalf("游戏列表 = %+v", state.Games)
+	}
+	for _, game := range state.Games {
+		if game.ID == "" || game.Name == "" {
+			t.Fatalf("游戏项缺少 ID/名称: %+v", game)
+		}
+		if game.State != "idle" {
+			t.Fatalf("没有会话时应为 idle: %+v", game)
+		}
+	}
+	// 两个游戏都有 story_skip / auto_combat，去重后仍应只有两条。
+	if len(state.Features) != 2 {
+		t.Fatalf("功能列表 = %+v", state.Features)
+	}
+	for _, feature := range state.Features {
+		if !feature.Enabled {
+			t.Fatalf("默认应全部启用: %+v", feature)
+		}
+	}
+	if state.Status.State != "idle" {
+		t.Fatalf("状态 = %+v", state.Status)
+	}
+}
+
+func TestSetFeatureEnabledEverywhere(t *testing.T) {
+	dir := t.TempDir()
+	svc, err := NewService(Options{DataDir: dir})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	defer svc.Shutdown()
+
+	if err := svc.SetFeatureEnabledEverywhere("story_skip", false); err != nil {
+		t.Fatalf("SetFeatureEnabledEverywhere: %v", err)
+	}
+	for _, game := range games.All() {
+		cfg, err := config.LoadGame(gameConfigFile(dir, game.ID()))
+		if err != nil {
+			t.Fatalf("读取 %s 配置: %v", game.ID(), err)
+		}
+		if cfg.Features["story_skip"].Enabled {
+			t.Fatalf("%s 的剧情跳过应已停用: %+v", game.ID(), cfg.Features)
+		}
+		if !cfg.Features["auto_combat"].Enabled {
+			t.Fatalf("%s 的自动战斗不应受影响: %+v", game.ID(), cfg.Features)
+		}
+	}
+	for _, feature := range svc.GetTrayState().Features {
+		if feature.ID == "story_skip" && feature.Enabled {
+			t.Fatal("托盘里的剧情跳过应显示为未启用")
+		}
+	}
+
+	if err := svc.SetFeatureEnabledEverywhere("story_skip", true); err != nil {
+		t.Fatalf("重新启用: %v", err)
+	}
+	for _, feature := range svc.GetTrayState().Features {
+		if !feature.Enabled {
+			t.Fatalf("全部重新启用后应都启用: %+v", feature)
+		}
+	}
+}
+
 func TestServiceConfigRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := NewService(Options{DataDir: dir})
