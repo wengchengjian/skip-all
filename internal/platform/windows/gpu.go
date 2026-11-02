@@ -33,8 +33,15 @@ type dxgiAdapterDesc1 struct {
 // comCall 调 COM 接口的第 index 个方法。
 // obj 用 unsafe.Pointer 承载而不是 uintptr：这样全程不出现 uintptr -> unsafe.Pointer 的转换，
 // go vet 的 unsafeptr 检查才过得去。
+// comObject 只用于读取 COM 对象首字段的 vtable 指针。
+type comObject struct {
+	vtable *[512]uintptr
+}
+
 func comCall(obj unsafe.Pointer, index int, args ...uintptr) uintptr {
-	fn := (*[512]uintptr)(obj)[index]
+	// COM 对象首字段是指向 vtable 的指针，不是 vtable 本身。先取 vtable，
+	// 再按槽位取函数指针；否则读到的槽位全是对象数据，极易调用空指针。
+	fn := (*comObject)(obj).vtable[index]
 	all := append([]uintptr{uintptr(obj)}, args...)
 	r, _, _ := syscall.SyscallN(fn, all...)
 	return r
@@ -57,12 +64,16 @@ func DiscreteGPUIndex() (int, string) {
 	bestName := ""
 	for index := 0; index < 16; index++ {
 		var adapter unsafe.Pointer
-		hr := comCall(factory, 12, uintptr(index), uintptr(unsafe.Pointer(&adapter)))
+		// IDXGIFactory::EnumerateAdapters 在 vtable 的第 7 个槽位（IUnknown 0-2，
+		// IDXGIObject 3-6 之后）。此前误用了 12，会调用到错误函数指针并崩溃。
+		hr := comCall(factory, 7, uintptr(index), uintptr(unsafe.Pointer(&adapter)))
 		if hr == dxgiErrorNotFound || adapter == nil {
 			break
 		}
 		var desc dxgiAdapterDesc1
-		hr = comCall(adapter, 10, uintptr(unsafe.Pointer(&desc)))
+		// IDXGIAdapter1::GetDesc1 在 vtable 的第 9 个槽位；第 10 个是较新的
+		// IDXGIAdapter2::GetDesc2，不是所有适配器都支持。
+		hr = comCall(adapter, 9, uintptr(unsafe.Pointer(&desc)))
 		comCall(adapter, 2)
 		if hr != 0 {
 			continue
