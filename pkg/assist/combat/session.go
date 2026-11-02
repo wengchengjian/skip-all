@@ -869,7 +869,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.switchLocked(id, now) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.synergyAfterBonus(id, agent, now) + s.teamSynergyBonus(id, agent, ids) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id, now)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.synergyAfterBonus(id, agent, now) + s.teamSynergyBonus(id, agent, ids) + s.ultReadySynergyBonus(id, frame, ids) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id, now)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
 		}
@@ -931,6 +931,20 @@ func (s *Session) teamSynergyBonus(candidate, current string, ids []string) floa
 	}
 	for _, id := range ids {
 		if id == required {
+			return synergyScore
+		}
+	}
+	return 0
+}
+
+// ultReadySynergyBonus 处理"指定队友解放已就绪时候选 MUST"的协同。
+func (s *Session) ultReadySynergyBonus(candidate string, frame assist.Frame, ids []string) float64 {
+	required := s.spec.SwitchSynergyUltReady[candidate]
+	if required == "" {
+		return 0
+	}
+	for i, id := range ids {
+		if id == required && s.ultBonus(frame, i) > 0 {
 			return synergyScore
 		}
 	}

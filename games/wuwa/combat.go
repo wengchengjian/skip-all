@@ -140,7 +140,8 @@ func combatSpec() combat.Spec {
 		SwitchSynergyAfter: map[string]map[string]time.Duration{
 			"char_phrolova": {"char_cantarella": 14 * time.Second},
 		},
-		SwitchSynergyTeam: map[string]string{"char_moning": "char_linnai"},
+		SwitchSynergyTeam:     map[string]string{"char_moning": "char_linnai"},
+		SwitchSynergyUltReady: map[string]string{"char_zhezhi": "char_carlotta"},
 		LiberationMustSwitch: map[string]bool{
 			"char_brant":  true,
 			"char_encore": true,

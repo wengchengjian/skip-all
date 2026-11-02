@@ -199,6 +199,9 @@ type Spec struct {
 	// SwitchSynergyTeam 是"队伍里有指定队友且当前不是该队友时，候选 MUST"的表。
 	// 对应上游 Mornye: has_intro 且 task.has_char(Linnai) 且 current != char_linnai。
 	SwitchSynergyTeam map[string]string
+	// SwitchSynergyUltReady 是"指定队友解放已就绪时，候选 MUST"的表：candidate -> 队友 id。
+	// 对应上游 Zhezhi: char_carlotta.get_ready() -> MUST（用 UltReady 模板近似 get_ready）。
+	SwitchSynergyUltReady map[string]string
 	// LiberationMustSwitch 是"候选角色仍在解放动画窗口内时必须优先切给他"的表。
 	// 对应上游 Brant/Encore/Lupa 的 get_switch_priority(): still_in_liberation() -> MUST。
 	LiberationMustSwitch map[string]bool
