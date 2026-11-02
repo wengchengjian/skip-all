@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func (f *fakeInput) KeyTap(string) error          { f.keys.Add(1); return nil }
 func (f *fakeInput) ReleaseAll() error            { return nil }
 
 type fakeFeature struct {
-	session *fakeSession
+	session assist.Session
 }
 
 func (f *fakeFeature) ID() string                       { return "fake" }
@@ -66,6 +67,13 @@ func (s *fakeSession) Step(context.Context, assist.Frame) (assist.Result, []assi
 	return assist.Result{State: "test", Wait: 2 * time.Millisecond}, nil, nil
 }
 func (s *fakeSession) Close() error { return nil }
+
+type panicSession struct{}
+
+func (*panicSession) Step(context.Context, assist.Frame) (assist.Result, []assist.Action, error) {
+	panic("feature boom")
+}
+func (*panicSession) Close() error { return nil }
 
 type fakeMatcher struct{}
 
@@ -99,6 +107,20 @@ func TestRunExecutesActionsAndStops(t *testing.T) {
 	}
 	if got := eng.Status().State; got != StateStopped {
 		t.Fatalf("state = %s, want %s", got, StateStopped)
+	}
+}
+
+func TestRunRecoversFeaturePanic(t *testing.T) {
+	dev := &fakeDevice{}
+	dev.active.Store(true)
+	in := &fakeInput{}
+	eng := New(dev, in, screen.NewSet(), fakeMatcher{}, slog.Default(), &fakeFeature{session: &panicSession{}}, nil, Config{TargetFPS: 100}, nil)
+	err := eng.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "会话异常退出") {
+		t.Fatalf("Run err = %v, want 会话异常退出", err)
+	}
+	if got := eng.Status().State; got != StateError {
+		t.Fatalf("state = %s, want %s", got, StateError)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -186,7 +187,13 @@ func (e *Engine) Stop() {
 }
 
 // Run 启动会话，阻塞到 ctx 取消或发生错误。
-func (e *Engine) Run(ctx context.Context) error {
+// 功能会话里的 panic 也要转成 StateError 返回，不能让整个 GUI 进程退出。
+func (e *Engine) Run(ctx context.Context) (runErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			runErr = e.fail(fmt.Errorf("会话异常退出: %v\n%s", r, debug.Stack()))
+		}
+	}()
 	e.mu.Lock()
 	if e.state == StateRunning || e.state == StatePaused {
 		e.mu.Unlock()

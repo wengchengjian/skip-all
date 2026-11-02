@@ -2,10 +2,20 @@
 
 ## 自动化
 
+标准入口：
+
 ```powershell
-go test ./...
-go vet ./...
+task test
 ```
+
+等价的底层命令：
+
+```powershell
+go vet ./...
+go test ./... -count=1
+```
+
+CI 使用 `.github/workflows/test.yml`，在 `windows-latest` 上执行 vet、test 和 build。
 
 重点测试：
 
