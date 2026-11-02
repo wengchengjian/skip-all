@@ -82,7 +82,7 @@ func TestDownloadVerifiesChecksum(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	info := Info{AssetName: "skip-all-windows-amd64.exe", AssetURL: srv.URL + "/exe", AssetSize: int64(len(data)), ChecksumURL: srv.URL + "/checksums.txt"}
+	info := Info{Latest: "0.2.0", AssetName: "skip-all-windows-amd64.exe", AssetURL: srv.URL + "/exe", AssetSize: int64(len(data)), ChecksumURL: srv.URL + "/checksums.txt"}
 	path, err := info.Download(context.Background(), srv.Client(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -96,6 +96,33 @@ func TestDownloadVerifiesChecksum(t *testing.T) {
 	}
 	if filepath.Base(path) == "" {
 		t.Fatal("empty path")
+	}
+	if filepath.Base(filepath.Dir(path)) != "0.2.0" {
+		t.Fatalf("download dir = %s, want version subdir", path)
+	}
+}
+
+func TestPickLocalChoosesNewestVersion(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []string{"0.1.2", "0.1.3", "0.2.0"} {
+		sub := filepath.Join(dir, v)
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sub, "skip-all-windows-amd64.exe"), []byte("bin-"+v), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 未完成的 .part 不应被选中。
+	if err := os.WriteFile(filepath.Join(dir, "0.2.0", "skip-all-windows-amd64.exe.part"), []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := PickLocal(dir, "0.1.1")
+	if !ok || got.Version != "0.2.0" {
+		t.Fatalf("PickLocal = %+v, ok=%v", got, ok)
+	}
+	if _, ok := PickLocal(dir, "0.2.0"); ok {
+		t.Fatal("已是最新版本时不应返回本地更新")
 	}
 }
 
@@ -117,11 +144,14 @@ func TestDownloadResumesPartialFile(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	dir := t.TempDir()
-	part := filepath.Join(dir, "skip-all-windows-amd64.exe.part")
+	part := filepath.Join(dir, "0.2.0", "skip-all-windows-amd64.exe.part")
+	if err := os.MkdirAll(filepath.Dir(part), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(part, data[:4], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	info := Info{AssetName: "skip-all-windows-amd64.exe", AssetURL: srv.URL + "/exe", AssetSize: int64(len(data)), ChecksumURL: srv.URL + "/checksums.txt"}
+	info := Info{Latest: "0.2.0", AssetName: "skip-all-windows-amd64.exe", AssetURL: srv.URL + "/exe", AssetSize: int64(len(data)), ChecksumURL: srv.URL + "/checksums.txt"}
 	path, err := info.Download(context.Background(), srv.Client(), dir)
 	if err != nil {
 		t.Fatal(err)

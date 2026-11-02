@@ -193,14 +193,91 @@ func findAssets(assets []Asset, goos, goarch string) (*Asset, *Asset) {
 }
 
 // Download 下载并校验 Info 指向的当前平台可执行文件。
-// 下载使用固定 .part 文件 + Range 断点续传；校验失败会删除，网络中断则保留。
 func (i Info) Download(ctx context.Context, client *http.Client, dir string) (string, error) {
+	return i.DownloadWithProgress(ctx, client, dir, nil)
+}
+
+// LocalAsset 是本地已下载完成的更新文件。
+type LocalAsset struct {
+	Path    string
+	Version string
+}
+
+// localDir 返回某个版本的缓存目录：多个版本各占一个子目录，避免互相覆盖。
+func localDir(dir, version string) string {
+	v := strings.TrimPrefix(strings.TrimSpace(version), "v")
+	if v == "" {
+		v = "unknown"
+	}
+	return filepath.Join(dir, v)
+}
+
+// assetFile 返回版本目录下的可执行文件名。
+func assetFile(assetName string) string {
+	name := filepath.Base(assetName)
+	if name == "" || name == "." {
+		return "skip-all-update.exe"
+	}
+	return name
+}
+
+// FindLocal 返回指定版本已下载完成的文件；缺失时返回 false。
+func FindLocal(dir, version string) (LocalAsset, bool) {
+	entries, err := os.ReadDir(localDir(dir, version))
+	if err != nil {
+		return LocalAsset{}, false
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasSuffix(e.Name(), ".part") {
+			continue
+		}
+		path := filepath.Join(localDir(dir, version), e.Name())
+		fi, err := e.Info()
+		if err != nil || fi.Size() == 0 {
+			continue
+		}
+		return LocalAsset{Path: path, Version: strings.TrimPrefix(strings.TrimSpace(version), "v")}, true
+	}
+	return LocalAsset{}, false
+}
+
+// PickLocal 返回本地已下载、且比 current 新的最新版本。
+// 本地存在多个版本时取版本号最大的那个。
+func PickLocal(dir, current string) (LocalAsset, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return LocalAsset{}, false
+	}
+	var best LocalAsset
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		version := e.Name()
+		if compareVersions(current, version) >= 0 {
+			continue
+		}
+		asset, ok := FindLocal(dir, version)
+		if !ok {
+			continue
+		}
+		if best.Path == "" || compareVersions(best.Version, version) < 0 {
+			best = asset
+		}
+	}
+	return best, best.Path != ""
+}
+
+// DownloadWithProgress 与 Download 相同，但会按已下载字节回调进度。
+// 下载使用固定 .part 文件 + Range 断点续传；校验失败会删除，网络中断则保留。
+func (i Info) DownloadWithProgress(ctx context.Context, client *http.Client, dir string, progress func(done, total int64)) (string, error) {
 	if i.AssetURL == "" {
 		return "", errors.New("没有可下载的更新附件")
 	}
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Minute}
 	}
+	dir = localDir(dir, i.Latest)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("创建更新目录: %w", err)
 	}
@@ -215,10 +292,7 @@ func (i Info) Download(ctx context.Context, client *http.Client, dir string) (st
 	if expected == "" {
 		return "", errors.New("release 没有提供 sha256 校验值")
 	}
-	name := filepath.Base(i.AssetName)
-	if name == "" || name == "." {
-		name = "skip-all-update.exe"
-	}
+	name := assetFile(i.AssetName)
 	part := filepath.Join(dir, name+".part")
 	offset := int64(0)
 	if fi, err := os.Stat(part); err == nil {
@@ -228,7 +302,7 @@ func (i Info) Download(ctx context.Context, client *http.Client, dir string) (st
 			offset = 0
 		} else if i.AssetSize > 0 && offset == i.AssetSize {
 			if ok, _ := verifyFile(part, expected, i.AssetSize); ok {
-				return part, nil
+				return finishPart(part, dir, name)
 			}
 			_ = os.Remove(part)
 			offset = 0
@@ -254,7 +328,7 @@ func (i Info) Download(ctx context.Context, client *http.Client, dir string) (st
 		offset = 0
 	case http.StatusRequestedRangeNotSatisfiable:
 		if ok, _ := verifyFile(part, expected, i.AssetSize); ok {
-			return part, nil
+			return finishPart(part, dir, name)
 		}
 		_ = os.Remove(part)
 		return "", errors.New("断点续传范围无效，已清理临时文件")
@@ -288,7 +362,12 @@ func (i Info) Download(ctx context.Context, client *http.Client, dir string) (st
 			return "", fmt.Errorf("计算断点 sha256: %w", hashErr)
 		}
 	}
-	n, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, 300<<20))
+	writer := io.MultiWriter(f, h)
+	if progress != nil && i.AssetSize > 0 {
+		progress(offset, i.AssetSize)
+		writer = io.MultiWriter(f, h, &progressWriter{fn: progress, done: offset, total: i.AssetSize})
+	}
+	n, copyErr := io.Copy(writer, io.LimitReader(resp.Body, 300<<20))
 	closeErr := f.Close()
 	if copyErr != nil {
 		return "", fmt.Errorf("写入更新文件: %w", copyErr)
@@ -310,7 +389,33 @@ func (i Info) Download(ctx context.Context, client *http.Client, dir string) (st
 		_ = os.Remove(part)
 		return "", fmt.Errorf("更新文件 sha256 不符: got %s, want %s", got, expected)
 	}
-	return part, nil
+	return finishPart(part, dir, name)
+}
+
+// finishPart 把校验通过的 .part 文件改名为最终文件，避免下次被当作未完成下载。
+func finishPart(part, dir, name string) (string, error) {
+	final := filepath.Join(dir, name)
+	_ = os.Remove(final) // Windows 下 Rename 不能覆盖已存在的目标。
+	if err := os.Rename(part, final); err != nil {
+		return "", fmt.Errorf("保存更新文件: %w", err)
+	}
+	return final, nil
+}
+
+// progressWriter 把写入字节数换算成下载进度回调。
+type progressWriter struct {
+	fn    func(done, total int64)
+	done  int64
+	total int64
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	p.done += int64(len(b))
+	if p.done > p.total {
+		p.done = p.total
+	}
+	p.fn(p.done, p.total)
+	return len(b), nil
 }
 
 func verifyFile(path, expected string, size int64) (bool, error) {
@@ -359,6 +464,9 @@ func fetchChecksum(ctx context.Context, client *http.Client, url, assetName stri
 	}
 	return "", fmt.Errorf("checksums.txt 找不到 %s", assetName)
 }
+
+// CompareVersions 比较两个版本号：a<b 返回 -1，相等 0，a>b 返回 1。
+func CompareVersions(a, b string) int { return compareVersions(a, b) }
 
 func compareVersions(current, latest string) int {
 	a, aok := parseVersion(current)

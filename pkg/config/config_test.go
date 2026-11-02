@@ -20,6 +20,9 @@ func TestDefaultApp(t *testing.T) {
 	if len(cfg.ExcludedGames) != 0 {
 		t.Fatalf("默认不应排除游戏: %+v", cfg.ExcludedGames)
 	}
+	if !cfg.Update.AutoCheck || !cfg.Update.AutoDownload || cfg.Update.Repo != "wengchengjian/skip-all" {
+		t.Fatalf("默认更新配置错误: %+v", cfg.Update)
+	}
 }
 
 func TestLoadAppMissingFile(t *testing.T) {

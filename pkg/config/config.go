@@ -49,9 +49,11 @@ type HotkeysConfig struct {
 }
 
 // UpdateConfig 是自动更新配置。
+// AutoCheck/AutoDownload 默认开启；安装动作始终由用户点击触发。
 type UpdateConfig struct {
-	AutoCheck bool   `yaml:"auto_check"`
-	Repo      string `yaml:"repo"`
+	AutoCheck    bool   `yaml:"auto_check"`
+	AutoDownload bool   `yaml:"auto_download"`
+	Repo         string `yaml:"repo"`
 }
 
 // OCRConfig 是 OCR 模型配置。
@@ -75,7 +77,7 @@ func DefaultApp() AppConfig {
 		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "auto", Gamepad: false},
 		Hotkeys:       HotkeysConfig{Toggle: "F9", Panic: "F10"},
 		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true, GPU: "auto"},
-		Update:        UpdateConfig{AutoCheck: true, Repo: "wengchengjian/skip-all"},
+		Update:        UpdateConfig{AutoCheck: true, AutoDownload: true, Repo: "wengchengjian/skip-all"},
 		ExcludedGames: []string{},
 	}
 }

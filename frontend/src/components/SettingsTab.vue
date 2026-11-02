@@ -11,11 +11,14 @@ const props = defineProps<{
   updateInfo: UpdateView | null;
   updateChecking: boolean;
   updateInstalling: boolean;
+  updateDownloading: boolean;
+  updateProgress: number;
 }>();
 
 const emit = defineEmits<{
   (e: "save", view: ConfigView): void;
   (e: "check-update"): void;
+  (e: "download-update"): void;
   (e: "install-update"): void;
 }>();
 
@@ -48,6 +51,8 @@ const form = reactive({
   excludedGames: [] as string[],
   hotkeyToggle: "F9",
   hotkeyPanic: "F10",
+  updateAutoCheck: true,
+  updateAutoDownload: true,
 });
 
 function toNumber(value: unknown, fallback: number): number {
@@ -95,6 +100,8 @@ watch(
     form.excludedGames = [...(config.app.ExcludedGames ?? [])];
     form.hotkeyToggle = config.app.Hotkeys.Toggle || "F9";
     form.hotkeyPanic = config.app.Hotkeys.Panic || "F10";
+    form.updateAutoCheck = config.app.Update?.AutoCheck ?? true;
+    form.updateAutoDownload = config.app.Update?.AutoDownload ?? true;
   },
   { immediate: true },
 );
@@ -121,6 +128,10 @@ function save() {
   view.app.ExcludedGames = [...form.excludedGames];
   view.app.Hotkeys.Toggle = form.hotkeyToggle.trim() || "F9";
   view.app.Hotkeys.Panic = form.hotkeyPanic.trim() || "F10";
+  if (view.app.Update) {
+    view.app.Update.AutoCheck = form.updateAutoCheck;
+    view.app.Update.AutoDownload = form.updateAutoDownload;
+  }
 
   // 当前游戏配置只写游戏确实拥有的功能，避免给没有该功能的游戏凭空造出配置项。
   const gameId = props.selectedGameId;
@@ -260,12 +271,32 @@ function save() {
             当前版本 {{ version || "dev" }}
             <span v-if="updateInfo?.available"> · 发现 {{ updateInfo.latest }}</span>
           </p>
+          <div class="form-grid">
+            <label class="checkbox-field">
+              <input v-model="form.updateAutoCheck" type="checkbox" />
+              <span>启动时自动检查更新</span>
+            </label>
+            <label class="checkbox-field">
+              <input v-model="form.updateAutoDownload" type="checkbox" />
+              <span>发现新版本后自动下载（安装仍由你确认）</span>
+            </label>
+          </div>
+          <p v-if="updateDownloading" class="form-hint">正在下载更新… {{ updateProgress }}%</p>
+          <p v-else-if="updateInfo?.downloaded" class="form-hint">新版本 {{ updateInfo.latest }} 已下载，点击“立即安装”完成更新。</p>
           <div class="form-actions">
-            <button class="btn btn-ghost btn-small" :disabled="updateChecking || updateInstalling" @click="emit('check-update')">
+            <button class="btn btn-ghost btn-small" :disabled="updateChecking || updateInstalling || updateDownloading" @click="emit('check-update')">
               {{ updateChecking ? "检查中…" : "检查更新" }}
             </button>
-            <button v-if="updateInfo?.available" class="btn btn-primary btn-small" :disabled="updateInstalling" @click="emit('install-update')">
-              {{ updateInstalling ? "更新中…" : "立即更新" }}
+            <button
+              v-if="updateInfo?.available && !updateInfo?.downloaded"
+              class="btn btn-ghost btn-small"
+              :disabled="updateDownloading"
+              @click="emit('download-update')"
+            >
+              下载更新
+            </button>
+            <button v-if="updateInfo?.available" class="btn btn-primary btn-small" :disabled="updateInstalling || updateDownloading" @click="emit('install-update')">
+              {{ updateInstalling ? "更新中…" : "立即安装" }}
             </button>
           </div>
           <p v-if="updateInfo?.notes" class="form-hint">{{ updateInfo.notes }}</p>

@@ -44,7 +44,11 @@ func TestLiveRelease(t *testing.T) {
 		if err != nil {
 			t.Fatalf("prefetch: %v", err)
 		}
-		part := filepath.Join(dir, info.AssetName+".part")
+		part := filepath.Join(dir, info.Latest, info.AssetName+".part")
+		if err := os.MkdirAll(filepath.Dir(part), 0o755); err != nil {
+			resp.Body.Close()
+			t.Fatalf("mkdir part dir: %v", err)
+		}
 		f, err := os.Create(part)
 		if err != nil {
 			resp.Body.Close()
