@@ -10,6 +10,7 @@ package wuwa
 var agentSynergy = map[string][]string{
 	"char_verina":      {"char_hiyuki"},
 	"char_brant":       {"char_lupa"},
+	"chang_changli":    {"char_brant"},
 	"char_cantarella":  {"char_roccia", "char_sanhua"},
 	"char_lupa":        {"chang_changli"},
 	"char_hiyuki":      {"char_linnai", "char_lucilla"},

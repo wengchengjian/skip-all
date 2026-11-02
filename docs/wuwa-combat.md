@@ -9,7 +9,7 @@
 | 战斗判据 | `has_health_bar()`：整帧找 `enemy_health_color_red`（174-225 / 55-85 / 55-76），宽≥50、高 5-14 | `games/wuwa/combat.go` 的 `HealthBar` |
 | 首领判据 | `is_boss()`：`(1269,58)-(2533,200)`/4K 的 `boss_health_color` 且区域内恰好一条 | `BossBar`（折半 `(634,29)-(1266,100)`） |
 | 协奏满切人 | `get_current_con()` 必须等于 1；`_ensure_ring_index()` 先认同色再单色计数 | `Concerto`（门限 0.95）+ `vision.RingCoverages` |
-| 切人打分 | `get_switch_priority` / `_choose_switch_target` / `_unbuffed_support_target` | `SwitchPolicy` + `Roles` + `BuffTimes`（57 个角色增益时长）+ `SwitchSynergy`（15 个协同对，含 Phrolova 的 14 秒延后条件）+ `LiberationMustSwitch`（Brant/Encore/Lupa/Zani 在解放窗口内 MUST）+ `SwitchIntroMUST`（Camellya/Jinhsi 入场 MUST）+ `SwitchIntroAfter`（Luhesi 24s、Suisui 40s）+ `SwitchNoAfterHeavy/Skill/Liberation/Perform`（Encore/Brant/Phrolova/Douling/Zani/Suisui 的 NO 锁）+ `ResonanceMustSwitch`（Encore 共鸣二段 MUST） |
+| 切人打分 | `get_switch_priority` / `_choose_switch_target` / `_unbuffed_support_target` | `SwitchPolicy` + `Roles` + `BuffTimes`（57 个角色增益时长）+ `SwitchSynergy`（16 个协同对，含 Phrolova 的 14 秒延后条件）+ `LiberationMustSwitch`（Brant/Encore/Lupa/Zani 在解放窗口内 MUST）+ `SwitchIntroMUST`（Camellya/Jinhsi 入场 MUST）+ `SwitchIntroAfter`（Luhesi 24s、Suisui 40s）+ `SwitchNoAfterHeavy/Skill/Liberation/Perform`（Encore/Brant/Phrolova/Douling/Zani/Suisui 的 NO 锁）+ `ResonanceMustSwitch`（Encore 共鸣二段 MUST） |
 | 切人等待 `wait_switch()` | Zani 夜落 2.2s、Carlotta 声骸后 2.5s、Cantarella 重击后 8s、Hiyuki/Augusta 的 check_outro 时长 | `Spec.HoldSwitchAfterHeavy` / `HoldSwitchAfterEcho` / `HoldSwitchAfterOutro` |
 | 治疗位换入冷却 | `HEALER_FULL_CON_SWITCH_LOCKOUT = 16` 秒 | `SwitchPolicy.HealerLockout` |
 | 切人确认 | `switch_next_char` 里循环复查 `in_team()`，没切过去补普攻 | `Session` 的 800ms 复查窗口 |
@@ -42,7 +42,7 @@ flying 35   is_con_full 11   check_outro 8   has_intro 7   still_in_liberation 4
 > 口径：上面是生成脚本的统计（57 个角色、`do_perform()` 一层内联）；全量 `src/char/*.py` 的 if 行更多（审计：flying 45、check_outro 10、still_in_liberation 8），差异来自跨方法（`do_perform_interlock`、`wait_for_accelerate_ready`）与 `get_switch_priority` 等不在提取范围的分支。
 
 | `check_outro()` 的分支 | 10 个角色 | 检测已做会话记账（`CombatState.LastOutro` + `延奏=` 原子）；Brant/Changli/Carlotta 的多步收尾、Cantarella/Phrolova/Lupa 的标志位分支都已接入近似队列（`agentOutroRules`），Hiyuki×2/Augusta 的 3 个时长分支用 `HoldSwitchAfterOutro` 近似，Linnai 的入场等待不产生单步动作 |
-| `get_switch_priority()` 重写 | 26 个角色 | 同上；其中**可机械提取的那一类"在场是谁则必须切我"已经做了**（`SwitchSynergy`，15 对；含 Carlotta<-Zhezhi、Linnai<-Mornye、Mornye<-Aemeath/Qingxiao、ShoreKeeper<-Augusta） |
+| `get_switch_priority()` 重写 | 26 个角色 | 同上；其中**可机械提取的那一类"在场是谁则必须切我"已经做了**（`SwitchSynergy`，16 对；含 Carlotta<-Zhezhi、Changli<-Brant、Linnai<-Mornye、Mornye<-Aemeath/Qingxiao、ShoreKeeper<-Augusta） |
 | 协奏百分比 | — | 我们已有环覆盖率，上游也是面积比，改成百分比不改变任何决策 |
 
 ## 未验证的部分
