@@ -468,6 +468,9 @@ func (s *Service) startGame(game assist.Game, features []assist.Feature) ActionR
 		return ActionResult{OK: false, Error: "找不到游戏窗口: " + err.Error()}
 	}
 	capturer := platform.NewCapturer(win)
+	// 帧缓冲池：截图直接写进池里的 1920x1080 缓冲，异步识别 worker
+	// 用 Retain/Release 跨拍持有，不必为每帧深拷贝约 8MB。
+	capturer.SetBufferPool(platform.NewBufferPool(1920, 1080))
 	background := strings.ToLower(appCfg.Input.Mode) != "foreground"
 	if game.RequiresForeground() && background {
 		background = false
@@ -523,6 +526,7 @@ func (s *Service) startGame(game assist.Game, features []assist.Feature) ActionR
 		PauseWhenBackground: appCfg.Input.PauseWhenBackground,
 		ActivateWindow:      !background,
 		ProcessAlive:        alive,
+		AsyncOCRWorkers:     asyncOCRWorkers(appCfg.OCR.Workers),
 	}, func(ev engine.Event) { s.onEngineEvent(gameID, ev) })
 	ctx, cancel := context.WithCancel(context.Background())
 	sess := &gameSession{gameID: gameID, featureIDs: ids, eng: eng, cancel: cancel}
@@ -1110,6 +1114,18 @@ func (s *Service) ensureOCR() (vision.OCR, error) {
 	s.mu.Unlock()
 	s.appendLog("info", "OCR 延迟加载：首次需要 OCR 时再初始化模型")
 	return lazy, nil
+}
+
+// asyncOCRWorkers 把配置里的 worker 数收敛到 engine 要的语义：
+// <=1 返回 0（同步），2~4 原样返回。
+func asyncOCRWorkers(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	if n > 4 {
+		return 4
+	}
+	return n
 }
 
 type ocrCandidate struct {

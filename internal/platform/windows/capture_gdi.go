@@ -8,8 +8,10 @@ import (
 	"image"
 	"math"
 	"sync"
+	"time"
 	"unsafe"
 
+	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/geom"
 	"golang.org/x/sys/windows"
 )
@@ -69,6 +71,8 @@ type Capturer struct {
 	oldBmp windows.Handle
 	bits   unsafe.Pointer
 	raw    *image.RGBA
+	// pool 提供可复用的 1920x1080 输出缓冲；为 nil 时每帧新建。
+	pool *BufferPool
 
 	failures int
 }
@@ -85,38 +89,66 @@ func NewCapturer(w *Window) *Capturer {
 	return &Capturer{win: w}
 }
 
-// Capture 截取窗口客户区，返回 1920x1080 的 RGBA 图。
-// scale 是实际客户区宽度 / 1920，用于把逻辑坐标换算成客户区物理坐标。
-// 优先使用 PrintWindow(PW_CLIENTONLY|PW_RENDERFULLCONTENT)，失败或全黑时回退屏幕 BitBlt。
-func (c *Capturer) Capture() (*image.RGBA, float64, error) {
-	if c == nil || c.win == nil {
-		return nil, 0, ErrWindowNotFound
+// SetBufferPool 让截图器从池里取输出缓冲，避免每帧分配 1080p（约 8MB）。
+// 调用方负责在最后一帧用完后不再读取；池自身按引用计数回收。
+func (c *Capturer) SetBufferPool(pool *BufferPool) {
+	if c == nil {
+		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.pool = pool
+	c.mu.Unlock()
+}
 
+// CaptureFrame 截取一帧并返回带引用计数的 assist.Frame（实现 engine.FrameDevice）。
+// 调用方必须调用 frame.Release（或传给会负责释放的组件）。
+func (c *Capturer) CaptureFrame() (assist.Frame, error) {
+	if c == nil || c.win == nil {
+		return assist.Frame{}, ErrWindowNotFound
+	}
+	if c.pool == nil {
+		return assist.Frame{}, errors.New("未设置缓冲池")
+	}
+	buf := c.pool.Acquire()
+	scale, err := c.captureInto(buf.Image())
+	if err != nil {
+		buf.Release()
+		return assist.Frame{}, err
+	}
+	return assist.Frame{
+		Image:   buf.Image(),
+		At:      time.Now(),
+		Scale:   scale,
+		Retain:  buf.Retain,
+		Release: buf.Release,
+	}, nil
+}
+
+// captureInto 截取一帧并写入 dst（必须是 1920x1080）。
+func (c *Capturer) captureInto(dst *image.RGBA) (float64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	rect, err := c.win.ClientRect()
 	if err != nil {
 		c.releaseLocked()
 		c.failures++
-		return nil, 0, fmt.Errorf("截图前读取客户区失败: %w", err)
+		return 0, fmt.Errorf("截图前读取客户区失败: %w", err)
 	}
 	width, height := rect.Width(), rect.Height()
 	if width <= 0 || height <= 0 {
 		c.failures++
-		return nil, 0, fmt.Errorf("客户区尺寸无效: %dx%d", width, height)
+		return 0, fmt.Errorf("客户区尺寸无效: %dx%d", width, height)
 	}
 	hwnd := windows.HWND(c.win.Handle())
 	if hwnd == 0 {
 		c.releaseLocked()
 		c.failures++
-		return nil, 0, ErrWindowNotFound
+		return 0, ErrWindowNotFound
 	}
 	if err := c.ensureResources(hwnd, width, height); err != nil {
 		c.failures++
-		return nil, 0, err
+		return 0, err
 	}
-
 	printOK := c.printWindow()
 	if !printOK || isBlackFrame(c.pixels()) {
 		if err := c.bitBlt(rect); err != nil {
@@ -129,13 +161,41 @@ func (c *Capturer) Capture() (*image.RGBA, float64, error) {
 			if c.failures >= maxCaptureFailures {
 				err = fmt.Errorf("截图连续失败 %d 次: %w", c.failures, err)
 			}
-			return nil, 0, err
+			return 0, err
 		}
 	}
 	c.failures = 0
+	c.fillRGBA(dst, width, height)
+	return float64(width) / standardWidth, nil
+}
 
-	scale := float64(width) / standardWidth
-	return c.toRGBA(width, height), scale, nil
+// fillRGBA 把当前 DIB 内容写进 1920x1080 的 dst，不做中间分配。
+func (c *Capturer) fillRGBA(dst *image.RGBA, width, height int) {
+	src := c.pixels()
+	if width == standardWidth && height == standardHeight {
+		convertBGRA(dst, src, width, height)
+		return
+	}
+	if c.raw == nil || c.raw.Rect.Dx() != width || c.raw.Rect.Dy() != height {
+		c.raw = image.NewRGBA(image.Rect(0, 0, width, height))
+	}
+	convertBGRA(c.raw, src, width, height)
+	resizeInto(dst, c.raw)
+}
+
+// Capture 截取窗口客户区，返回 1920x1080 的 RGBA 图。
+// scale 是实际客户区宽度 / 1920，用于把逻辑坐标换算成客户区物理坐标。
+// 优先使用 PrintWindow(PW_CLIENTONLY|PW_RENDERFULLCONTENT)，失败或全黑时回退屏幕 BitBlt。
+func (c *Capturer) Capture() (*image.RGBA, float64, error) {
+	if c == nil || c.win == nil {
+		return nil, 0, ErrWindowNotFound
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, standardWidth, standardHeight))
+	scale, err := c.captureInto(dst)
+	if err != nil {
+		return nil, 0, err
+	}
+	return dst, scale, nil
 }
 
 // IsActive 报告窗口是否位于前台。
@@ -315,9 +375,16 @@ func isBlackFrame(pix []byte) bool {
 // resizeRGBA 用双线性插值缩放图像，避免截图分辨率变化影响 OCR。
 func resizeRGBA(src *image.RGBA, dstWidth, dstHeight int) *image.RGBA {
 	dst := image.NewRGBA(image.Rect(0, 0, dstWidth, dstHeight))
+	resizeInto(dst, src)
+	return dst
+}
+
+// resizeInto 把 src 双线性缩放写入已分配的 dst，不做分配。
+func resizeInto(dst, src *image.RGBA) {
+	dstWidth, dstHeight := dst.Rect.Dx(), dst.Rect.Dy()
 	srcWidth, srcHeight := src.Rect.Dx(), src.Rect.Dy()
 	if srcWidth <= 0 || srcHeight <= 0 || dstWidth <= 0 || dstHeight <= 0 {
-		return dst
+		return
 	}
 	scaleX := float64(srcWidth) / float64(dstWidth)
 	scaleY := float64(srcHeight) / float64(dstHeight)
@@ -371,5 +438,4 @@ func resizeRGBA(src *image.RGBA, dstWidth, dstHeight int) *image.RGBA {
 			}
 		}
 	}
-	return dst
 }

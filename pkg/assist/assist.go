@@ -21,6 +21,24 @@ type Frame struct {
 	Image *image.RGBA
 	At    time.Time
 	Scale float64
+	// Retain/Release 管理帧像素的生命周期，供异步消费者跨拍持有时调用。
+	// 为 nil 表示帧不会被复用，直接读即可。
+	Retain  func()
+	Release func()
+}
+
+// Hold 增加一次帧引用，交给异步 worker 时调用。nil 安全。
+func (f Frame) Hold() {
+	if f.Retain != nil {
+		f.Retain()
+	}
+}
+
+// Drop 释放一次帧引用。nil 安全。
+func (f Frame) Drop() {
+	if f.Release != nil {
+		f.Release()
+	}
 }
 
 // ActionKind 是动作类型。

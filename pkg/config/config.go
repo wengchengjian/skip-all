@@ -68,6 +68,10 @@ type UpdateConfig struct {
 	Repo         string `yaml:"repo"`
 }
 
+// maxOCRWorkers 是异步 OCR worker 数上限。
+// 每个 worker 持有一份 ONNX session 的并发槽，开太多会互相抢 CPU。
+const maxOCRWorkers = 4
+
 // OCRConfig 是 OCR 模型配置。
 type OCRConfig struct {
 	Model        string `yaml:"model"`
@@ -77,6 +81,9 @@ type OCRConfig struct {
 	GPU string `yaml:"gpu"`
 	// RuntimeDir 可放置 onnxruntime_dml.dll / onnxruntime_cuda.dll。
 	RuntimeDir string `yaml:"runtime_dir"`
+	// Workers 是异步 OCR worker 数。1 表示同步（默认）；>1 时识别在后台跑，
+	// 决策拍只读上一次结果，不再被识别阻塞。上限 4。
+	Workers int `yaml:"workers"`
 }
 
 // DefaultApp 返回应用默认配置。
@@ -88,7 +95,7 @@ func DefaultApp() AppConfig {
 		Capture:       CaptureConfig{Method: "auto", TargetFPS: 5},
 		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "auto", Gamepad: false},
 		Hotkeys:       HotkeysConfig{Toggle: "Home", Features: DefaultFeatureHotkeys(), GameOnly: true, Sound: true},
-		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true, GPU: "auto"},
+		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true, GPU: "auto", Workers: 2},
 		Update:        UpdateConfig{AutoCheck: true, AutoDownload: true, Repo: "wengchengjian/skip-all"},
 		ExcludedGames: []string{},
 	}
@@ -155,6 +162,9 @@ func (c *AppConfig) normalizeAndValidate() error {
 	}
 	if c.Capture.TargetFPS < 1 || c.Capture.TargetFPS > 120 {
 		return fmt.Errorf("capture.target_fps 超出范围: %d", c.Capture.TargetFPS)
+	}
+	if c.OCR.Workers < 0 || c.OCR.Workers > maxOCRWorkers {
+		return fmt.Errorf("ocr.workers 超出范围: %d（0~%d）", c.OCR.Workers, maxOCRWorkers)
 	}
 	if c.Input.Mode == "" {
 		c.Input.Mode = "background"

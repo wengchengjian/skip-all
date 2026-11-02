@@ -10,6 +10,7 @@ import (
 	"time"
 
 	win "github.com/wengchengjian/skip-all/internal/platform/windows"
+	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/geom"
 )
 
@@ -37,7 +38,17 @@ type Capturer interface {
 	IsActive() bool
 	Activate() error
 	Close() error
+	// SetBufferPool 让截图直接写进池缓冲，异步识别 worker 可跨拍持有。
+	SetBufferPool(*BufferPool)
+	// CaptureFrame 返回带引用计数的帧（实现 engine.FrameDevice）。
+	CaptureFrame() (assist.Frame, error)
 }
+
+// BufferPool 是帧缓冲池的类型别名。
+type BufferPool = win.BufferPool
+
+// NewBufferPool 创建帧缓冲池。
+func NewBufferPool(width, height int) *BufferPool { return win.NewBufferPool(width, height) }
 
 // Input 是输入接口。
 type Input interface {
@@ -129,6 +140,10 @@ func (unsupportedCapturer) Capture() (*image.RGBA, float64, error) { return nil,
 func (unsupportedCapturer) IsActive() bool                         { return false }
 func (unsupportedCapturer) Activate() error                        { return ErrUnsupported }
 func (unsupportedCapturer) Close() error                           { return nil }
+func (unsupportedCapturer) SetBufferPool(*BufferPool)              {}
+func (unsupportedCapturer) CaptureFrame() (assist.Frame, error) {
+	return assist.Frame{}, ErrUnsupported
+}
 
 type unsupportedInput struct{ err error }
 

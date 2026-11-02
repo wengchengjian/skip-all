@@ -35,7 +35,15 @@ type Capturer interface {
 	IsActive() bool
 	Activate() error
 	Close() error
+	SetBufferPool(*BufferPool)
+	CaptureFrame() (assist.Frame, error)
 }
+
+// BufferPool 在非 Windows 平台是空实现。
+type BufferPool struct{}
+
+// NewBufferPool 在非 Windows 平台返回空池。
+func NewBufferPool(int, int) *BufferPool { return &BufferPool{} }
 
 // Input 是输入接口。
 type Input interface {
@@ -116,6 +124,10 @@ func (unsupportedCapturer) Capture() (*image.RGBA, float64, error) { return nil,
 func (unsupportedCapturer) IsActive() bool                         { return false }
 func (unsupportedCapturer) Activate() error                        { return ErrUnsupported }
 func (unsupportedCapturer) Close() error                           { return nil }
+func (unsupportedCapturer) SetBufferPool(*BufferPool)              {}
+func (unsupportedCapturer) CaptureFrame() (assist.Frame, error) {
+	return assist.Frame{}, ErrUnsupported
+}
 
 type unsupportedInput struct{}
 

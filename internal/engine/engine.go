@@ -44,6 +44,12 @@ type Device interface {
 	Activate() error
 }
 
+// FrameDevice 是可选的扩展：能返回带引用计数的帧缓冲。
+// 实现它之后，异步识别 worker 可以直接读原像素，不必为每一帧深拷贝。
+type FrameDevice interface {
+	CaptureFrame() (assist.Frame, error)
+}
+
 // Input 抽象点击与按键，便于测试替换。
 type Input interface {
 	Click(geom.Point) error
@@ -72,6 +78,8 @@ type Config struct {
 	// ProcessAlive 报告游戏进程是否还在运行；为空时不做进程门控。
 	// 进程消失时自动暂停（避免截图连续失败把会话打成异常），进程回来时自动恢复。
 	ProcessAlive func() bool
+	// AsyncOCRWorkers 是异步识别 worker 数；<=1 表示同步执行。
+	AsyncOCRWorkers int
 }
 
 // FeatureStatus 是单个功能的状态快照。
@@ -339,7 +347,17 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		}
 	}()
 
-	rt := &runtime{screens: e.screens, vision: e.vision, logger: e.logger}
+	var rt assist.Runtime = &runtime{screens: e.screens, vision: e.vision, logger: e.logger}
+	var asyncRT *assist.AsyncRuntime
+	if e.cfg.AsyncOCRWorkers > 1 {
+		asyncRT = assist.NewAsyncRuntime(rt, e.cfg.AsyncOCRWorkers)
+		rt = asyncRT
+	}
+	defer func() {
+		if asyncRT != nil {
+			asyncRT.Close()
+		}
+	}()
 	started := e.createSessions(rt)
 	if started == 0 {
 		return e.fail(errors.New("没有可运行的功能会话"))
@@ -387,7 +405,7 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 				}
 			}
 		}
-		img, scale, err := e.device.Capture()
+		img, scale, frameRetain, frameRelease, err := e.captureFrame()
 		if err != nil {
 			// 进程刚好退出时截图会失败，交给进程门控处理，不累计失败次数。
 			if e.cfg.ProcessAlive != nil && !e.cfg.ProcessAlive() {
@@ -412,6 +430,9 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		// 而不是像"干完活再睡 wait"那样累加到周期上。
 		tick := clock.Begin(time.Now())
 		frame := assist.Frame{Image: img, At: tick.Time, Scale: scale}
+		// 帧缓冲来自池时，本拍用完释放一次；异步 worker 会各自 Retain/Release。
+		frame.Retain = frameRetain
+		frame.Release = frameRelease
 		wait := e.stepFeatures(runCtx, tick, frame)
 		if runCtx.Err() != nil {
 			return nil
@@ -419,6 +440,8 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		if e.allFailed() {
 			return e.fail(errors.New("全部功能已停止: " + e.failedSummary()))
 		}
+		// 本拍的责任已了：释放帧引用（异步 worker 自己持有的那些不受影响）。
+		frame.Drop()
 		now := time.Now()
 		if !lastFrameAt.IsZero() {
 			e.markFrame(now.Sub(lastFrameAt))
@@ -433,7 +456,7 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 }
 
 // createSessions 为每个功能创建会话，返回成功创建的个数。
-func (e *Engine) createSessions(rt *runtime) int {
+func (e *Engine) createSessions(rt assist.Runtime) int {
 	started := 0
 	for _, f := range e.features {
 		session, err := f.feature.NewSession(rt, f.settings)
@@ -527,6 +550,21 @@ func (e *Engine) failedSummary() string {
 		}
 	}
 	return strings.Join(parts, "；")
+}
+
+// captureFrame 截取一帧。实现了 FrameDevice 的设备会返回带引用计数的帧缓冲，
+// 这样异步识别 worker 可以直接读原像素，不必为每帧深拷贝约 8MB。
+// 返回值里的 retain/release 为 nil 表示帧不会被复用，无需引用计数。
+func (e *Engine) captureFrame() (img *image.RGBA, scale float64, retain, release func(), err error) {
+	if fd, ok := e.device.(FrameDevice); ok {
+		frame, err := fd.CaptureFrame()
+		if err != nil {
+			return nil, 0, nil, nil, err
+		}
+		return frame.Image, frame.Scale, frame.Retain, frame.Release, nil
+	}
+	img, scale, err = e.device.Capture()
+	return img, scale, nil, nil, err
 }
 
 // gateProcess 处理游戏进程门控：进程不在就自动暂停，进程回来再自动恢复。
