@@ -144,6 +144,7 @@ func combatSpec() combat.Spec {
 			"char_brant":  true,
 			"char_encore": true,
 			"char_lupa":   true,
+			"char_zani":   true,
 		},
 		SwitchIntroMUST: map[string]bool{
 			"char_camellya": true,
@@ -151,7 +152,7 @@ func combatSpec() combat.Spec {
 		},
 		// 上游 get_switch_priority 的 NO 锁：Brant 的 perform_anchor<4s、
 		// Encore 的 last_heavy<4.6s。用最近一次技能/重击时间近似。
-		SwitchNoAfterSkill:      map[string]time.Duration{"char_brant": 4 * time.Second},
+		SwitchNoAfterSkill:      map[string]time.Duration{"char_brant": 4 * time.Second, "char_zani": 1600 * time.Millisecond},
 		SwitchNoAfterHeavy:      map[string]time.Duration{"char_encore": 4600 * time.Millisecond},
 		SwitchNoAfterLiberation: map[string]time.Duration{"char_phrolova": 24 * time.Second},
 		SwitchNoAfterPerform:    map[string]time.Duration{"char_douling": 8 * time.Second},
