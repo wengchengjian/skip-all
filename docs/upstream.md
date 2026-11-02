@@ -342,7 +342,7 @@
 
 ## 逐角色条件规则（鸣潮）
 
-上游 57 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**157 条规则覆盖 49 个角色**，其余 8 个角色回退到上游 `BaseChar.do_perform()` 的保守动作（声骸→解放→技能→重击）。
+上游 57 个角色的 `do_perform()` 里，条件分支写法各异。本项目用脚本机械提取：**动作行**（`click_resonance/click_echo/click_liberation/heavy_attack/continues_normal_attack/click`）连同它**外层 if 条件的可表达子集**，生成 `games/wuwa/agent_rules.go`：**169 条规则覆盖 54 个角色**，其余 3 个角色回退到上游 `BaseChar.do_perform()` 的保守动作（声骸→解放→技能→重击）。
 
 可表达原子：`技能可用`（上游 `resonance_available`）、`声骸可用`、`解放可用`、`回路满`/`回路未满`（`is_forte_full`）、`协奏满`（`is_con_full`）、`入场中`（`has_intro`）、`延奏=<角色id>`（`check_outro`）、`飞行中`（`flying`）、`解放中`（`still_in_liberation`）。
 
@@ -350,6 +350,6 @@
 
 `flying()` 照抄上游：开战用 `edge_levitator` 模板（阈值 0.65）确认滑翔装置，图标区 `text_white_color`（244-255）白色占比 < 0.1 算在空中。`still_in_liberation()` 也照抄上游：按角色记录最近一次解放时间，基类窗口 12 秒，Encore 9.5 秒、Xiangliyao 25 秒各自重写；本项目按墙钟计时（未扣游戏冻结时间，属已知近似）。
 
-`check_outro()` 在上游是纯记账：取队伍里 `last_switch_time` 最大的队友（即刚放完延奏的人），`has_intro` 为 false 时返回 `'null'`。本项目在切人动作发出时把当前角色记进 `Session.outroAgent`，只有 `InIntro` 窗口内 `延奏=` 原子才成立。上游 10 个 `check_outro()` 分支全是循环时长/收尾序列的修饰（`perform_in_outro`、`do_perform_outro`、timeout 改动等），不产生单步动作，所以**只做记账、不生成规则**；生成脚本已能映射 `check_outro()`、`flying()`、`still_in_liberation()` 条件；本次重生成后规则共 157 条（含 9 个元组键角色的规则）。
+`check_outro()` 在上游是纯记账：取队伍里 `last_switch_time` 最大的队友（即刚放完延奏的人），`has_intro` 为 false 时返回 `'null'`。本项目在切人动作发出时把当前角色记进 `Session.outroAgent`，只有 `InIntro` 窗口内 `延奏=` 原子才成立。上游 10 个 `check_outro()` 分支全是循环时长/收尾序列的修饰（`perform_in_outro`、`do_perform_outro`、timeout 改动等），不产生单步动作，所以**只做记账、不生成规则**；生成脚本已能映射 `check_outro()`、`flying()`、`still_in_liberation()` 条件；本次重生成后规则共 169 条（含 9 个元组键角色的规则；Chisa/Douling/Hsin/Iuno/Lucilla 这 5 个只转调助手方法的角色也补了近似规则）。
 
 提取不了的（内部计时器、`crisis_time_left`、`nightfall_time_left`、`last_heavy` 等）不计入条件——那条分支会退化成无条件规则，宁可粗略也不伪造精确。生成脚本：`.research/wuwa_rules.py`。

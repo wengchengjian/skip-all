@@ -62,6 +62,12 @@ func TestCharacterTablesCoverUpstreamRegistry(t *testing.T) {
 			t.Errorf("规则表缺少 %s", id)
 		}
 	}
+	// 只转调助手方法的角色，递归展开后也应有专属规则，不能回退 BaseChar。
+	for _, id := range []string{"char_chisa", "char_douling", "char_hsin", "char_iuno", "char_lucilla"} {
+		if len(agentRules[id]) == 0 {
+			t.Errorf("助手方法角色 %s 没有提取到规则", id)
+		}
+	}
 }
 
 // TestAgentAliasNormalized 验证双形态模板（char_changli2）会被归一成 canonical id，

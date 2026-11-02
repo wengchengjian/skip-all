@@ -23,7 +23,7 @@
 | 重击 | `heavy_attack(duration=0.6)` / `heavy_click_forte()` | `StepHeavy` → `ActionClickHold` → `Input.ClickHold`（16 个角色用到） |
 | 空中判据 | `BaseChar.flying()`：`edge_levitator` 模板确认滑翔装置（阈值 0.65），图标区白色占比 < 0.1 算在空中 | `FlyingCheck` + `CombatState.Flying` |
 | 角色连招 | 各 `do_perform()` 里出手顺序 | `agentPlans`（55 个角色） |
-| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**157 条角色专属规则（49 个角色）+ BaseChar 回退规则（其余 8 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 飞行中 / 解放中 / 延奏=<角色id> |
+| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**169 条角色专属规则（54 个角色）+ BaseChar 回退规则（其余 3 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 飞行中 / 解放中 / 延奏=<角色id> |
 | 角色定位 | `char_type` | `agentRoles`（57 个） |
 
 ## 明确不做
@@ -35,7 +35,7 @@
 机械提取时统计到的条件出现次数（来自生成脚本输出；其中 `is_con_full` / `has_intro` / `check_outro` / `flying` / `still_in_liberation` 已映射成规则原子）：
 
 ```text
-flying 21   is_con_full 10   check_outro 8   has_intro 7   still_in_liberation 4   can_resonance_step2 1
+flying 35   is_con_full 11   check_outro 8   has_intro 7   still_in_liberation 4   can_resonance_step2 1
 ```
 > 口径：上面是生成脚本的统计（57 个角色、`do_perform()` 一层内联）；全量 `src/char/*.py` 的 if 行更多（审计：flying 45、check_outro 10、still_in_liberation 8），差异来自跨方法（`do_perform_interlock`、`wait_for_accelerate_ready`）与 `get_switch_priority` 等不在提取范围的分支。
 
