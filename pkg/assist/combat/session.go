@@ -21,6 +21,10 @@ const healthBarFillRatio = 0.95
 // abortOCRTTL 是中断提示的缓存时间。
 const abortOCRTTL = 2 * time.Second
 
+// abortCheckInterval 是中断提示 OCR 的采样间隔（含未命中）。
+// OCR 单次约 130ms，按 500ms 采样既不会漏掉中断，也不会让每个决策拍都被拖住。
+const abortCheckInterval = 500 * time.Millisecond
+
 // cooldownOCRTTL 是冷却 OCR 的缓存时间。
 const cooldownOCRTTL = 500 * time.Millisecond
 
@@ -75,6 +79,9 @@ type Session struct {
 	pendingAt   time.Time
 	pendingDone bool
 	abortAt     time.Time
+	// abortCheckedAt 是上一次中断提示 OCR 的时间（含未命中）。
+	// 只缓存命中会让"没出现中断提示"这条最常见的路径每帧都跑 OCR。
+	abortCheckedAt time.Time
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
@@ -329,6 +336,12 @@ func (s *Session) checkAbort(frame assist.Frame) (bool, error) {
 	if !s.abortAt.IsZero() && now.Sub(s.abortAt) < abortOCRTTL {
 		return true, nil
 	}
+	// 没命中也要记时间：中断提示绝大多数帧都不存在，
+	// 不缓存未命中就等于每帧都做一次 OCR（实测 130ms/次，直接吃掉整个决策拍）。
+	if !s.abortCheckedAt.IsZero() && now.Sub(s.abortCheckedAt) < abortCheckInterval {
+		return false, nil
+	}
+	s.abortCheckedAt = now
 	area, err := s.area(s.spec.AbortArea)
 	if err != nil {
 		return false, err

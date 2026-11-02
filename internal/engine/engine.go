@@ -97,6 +97,9 @@ type Engine struct {
 	startedAt   time.Time
 	cancel      context.CancelFunc
 	fps         float64
+	// 最近一拍的时间轴信息，用于观测节拍是否被截图/识别拖慢。
+	tickID  uint64
+	tickLag time.Duration
 	// gatePaused 表示当前暂停是"游戏进程不在"造成的自动暂停，进程回来后自动恢复。
 	gatePaused bool
 	// userPaused 表示用户按了暂停；此时进程回来也不自动恢复。
@@ -157,6 +160,8 @@ func (e *Engine) Status() Status {
 		LastError:   e.lastError,
 		FPS:         e.fps,
 		TargetFPS:   e.cfg.TargetFPS,
+		TickID:      e.tickID,
+		TickLag:     e.tickLag,
 		Features:    make([]FeatureStatus, 0, len(e.features)),
 	}
 	for _, f := range e.features {
@@ -176,7 +181,10 @@ type Status struct {
 	LastError   string
 	FPS         float64
 	TargetFPS   int
-	Features    []FeatureStatus
+	// TickID 是最近一拍的序号；TickLag 是那一拍落后计划时间的量。
+	TickID   uint64
+	TickLag  time.Duration
+	Features []FeatureStatus
 }
 
 // FeatureIDs 返回本会话的功能 ID 列表，供服务层比对配置。
@@ -226,6 +234,17 @@ func (e *Engine) setFPS(fps float64) {
 	e.mu.Lock()
 	e.fps = fps
 	e.mu.Unlock()
+}
+
+// markTick 记录本拍的时间轴信息。
+func (e *Engine) markTick(tick Tick, wait time.Duration) {
+	e.mu.Lock()
+	e.tickID = tick.ID
+	e.tickLag = tick.Lag
+	e.mu.Unlock()
+	if tick.Lag > 0 {
+		e.logger.Debug("节拍落后", "tick", tick.ID, "lag", tick.Lag, "wait", wait)
+	}
 }
 
 // markFrame 用帧间隔的指数滑动平均更新实时帧率，避免只看第一秒的瞬间值。
@@ -306,6 +325,7 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 	}
 
 	interval := time.Second / time.Duration(e.cfg.TargetFPS)
+	clock := newTickClock(interval)
 	failures := 0
 	lastFrameAt := time.Time{}
 	for {
@@ -364,8 +384,11 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 			continue
 		}
 		failures = 0
-		frame := assist.Frame{Image: img, At: time.Now(), Scale: scale}
-		wait := e.stepFeatures(runCtx, frame)
+		// 一拍从本拍开始时间起算，截图与决策的耗时被吸收进这一拍，
+		// 而不是像"干完活再睡 wait"那样累加到周期上。
+		tick := clock.Begin(time.Now())
+		frame := assist.Frame{Image: img, At: tick.Time, Scale: scale}
+		wait := e.stepFeatures(runCtx, tick, frame)
 		if runCtx.Err() != nil {
 			return nil
 		}
@@ -377,10 +400,9 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 			e.markFrame(now.Sub(lastFrameAt))
 		}
 		lastFrameAt = now
-		if wait <= 0 {
-			wait = interval
-		}
-		if !sleep(runCtx, wait) {
+		clock.Schedule(tick.Time, wait)
+		e.markTick(tick, wait)
+		if !sleepUntil(runCtx, clock.next) {
 			return nil
 		}
 	}
@@ -412,7 +434,7 @@ func (e *Engine) createSessions(rt *runtime) int {
 }
 
 // stepFeatures 用同一帧驱动全部功能，返回本帧建议的等待时长（取各功能的最小值）。
-func (e *Engine) stepFeatures(ctx context.Context, frame assist.Frame) time.Duration {
+func (e *Engine) stepFeatures(ctx context.Context, tick Tick, frame assist.Frame) time.Duration {
 	wait := time.Duration(0)
 	for _, f := range e.features {
 		if ctx.Err() != nil {
@@ -440,7 +462,7 @@ func (e *Engine) stepFeatures(ctx context.Context, frame assist.Frame) time.Dura
 			e.mu.Unlock()
 			e.emit("info", result.Message)
 		}
-		e.logFeatureStep(f, result.State, actions)
+		e.logFeatureStep(f, tick, result.State, actions)
 		if err := e.executeActions(ctx, actions); err != nil {
 			e.mu.Lock()
 			f.state = StateError
@@ -520,7 +542,7 @@ func (e *Engine) gateProcess() bool {
 }
 
 // logFeatureStep 记录功能的状态切换和动作变化；重复的同一动作只写文件日志，避免刷屏。
-func (e *Engine) logFeatureStep(f *featureRuntime, state string, actions []assist.Action) {
+func (e *Engine) logFeatureStep(f *featureRuntime, tick Tick, state string, actions []assist.Action) {
 	action := actionSummary(actions)
 	e.mu.Lock()
 	changed := state != f.lastState || action != f.lastAction
