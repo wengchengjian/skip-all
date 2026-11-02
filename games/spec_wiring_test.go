@@ -32,9 +32,9 @@ func TestCombatSpecsWireAllFeatures(t *testing.T) {
 		if spec.Switch == nil {
 			t.Errorf("%s：切人策略没接", name)
 		}
-		if len(spec.Ready) == 0 {
-			t.Errorf("%s：技能就绪判据没接", name)
-		}
+		// Ready 允许为空：上游 ok-ww 的 resonance_available/echo_available
+		// 都是 available(check_color=False)，即只看冷却不看高亮。
+		// 配一个测不准的白点判据反而会把技能锁死。
 		if len(spec.Cooldowns) == 0 {
 			t.Errorf("%s：冷却判据没接", name)
 		}

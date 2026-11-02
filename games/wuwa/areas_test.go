@@ -1,7 +1,6 @@
 package wuwa
 
 import (
-	"github.com/wengchengjian/skip-all/pkg/assist/combat"
 	"testing"
 
 	"github.com/wengchengjian/skip-all/pkg/geom"
@@ -91,9 +90,11 @@ func TestConcertoColorsMatchUpstream(t *testing.T) {
 			t.Errorf("第 %d 组协奏色 = %v，应当 = %v", i, spec.Concerto.Colors[i], want[i])
 		}
 	}
-	// 技能就绪用上游 text_white_color（244-255，src/__init__.py）。
-	ready := spec.Ready[combat.StepSkill]
-	if ready.ColorRange != [2][3]uint8{{244, 244, 244}, {255, 255, 255}} {
-		t.Errorf("技能就绪色 = %v，应当与上游 text_white_color 一致", ready.ColorRange)
+	// 技能就绪判据不配：上游 resonance_available/echo_available 用
+	// available(check_color=False)，只看冷却；liberation 的 check_color 走
+	// box_highlighted（"有没有白色像素"，不是比例阈值）。
+	// 实测真实截图，按钮白比例与是否就绪完全无关，见 ready_meaningless_test.go。
+	if len(spec.Ready) != 0 {
+		t.Errorf("技能就绪判据应当为空（上游只看冷却），实际配了 %d 条", len(spec.Ready))
 	}
 }

@@ -84,12 +84,19 @@ func combatSpec() combat.Spec {
 			Dodge:      "lshift",
 			Switch:     []string{"1", "2", "3"},
 		},
-		// 技能就绪判据照上游 available()：按钮上出现接近纯白的像素即可用。
-		Ready: map[combat.StepKind]combat.ReadyCheck{
-			combat.StepSkill:      {Area: geom.Rect{X1: 1592, Y1: 938, X2: 1660, Y2: 995}, ColorRange: readyWhite, MinRatio: 0.002},
-			combat.StepEcho:       {Area: geom.Rect{X1: 1685, Y1: 938, X2: 1753, Y2: 996}, ColorRange: readyWhite, MinRatio: 0.002},
-			combat.StepLiberation: {Area: geom.Rect{X1: 1786, Y1: 938, X2: 1849, Y2: 995}, ColorRange: readyWhite, MinRatio: 0.002},
-		},
+		// 技能就绪判据：**不配**。照上游 BaseChar.available 的语义，
+		// 可用性只看冷却，白色高亮不参与判断：
+		//   resonance_available()  -> available('resonance', check_color=False)
+		//   echo_available()       -> available('echo',      check_color=False)
+		//   liberation_available() -> available('liberation', check_color=True)
+		// 后者的 check_color 走 box_highlighted，判据是"有没有白色像素"(>0)，
+		// 不是比例阈值。
+		//
+		// 实测（4 张真实截图 × 3 个按钮，共 12 个样本）：按钮的白色像素比例
+		// 与是否就绪**完全无关**——就绪的 skill 白比例 0.00000，冷却中的 echo
+		// 白比例 0.02231。按 MinRatio=0.002 判，12 个样本里就绪被判没就绪 2 次、
+		// 冷却被判成就绪 7 次，纯噪声。配这个判据只会让技能被误锁住，
+		// 退化成只会普攻。见 games/wuwa/ready_meaningless_test.go。,
 		// 冷却数字：上游 get_cd()，读到正数就跳过该动作。
 		Cooldowns: map[combat.StepKind]geom.Rect{
 			combat.StepSkill:      {X1: 1592, Y1: 938, X2: 1660, Y2: 995},
@@ -200,6 +207,3 @@ func combatSpec() combat.Spec {
 		},
 	}
 }
-
-// readyWhite 是上游 text_white_color：按钮高亮时是接近纯白。
-var readyWhite = [2][3]uint8{{244, 244, 244}, {255, 255, 255}}
