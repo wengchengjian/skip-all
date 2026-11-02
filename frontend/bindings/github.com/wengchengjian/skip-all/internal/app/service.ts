@@ -111,6 +111,14 @@ export function PauseAll(): $CancellablePromise<void> {
 }
 
 /**
+ * ReleaseIdleResources 在没有会话运行时释放 OCR 模型，供轻量模式回收内存。
+ * 下一次需要 OCR 时会重新加载，代价是首帧慢一点。
+ */
+export function ReleaseIdleResources(): $CancellablePromise<void> {
+    return $Call.ByID(1976680353);
+}
+
+/**
  * Resume 兼容旧调用。
  */
 export function Resume(): $CancellablePromise<void> {

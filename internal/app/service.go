@@ -258,6 +258,27 @@ func (s *Service) Shutdown() {
 	s.mu.Unlock()
 }
 
+// ReleaseIdleResources 在没有会话运行时释放 OCR 模型，供轻量模式回收内存。
+// 下一次需要 OCR 时会重新加载，代价是首帧慢一点。
+func (s *Service) ReleaseIdleResources() {
+	if len(s.runningSessions()) > 0 {
+		return
+	}
+	s.mu.Lock()
+	ocr := s.ocr
+	s.ocr = nil
+	s.ocrBackend = "未加载"
+	s.mu.Unlock()
+	if ocr == nil {
+		return
+	}
+	if err := ocr.Close(); err != nil {
+		s.appendLog("warn", "释放 OCR 资源失败: "+err.Error())
+		return
+	}
+	s.appendLog("info", "已释放 OCR 资源，进入轻量模式")
+}
+
 // ListGames 返回内置游戏与功能。
 func (s *Service) ListGames() []GameView {
 	var out []GameView
