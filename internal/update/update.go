@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -55,9 +57,9 @@ type Checker struct {
 	GOARCH  string
 }
 
-// NewChecker 创建默认的 Windows/amd64 release 检查器。
+// NewChecker 创建 release 检查器；平台默认取当前运行环境。
 func NewChecker(repo string) *Checker {
-	return &Checker{Repo: repo, APIBase: "https://api.github.com", Client: &http.Client{Timeout: 12 * time.Second}, GOOS: "windows", GOARCH: "amd64"}
+	return &Checker{Repo: repo, APIBase: "https://api.github.com", Client: &http.Client{Timeout: 12 * time.Second}, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 }
 
 // Check 查询 latest release，并挑选 Windows 可执行文件。
@@ -100,7 +102,14 @@ func (c *Checker) Check(ctx context.Context, current string) (Info, error) {
 		return Info{Current: current}, err
 	}
 	info := Info{Current: current, Latest: strings.TrimPrefix(rel.TagName, "v"), Notes: rel.Body, URL: rel.HTMLURL, PublishedAt: rel.PublishedAt.Format(time.RFC3339)}
-	asset, checksum := findAssets(rel.Assets, c.GOOS, c.GOARCH)
+	goos, goarch := c.GOOS, c.GOARCH
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+	asset, checksum := findAssets(rel.Assets, goos, goarch)
 	if asset == nil {
 		return info, fmt.Errorf("release %s 没有 %s/%s 可执行文件", rel.TagName, c.GOOS, c.GOARCH)
 	}
@@ -183,7 +192,8 @@ func findAssets(assets []Asset, goos, goarch string) (*Asset, *Asset) {
 	return exe, checksum
 }
 
-// Download 下载并校验 Info 指向的 Windows 可执行文件。
+// Download 下载并校验 Info 指向的当前平台可执行文件。
+// 下载使用固定 .part 文件 + Range 断点续传；校验失败会删除，网络中断则保留。
 func (i Info) Download(ctx context.Context, client *http.Client, dir string) (string, error) {
 	if i.AssetURL == "" {
 		return "", errors.New("没有可下载的更新附件")
@@ -205,45 +215,122 @@ func (i Info) Download(ctx context.Context, client *http.Client, dir string) (st
 	if expected == "" {
 		return "", errors.New("release 没有提供 sha256 校验值")
 	}
+	name := filepath.Base(i.AssetName)
+	if name == "" || name == "." {
+		name = "skip-all-update.exe"
+	}
+	part := filepath.Join(dir, name+".part")
+	offset := int64(0)
+	if fi, err := os.Stat(part); err == nil {
+		offset = fi.Size()
+		if i.AssetSize > 0 && offset > i.AssetSize {
+			_ = os.Remove(part)
+			offset = 0
+		} else if i.AssetSize > 0 && offset == i.AssetSize {
+			if ok, _ := verifyFile(part, expected, i.AssetSize); ok {
+				return part, nil
+			}
+			_ = os.Remove(part)
+			offset = 0
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, i.AssetURL, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "skip-all-updater")
+	if offset > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("下载更新: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+		// 从 offset 继续写。
+	case http.StatusOK:
+		offset = 0
+	case http.StatusRequestedRangeNotSatisfiable:
+		if ok, _ := verifyFile(part, expected, i.AssetSize); ok {
+			return part, nil
+		}
+		_ = os.Remove(part)
+		return "", errors.New("断点续传范围无效，已清理临时文件")
+	default:
 		return "", fmt.Errorf("下载更新返回 HTTP %d", resp.StatusCode)
 	}
-	f, err := os.CreateTemp(dir, "skip-all-update-*.exe")
+	f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("创建更新文件: %w", err)
 	}
-	path := f.Name()
+	if offset == 0 {
+		if err := f.Truncate(0); err != nil {
+			_ = f.Close()
+			return "", fmt.Errorf("清理更新文件: %w", err)
+		}
+	} else if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		_ = f.Close()
+		return "", fmt.Errorf("定位更新文件: %w", err)
+	}
 	h := sha256.New()
+	if offset > 0 {
+		existing, err := os.Open(part)
+		if err != nil {
+			_ = f.Close()
+			return "", fmt.Errorf("读取断点文件: %w", err)
+		}
+		_, hashErr := io.Copy(h, io.LimitReader(existing, offset))
+		_ = existing.Close()
+		if hashErr != nil {
+			_ = f.Close()
+			return "", fmt.Errorf("计算断点 sha256: %w", hashErr)
+		}
+	}
 	n, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, 300<<20))
 	closeErr := f.Close()
 	if copyErr != nil {
-		_ = os.Remove(path)
 		return "", fmt.Errorf("写入更新文件: %w", copyErr)
 	}
 	if closeErr != nil {
-		_ = os.Remove(path)
 		return "", fmt.Errorf("关闭更新文件: %w", closeErr)
 	}
-	if i.AssetSize > 0 && n != i.AssetSize {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("更新文件大小不符: got %d, want %d", n, i.AssetSize)
+	total := offset + n
+	if i.AssetSize > 0 && total > i.AssetSize {
+		_ = os.Remove(part)
+		return "", fmt.Errorf("更新文件大小超出: got %d, want %d", total, i.AssetSize)
+	}
+	if i.AssetSize > 0 && total != i.AssetSize {
+		// 保留 part，下一次从 total 继续。
+		return "", fmt.Errorf("更新文件未下载完整: got %d, want %d", total, i.AssetSize)
 	}
 	got := hex.EncodeToString(h.Sum(nil))
 	if !strings.EqualFold(got, expected) {
-		_ = os.Remove(path)
+		_ = os.Remove(part)
 		return "", fmt.Errorf("更新文件 sha256 不符: got %s, want %s", got, expected)
 	}
-	return path, nil
+	return part, nil
+}
+
+func verifyFile(path, expected string, size int64) (bool, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	if size > 0 && fi.Size() != size {
+		return false, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false, err
+	}
+	return strings.EqualFold(hex.EncodeToString(h.Sum(nil)), expected), nil
 }
 
 func fetchChecksum(ctx context.Context, client *http.Client, url, assetName string) (string, error) {

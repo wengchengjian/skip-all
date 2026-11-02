@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -25,6 +26,13 @@ func TestCompareVersions(t *testing.T) {
 		if got := compareVersions(c.current, c.latest); got != c.want {
 			t.Errorf("compareVersions(%q,%q) = %d, want %d", c.current, c.latest, got, c.want)
 		}
+	}
+}
+
+func TestNewCheckerUsesRuntimePlatform(t *testing.T) {
+	c := NewChecker("o/r")
+	if c.GOOS != runtime.GOOS || c.GOARCH != runtime.GOARCH {
+		t.Fatalf("platform = %s/%s, want %s/%s", c.GOOS, c.GOARCH, runtime.GOOS, runtime.GOARCH)
 	}
 }
 
@@ -88,5 +96,41 @@ func TestDownloadVerifiesChecksum(t *testing.T) {
 	}
 	if filepath.Base(path) == "" {
 		t.Fatal("empty path")
+	}
+}
+
+func TestDownloadResumesPartialFile(t *testing.T) {
+	data := []byte("0123456789abcdef")
+	sum := sha256.Sum256(data)
+	sumHex := hex.EncodeToString(sum[:])
+	mux := http.NewServeMux()
+	mux.HandleFunc("/exe", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") != "bytes=4-" {
+			t.Errorf("Range = %q, want bytes=4-", r.Header.Get("Range"))
+		}
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(data[4:])
+	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(sumHex + "  skip-all-windows-amd64.exe\n"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	dir := t.TempDir()
+	part := filepath.Join(dir, "skip-all-windows-amd64.exe.part")
+	if err := os.WriteFile(part, data[:4], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := Info{AssetName: "skip-all-windows-amd64.exe", AssetURL: srv.URL + "/exe", AssetSize: int64(len(data)), ChecksumURL: srv.URL + "/checksums.txt"}
+	path, err := info.Download(context.Background(), srv.Client(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(data) {
+		t.Fatalf("resumed download = %q", got)
 	}
 }
