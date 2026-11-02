@@ -156,7 +156,7 @@ func combatSpec() combat.Spec {
 		// Encore 的 last_heavy<4.6s。用最近一次技能/重击时间近似。
 		SwitchNoAfterSkill:      map[string]time.Duration{"char_brant": 4 * time.Second, "char_zani": 1600 * time.Millisecond},
 		SwitchNoAfterHeavy:      map[string]time.Duration{"char_encore": 4600 * time.Millisecond},
-		SwitchNoAfterLiberation: map[string]time.Duration{"char_phrolova": 24 * time.Second},
+		SwitchNoAfterLiberation: map[string]time.Duration{"char_phrolova": 24 * time.Second, "char_ciaccona": 20 * time.Second},
 		SwitchNoAfterPerform:    map[string]time.Duration{"char_douling": 8 * time.Second, "char_suisui": 16 * time.Second},
 		ResonanceMustSwitch:     map[string]bool{"char_encore": true},
 		// 上游 wait_switch()：Zani 的夜落 2.2s、Carlotta 的声骸后 2.5s 先不切走；
