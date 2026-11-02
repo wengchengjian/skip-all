@@ -20,6 +20,10 @@ func Apply(source, destination string) error {
 	scriptPath := script.Name()
 	body := `param([int]$ProcessId, [string]$Source, [string]$Destination)
 $log = Join-Path $env:TEMP 'skip-all-update.log'
+# 更新日志只保留最近 200 行，避免无限增长。
+if ((Test-Path -LiteralPath $log) -and ((Get-Item -LiteralPath $log).Length -gt 64KB)) {
+    Get-Content -LiteralPath $log -Tail 200 | Set-Content -LiteralPath $log
+}
 try {
     Wait-Process -Id $ProcessId -Timeout 30 -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 300

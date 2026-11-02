@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -232,6 +233,8 @@ func NewService(opts Options) (*Service, error) {
 	if _, statErr := os.Stat(assets); statErr != nil {
 		assets = ""
 	}
+	// 启动时清掉历史诊断截图，避免 debug 目录长期堆积。
+	pruneDebugFrames(filepath.Join(dataDir, "debug"), debugFramesKeep)
 	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, sink: opts.EventSink, appCfg: appCfg, gameCfg: gameCfg, updateChecker: update.NewChecker(appCfg.Update.Repo), quit: opts.Quit, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
 	svc.appendLog("info", "skip-all 服务已初始化")
 	return svc, nil
@@ -821,6 +824,7 @@ func (s *Service) Doctor(gameID string) (DoctorReport, error) {
 		return DoctorReport{}, err
 	}
 	_ = f.Close()
+	pruneDebugFrames(frameDir, debugFramesKeep)
 	report := DoctorReport{WindowTitle: win.Title(), ProcessName: win.ProcessName(), CaptureWidth: img.Bounds().Dx(), CaptureHeight: img.Bounds().Dy(), Scale: scale, FramePath: framePath}
 	screens, err := screen.LoadFS(game.Assets(), "screens")
 	if err != nil {
@@ -847,6 +851,39 @@ func (s *Service) Doctor(gameID string) (DoctorReport, error) {
 		}
 	}
 	return report, nil
+}
+
+// debugFramesKeep 是 debug 目录保留的诊断截图数量。
+const debugFramesKeep = 5
+
+// pruneDebugFrames 只保留最近的几张诊断截图，避免 debug 目录无限增长。
+func pruneDebugFrames(dir string, keep int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type frame struct {
+		path string
+		mod  time.Time
+	}
+	var frames []frame
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "doctor-") || !strings.HasSuffix(e.Name(), ".png") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		frames = append(frames, frame{path: filepath.Join(dir, e.Name()), mod: info.ModTime()})
+	}
+	if len(frames) <= keep {
+		return
+	}
+	sort.Slice(frames, func(i, j int) bool { return frames[i].mod.After(frames[j].mod) })
+	for _, f := range frames[keep:] {
+		_ = os.Remove(f.path)
+	}
 }
 
 func (s *Service) ensureOCR() (vision.OCR, error) {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -266,6 +267,54 @@ func PickLocal(dir, current string) (LocalAsset, bool) {
 		}
 	}
 	return best, best.Path != ""
+}
+
+// CleanLocal 清理本地更新缓存，返回释放的字节数。
+// installed 是当前运行版本，不高于它的缓存都已装过，直接删除；
+// keep 是刚下载的版本（可为空），比它旧的版本目录同样删除，只留最新的。
+func CleanLocal(dir, installed, keep string) (int64, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	var freed int64
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		version := e.Name()
+		stale := compareVersions(installed, version) >= 0
+		if !stale && keep != "" && compareVersions(version, keep) < 0 {
+			stale = true
+		}
+		if !stale {
+			continue
+		}
+		path := filepath.Join(dir, version)
+		size := dirSize(path)
+		if err := os.RemoveAll(path); err != nil {
+			return freed, err
+		}
+		freed += size
+	}
+	return freed, nil
+}
+
+func dirSize(path string) int64 {
+	var total int64
+	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if fi, err := d.Info(); err == nil {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total
 }
 
 // DownloadWithProgress 与 Download 相同，但会按已下载字节回调进度。

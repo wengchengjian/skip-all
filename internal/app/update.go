@@ -24,13 +24,21 @@ func (s *Service) StartAutoUpdateCheck() {
 		return
 	}
 	go func() {
+		// 每次启动先清掉已经装过的旧版本缓存，与网络无关。
+		s.cleanUpdates("")
 		time.Sleep(4 * time.Second)
 		view, err := s.CheckForUpdates()
 		if err != nil {
 			s.appendLog("info", "检查更新失败: "+err.Error())
 			return
 		}
-		if !view.Available || !autoDownload {
+		if !view.Available {
+			// 已是最新版本：本地残留的旧包也清掉。
+			s.cleanUpdates("")
+			return
+		}
+		if !autoDownload {
+			s.cleanUpdates(view.Latest)
 			return
 		}
 		if err := s.DownloadUpdate(); err != nil {
@@ -94,6 +102,8 @@ func (s *Service) DownloadUpdate() error {
 		return fmt.Errorf("当前没有可用更新")
 	}
 	if _, ok := update.FindLocal(s.updatesDir(), info.Latest); ok {
+		// 该版本已下载过：顺手清掉更旧的缓存。
+		s.cleanUpdates(info.Latest)
 		return nil
 	}
 	s.appendLog("info", "开始下载更新 "+info.Latest)
@@ -108,12 +118,38 @@ func (s *Service) DownloadUpdate() error {
 		return err
 	}
 	s.appendLog("info", "更新已下载: "+path+"，可在设置页选择是否安装")
+	s.cleanUpdates(info.Latest)
 	s.mu.Lock()
 	view := toUpdateView(s.updateInfo)
 	s.mu.Unlock()
 	s.decorateUpdateView(&view)
 	s.emit("skipall:update", view)
 	return nil
+}
+
+// cleanUpdates 删除已装过和比 keep 旧的更新包，只留最新一个版本。
+func (s *Service) cleanUpdates(keep string) {
+	freed, err := update.CleanLocal(s.updatesDir(), Version, keep)
+	if err != nil {
+		s.appendLog("warn", "清理更新缓存失败: "+err.Error())
+		return
+	}
+	if freed > 0 {
+		s.appendLog("info", fmt.Sprintf("清理更新缓存，释放 %s", humanSize(freed)))
+	}
+}
+
+// humanSize 把字节数格式化成 MB/KB，用于日志。
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 // InstallUpdate 安装最新版本：优先用本地已下载的最新包，缺失时再下载。

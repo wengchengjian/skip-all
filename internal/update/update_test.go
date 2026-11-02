@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -123,6 +124,42 @@ func TestPickLocalChoosesNewestVersion(t *testing.T) {
 	}
 	if _, ok := PickLocal(dir, "0.2.0"); ok {
 		t.Fatal("已是最新版本时不应返回本地更新")
+	}
+}
+
+func TestCleanLocalKeepsOnlyNewest(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []string{"0.1.1", "0.1.2", "0.1.3"} {
+		sub := filepath.Join(dir, v)
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sub, "skip-all-windows-amd64.exe"), make([]byte, 1024), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// installed=0.1.1：0.1.1 已装过、0.1.2 比 keep=0.1.3 旧，两者都删。
+	freed, err := CleanLocal(dir, "0.1.1", "0.1.3")
+	if err != nil {
+		t.Fatalf("CleanLocal: %v", err)
+	}
+	if freed != 2*1024 {
+		t.Fatalf("freed = %d, want %d", freed, 2*1024)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "0.1.3", "skip-all-windows-amd64.exe")); err != nil {
+		t.Fatalf("最新版本应保留: %v", err)
+	}
+	for _, v := range []string{"0.1.1", "0.1.2"} {
+		if _, err := os.Stat(filepath.Join(dir, v)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s 应被删除", v)
+		}
+	}
+}
+
+func TestCleanLocalMissingDir(t *testing.T) {
+	freed, err := CleanLocal(filepath.Join(t.TempDir(), "none"), "0.1.0", "")
+	if err != nil || freed != 0 {
+		t.Fatalf("freed=%d err=%v", freed, err)
 	}
 }
 
