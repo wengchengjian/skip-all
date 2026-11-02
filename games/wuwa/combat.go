@@ -157,8 +157,11 @@ func combatSpec() combat.Spec {
 		SwitchNoAfterLiberation: map[string]time.Duration{"char_phrolova": 24 * time.Second},
 		SwitchNoAfterPerform:    map[string]time.Duration{"char_douling": 8 * time.Second},
 		ResonanceMustSwitch:     map[string]bool{"char_encore": true},
-		BuffTimes:               agentBuffTime,
-		Switch:                  &combat.SwitchPolicy{MinInterval: 3 * time.Second},
+		// 上游 wait_switch()：Zani 的夜落 2.2s、Carlotta 的声骸后 2.5s 先不切走。
+		HoldSwitchAfterHeavy: map[string]time.Duration{"char_zani": 2200 * time.Millisecond},
+		HoldSwitchAfterEcho:  map[string]time.Duration{"char_carlotta": 2500 * time.Millisecond},
+		BuffTimes:            agentBuffTime,
+		Switch:               &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 角色专属连招（上游 do_perform() 的出手顺序）。
 		PlansByAgent: agentPlans,
 		// 入场：上游 wait_down()/wait_intro() —— 有入场技时持续点普攻，

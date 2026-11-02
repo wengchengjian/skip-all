@@ -60,6 +60,7 @@ type Session struct {
 	lastHeavy      map[string]time.Time
 	lastSkill      map[string]time.Time
 	lastPerform    map[string]time.Time
+	lastEcho       map[string]time.Time
 	// flyingChecked/hasLavitator 是开战后用 edge_levitator 模板确认的一次性状态。
 	flyingChecked bool
 	hasLavitator  bool
@@ -77,7 +78,7 @@ type Session struct {
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg, lastLiberation: make(map[string]time.Time), lastHeavy: make(map[string]time.Time), lastSkill: make(map[string]time.Time), lastPerform: make(map[string]time.Time), cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
+	return &Session{rt: rt, spec: spec, cfg: cfg, lastLiberation: make(map[string]time.Time), lastHeavy: make(map[string]time.Time), lastSkill: make(map[string]time.Time), lastPerform: make(map[string]time.Time), lastEcho: make(map[string]time.Time), cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
 }
 
 // cdEntry 是冷却 OCR 的短时缓存，避免每帧都对技能按钮跑 OCR。
@@ -114,6 +115,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		s.lastHeavy = make(map[string]time.Time)
 		s.lastSkill = make(map[string]time.Time)
 		s.lastPerform = make(map[string]time.Time)
+		s.lastEcho = make(map[string]time.Time)
 		s.flyingChecked = false
 		s.hasLavitator = false
 		s.introLeft = nil
@@ -447,6 +449,11 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 		if s.spec.Keys.Echo == "" || s.cfg.noEcho || !s.ready(frame, StepEcho) {
 			return assist.Action{}, "", false
 		}
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		s.noteEcho(frame, now)
 		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Echo}, "装备技能", true
 	case StepLiberation:
 		if s.spec.Keys.Liberation == "" || s.cfg.noLiberation || !s.ready(frame, StepLiberation) {
@@ -686,6 +693,13 @@ func (s *Session) noteSkill(frame assist.Frame, now time.Time) {
 	}
 }
 
+func (s *Session) noteEcho(frame assist.Frame, now time.Time) {
+	agent := s.currentAgent(frame)
+	if agent != "" {
+		s.lastEcho[agent] = now
+	}
+}
+
 // inLiberation 对应上游 BaseChar.still_in_liberation()：
 // 当前角色最近一次解放后未超过该角色的窗口（基类 12 秒，Encore 9.5、Xiangliyao 25）。
 func (s *Session) inLiberation(frame assist.Frame, now time.Time) bool {
@@ -729,6 +743,8 @@ func (s *Session) noteAction(action assist.Action, frame assist.Frame) {
 		s.noteLiberation(frame, now)
 	case action.Kind == assist.ActionKeyTap && s.spec.Keys.Skill != "" && action.Key == s.spec.Keys.Skill:
 		s.noteSkill(frame, now)
+	case action.Kind == assist.ActionKeyTap && s.spec.Keys.Echo != "" && action.Key == s.spec.Keys.Echo:
+		s.noteEcho(frame, now)
 	}
 }
 
@@ -742,6 +758,9 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 		cooldown = s.spec.Switch.MinInterval
 	}
 	if !s.switchAt.IsZero() && now.Sub(s.switchAt) < cooldown {
+		return assist.Action{}, false
+	}
+	if s.switchHeld(frame, now) {
 		return assist.Action{}, false
 	}
 	c := s.spec.Concerto
@@ -774,6 +793,29 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 	s.pendingAt = now
 	s.pendingDone = false
 	return assist.Action{Kind: assist.ActionKeyTap, Key: s.chooseSwitchKey(frame)}, true
+}
+
+// switchHeld 对应上游 Zani/Carlotta 重写的 wait_switch()：
+// 当前角色最近的重击/声骸动画还没结束、且仍处于入场窗口时，先不切走。
+func (s *Session) switchHeld(frame assist.Frame, now time.Time) bool {
+	if s.introUntil.IsZero() {
+		return false
+	}
+	agent := s.currentAgent(frame)
+	if agent == "" {
+		return false
+	}
+	if d := s.spec.HoldSwitchAfterHeavy[agent]; d > 0 {
+		if at, ok := s.lastHeavy[agent]; ok && now.Sub(at) < d {
+			return true
+		}
+	}
+	if d := s.spec.HoldSwitchAfterEcho[agent]; d > 0 {
+		if at, ok := s.lastEcho[agent]; ok && now.Sub(at) < d {
+			return true
+		}
+	}
+	return false
 }
 
 // chooseSwitchKey 选切人按键：能列出各槽位角色时按定位打分，否则退回按顺序切。

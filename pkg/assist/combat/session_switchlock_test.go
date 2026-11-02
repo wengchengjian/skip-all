@@ -38,6 +38,32 @@ func TestSwitchNoLocks(t *testing.T) {
 	}
 }
 
+// TestSwitchHold 验证 Zani/Carlotta 的 wait_switch()：重击动画未结束时先不切走。
+func TestSwitchHold(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"a", "b", "c"}}
+	spec.Roles = map[string]Role{"a": RoleMainDPS, "b": RoleSubDPS, "c": RoleSupport}
+	spec.HoldSwitchAfterHeavy = map[string]time.Duration{"a": 2200 * time.Millisecond}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	session.introUntil = base.Add(time.Second)
+	session.lastHeavy["a"] = base
+	if _, ok := session.concertoSwitch(assist.Frame{Image: concertoFullFrame(), At: base}, base); ok {
+		t.Fatal("重击 hold 窗口内不应切走")
+	}
+	if _, ok := session.concertoSwitch(assist.Frame{Image: concertoFullFrame(), At: base.Add(3 * time.Second)}, base.Add(3*time.Second)); !ok {
+		t.Fatal("hold 窗口过期后应允许切走")
+	}
+}
+
 // TestSwitchSynergyAfter 验证 Phrolova 的 "last_liberation > 14s + 当前 Cantarella -> MUST"。
 func TestSwitchSynergyAfter(t *testing.T) {
 	spec := testSpec()
