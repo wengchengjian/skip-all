@@ -116,10 +116,8 @@ type trayUI struct {
 	run      *application.MenuItem
 	usage    *application.MenuItem
 
-	// 状态相关的展示：图标颜色 + 提示音，只在状态真正变化时更新。
-	lastState  string
-	icons      map[string][]byte
-	statusText string
+	// 状态相关的展示：只在状态真正变化时更新图标与提示音。
+	lastState string
 }
 
 // setupTray 建立托盘图标与菜单：轻量模式下这是唯一常驻的界面。
@@ -128,11 +126,13 @@ func setupTray() *trayUI {
 	ui := &trayUI{
 		games:    make(map[string]*application.MenuItem),
 		features: make(map[string]*application.MenuItem),
-		icons:    stateIcons(),
 	}
 	tray := wailsApp.SystemTray.New()
 	ui.tray = tray
-	tray.SetIcon(ui.icons[stateKey(appSvc.GetStatus())])
+	// 托盘图标始终是程序图标，运行状态用菜单里的彩色状态点表示。
+	if len(trayIcon) > 0 {
+		tray.SetIcon(trayIcon)
+	}
 	tray.SetTooltip("SkipAll")
 
 	state := appSvc.GetTrayState()
@@ -140,10 +140,12 @@ func setupTray() *trayUI {
 	menu.Add("打开主界面").OnClick(func(*application.Context) { openMainWindow() })
 	menu.AddSeparator()
 
-	// 游戏列表：只展示进程与会话状态，玩家同一时间只玩一个游戏。
+	// 游戏列表：显示进程与会话状态，点一下打开主界面。
+	// 状态点用菜单项图标表达，比 ●/○ 这类文字更直观。
 	for _, game := range state.Games {
 		item := menu.Add(gameLabel(game))
-		item.SetEnabled(false)
+		item.SetBitmap(gameDot(game))
+		item.OnClick(func(*application.Context) { openMainWindow() })
 		ui.games[game.ID] = item
 	}
 	menu.AddSeparator()
@@ -165,8 +167,9 @@ func setupTray() *trayUI {
 	}
 	menu.AddSeparator()
 
-	// 运行控制压成一行：显示当前状态并标注启动/暂停/急停快捷键，点击等同于启动/停止。
+	// 运行状态栏：一行显示状态 + 下一步动作，左侧彩色状态点，点击等同于按运行开关。
 	ui.run = menu.Add(runLabel(state.Status))
+	ui.run.SetBitmap(statusDot(stateKey(state.Status)))
 	ui.run.OnClick(func(*application.Context) { toggleRun() })
 	menu.AddSeparator()
 
@@ -201,6 +204,7 @@ func (ui *trayUI) refresh() {
 	for _, game := range state.Games {
 		if item, ok := ui.games[game.ID]; ok {
 			item.SetLabel(gameLabel(game))
+			item.SetBitmap(gameDot(game))
 		}
 	}
 	for _, feature := range state.Features {
@@ -209,21 +213,19 @@ func (ui *trayUI) refresh() {
 		}
 	}
 	ui.run.SetLabel(runLabel(state.Status))
+	ui.run.SetBitmap(statusDot(stateKey(state.Status)))
 	ui.usage.SetLabel(usageLabel(state))
 	ui.tray.SetTooltip(tooltipText(state))
 	ui.syncState(state.Status)
 }
 
-// syncState 在运行状态真正变化时换图标颜色并播放提示音。
+// syncState 在运行状态真正变化时刷新状态点并播放提示音。
 func (ui *trayUI) syncState(status app.StatusView) {
 	key := stateKey(status)
 	if key == ui.lastState {
 		return
 	}
 	ui.lastState = key
-	if icon := ui.icons[key]; len(icon) > 0 {
-		ui.tray.SetIcon(icon)
-	}
 	beepFor(key)
 }
 
@@ -238,17 +240,6 @@ func stateKey(status app.StatusView) string {
 		return "error"
 	}
 	return "idle"
-}
-
-// stateIcons 生成四种状态对应的托盘图标颜色。
-// 灰=待命、绿=运行中、琥珀=已暂停、红=异常。
-func stateIcons() map[string][]byte {
-	return map[string][]byte{
-		"idle":    platform.TrayIcon(148, 152, 160, 32),
-		"running": platform.TrayIcon(64, 186, 106, 32),
-		"paused":  platform.TrayIcon(232, 168, 64, 32),
-		"error":   platform.TrayIcon(224, 90, 90, 32),
-	}
 }
 
 // beepFor 按状态播放提示音；用户关掉 sound 时静音。
@@ -266,12 +257,10 @@ func beepFor(key string) {
 	}
 }
 
-// gameLabel 把游戏状态压成菜单里的一行。
+// gameLabel 把游戏状态压成菜单里的一行（状态点由菜单图标表达，文字里不再放符号）。
 func gameLabel(game app.GameStateView) string {
-	mark := "○"
 	text := "未运行"
 	if game.ProcessRunning {
-		mark = "●"
 		text = "已启动"
 	}
 	switch engine.State(game.State) {
@@ -282,7 +271,39 @@ func gameLabel(game app.GameStateView) string {
 	case engine.StateError:
 		text = "异常"
 	}
-	return mark + " " + game.Name + " · " + text
+	return game.Name + " · " + text
+}
+
+// gameDot 返回游戏行左侧的状态点：绿=运行中、琥珀=已暂停、红=异常、
+// 蓝=进程在但会话未起、灰=进程不在。
+func gameDot(game app.GameStateView) []byte {
+	switch engine.State(game.State) {
+	case engine.StateRunning:
+		return statusDot("running")
+	case engine.StatePaused:
+		return statusDot("paused")
+	case engine.StateError:
+		return statusDot("error")
+	}
+	if game.ProcessRunning {
+		return statusDot("ready")
+	}
+	return statusDot("idle")
+}
+
+// statusDot 按状态取彩色圆点图标（PNG）。
+func statusDot(key string) []byte {
+	switch key {
+	case "running":
+		return platform.StatusDot(64, 186, 106, 16)
+	case "paused":
+		return platform.StatusDot(232, 168, 64, 16)
+	case "error":
+		return platform.StatusDot(224, 90, 90, 16)
+	case "ready":
+		return platform.StatusDot(88, 150, 232, 16)
+	}
+	return platform.StatusDot(150, 154, 162, 16)
 }
 
 // runLabel 把运行状态压成一行：状态 + 唯一的切换快捷键与下一步动作。
@@ -291,13 +312,13 @@ func runLabel(status app.StatusView) string {
 	key := toggleKeyLabel()
 	switch engine.State(status.State) {
 	case engine.StateRunning:
-		return "● 运行中 · " + key + " 暂停"
+		return "运行中 · " + key + " 暂停"
 	case engine.StatePaused:
-		return "● 已暂停 · " + key + " 继续"
+		return "已暂停 · " + key + " 继续"
 	case engine.StateError:
-		return "● 异常 · " + key + " 重新开始"
+		return "异常 · " + key + " 重新开始"
 	}
-	return "○ 已停止 · " + key + " 启动"
+	return "已停止 · " + key + " 启动"
 }
 
 // toggleKeyLabel 返回运行开关的显示名，缺省 Home。

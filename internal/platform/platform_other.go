@@ -88,8 +88,8 @@ func ParseAccelerator(s string) (*HotkeyBinding, error) { return &HotkeyBinding{
 // ForegroundProcessName 在非 Windows 平台返回空串。
 func ForegroundProcessName() string { return "" }
 
-// TrayIcon 在非 Windows 平台返回空图标。
-func TrayIcon(r, g, b uint8, size int) []byte { return nil }
+// StatusDot 在非 Windows 平台返回空图标。
+func StatusDot(r, g, b uint8, size int) []byte { return nil }
 
 // 提示音类型（非 Windows 平台不使用）。
 const (
