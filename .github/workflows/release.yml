@@ -54,9 +54,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item bin/skip-all.exe bin/skip-all-windows-amd64.exe -Force
-          if (Test-Path assets/runtime) { Copy-Item assets/runtime bin/runtime -Recurse -Force }
-          if (Test-Path assets/models/ppocrv6) { New-Item -ItemType Directory -Force bin/models | Out-Null; Copy-Item assets/models/ppocrv6 bin/models -Recurse -Force }
-          Compress-Archive -Path bin/skip-all.exe,bin/runtime,bin/models -DestinationPath bin/skip-all-windows-amd64.zip -Force
+          ./scripts/package.ps1
           $hash = (Get-FileHash bin/skip-all.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  skip-all-windows-amd64.exe" | Set-Content -Encoding ascii bin/checksums.txt
       - name: publish
