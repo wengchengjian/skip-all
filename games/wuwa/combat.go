@@ -137,8 +137,13 @@ func combatSpec() combat.Spec {
 		// 角色定位（上游 char_type）与大招就绪一起决定协奏满切谁。
 		Roles:         agentRoles,
 		SwitchSynergy: agentSynergy,
-		BuffTimes:     agentBuffTime,
-		Switch:        &combat.SwitchPolicy{MinInterval: 3 * time.Second},
+		LiberationMustSwitch: map[string]bool{
+			"char_brant":  true,
+			"char_encore": true,
+			"char_lupa":   true,
+		},
+		BuffTimes: agentBuffTime,
+		Switch:    &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 角色专属连招（上游 do_perform() 的出手顺序）。
 		PlansByAgent: agentPlans,
 		// 入场：上游 wait_down()/wait_intro() —— 有入场技时持续点普攻，

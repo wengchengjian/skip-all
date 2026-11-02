@@ -626,6 +626,11 @@ func (s *Session) inLiberation(frame assist.Frame, now time.Time) bool {
 	if agent == "" {
 		return false
 	}
+	return s.inLiberationFor(agent, now)
+}
+
+// inLiberationFor 判断任意角色（含后台候选）是否还在解放窗口内。
+func (s *Session) inLiberationFor(agent string, now time.Time) bool {
 	at, ok := s.lastLiberation[agent]
 	if !ok {
 		return false
@@ -735,7 +740,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.spec.Roles[id] == RoleHealer && s.healerLocked(i, now) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.liberationBonus(id, now)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
 		}
@@ -785,6 +790,18 @@ func (s *Session) synergyBonus(candidate, current string) float64 {
 		if trigger == current {
 			return synergyScore
 		}
+	}
+	return 0
+}
+
+// liberationBonus 给"仍在解放动画窗口内"的候选角色 MUST 级加分：
+// 对应上游 Brant/Encore/Lupa 的 get_switch_priority() -> still_in_liberation() 返回 MUST。
+func (s *Session) liberationBonus(agent string, now time.Time) float64 {
+	if !s.spec.LiberationMustSwitch[agent] {
+		return 0
+	}
+	if s.inLiberationFor(agent, now) {
+		return synergyScore
 	}
 	return 0
 }
