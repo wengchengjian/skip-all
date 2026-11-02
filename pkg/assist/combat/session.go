@@ -59,6 +59,7 @@ type Session struct {
 	lastLiberation map[string]time.Time
 	lastHeavy      map[string]time.Time
 	lastSkill      map[string]time.Time
+	lastPerform    map[string]time.Time
 	// flyingChecked/hasLavitator 是开战后用 edge_levitator 模板确认的一次性状态。
 	flyingChecked bool
 	hasLavitator  bool
@@ -76,7 +77,7 @@ type Session struct {
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg, lastLiberation: make(map[string]time.Time), lastHeavy: make(map[string]time.Time), lastSkill: make(map[string]time.Time), cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
+	return &Session{rt: rt, spec: spec, cfg: cfg, lastLiberation: make(map[string]time.Time), lastHeavy: make(map[string]time.Time), lastSkill: make(map[string]time.Time), lastPerform: make(map[string]time.Time), cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
 }
 
 // cdEntry 是冷却 OCR 的短时缓存，避免每帧都对技能按钮跑 OCR。
@@ -112,6 +113,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		s.lastLiberation = make(map[string]time.Time)
 		s.lastHeavy = make(map[string]time.Time)
 		s.lastSkill = make(map[string]time.Time)
+		s.lastPerform = make(map[string]time.Time)
 		s.flyingChecked = false
 		s.hasLavitator = false
 		s.introLeft = nil
@@ -499,8 +501,12 @@ func (s *Session) pushCombatState(frame assist.Frame, now time.Time) {
 		if !ok {
 			continue
 		}
+		agent := s.currentAgent(frame)
+		if agent != "" {
+			s.lastPerform[agent] = now
+		}
 		sa.SetCombatState(CombatState{
-			Agent:           s.currentAgent(frame),
+			Agent:           agent,
 			ConcertoFull:    s.concertoLit(frame),
 			InIntro:         !s.introUntil.IsZero(),
 			LastOutro:       s.outroAgent,
@@ -872,6 +878,16 @@ func (s *Session) switchLocked(agent string, now time.Time) bool {
 	}
 	if d := s.spec.SwitchNoAfterSkill[agent]; d > 0 {
 		if at, ok := s.lastSkill[agent]; ok && now.Sub(at) < d {
+			return true
+		}
+	}
+	if d := s.spec.SwitchNoAfterLiberation[agent]; d > 0 {
+		if at, ok := s.lastLiberation[agent]; ok && now.Sub(at) < d {
+			return true
+		}
+	}
+	if d := s.spec.SwitchNoAfterPerform[agent]; d > 0 {
+		if at, ok := s.lastPerform[agent]; ok && now.Sub(at) < d {
 			return true
 		}
 	}

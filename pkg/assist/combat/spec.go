@@ -199,14 +199,17 @@ type Spec struct {
 	// SwitchIntroMUST 是"只要本次是协奏入场就必须切给他"的候选表。
 	// 对应上游 Camellya / Jinhsi 的 get_switch_priority() 里 has_intro -> MUST。
 	SwitchIntroMUST map[string]bool
-	// SwitchNoAfterHeavy / SwitchNoAfterSkill 是候选角色的 NO 锁：
-	// 最近的重击/技能还在窗口内时，上游 get_switch_priority() 返回 NO，不优先切给他。
-	SwitchNoAfterHeavy map[string]time.Duration
-	SwitchNoAfterSkill map[string]time.Duration
-	Switch             *SwitchPolicy // 切人规则，留空用默认间隔
-	Interval           time.Duration // 每步之间的间隔
-	Hold               time.Duration // 命中证据后保持战斗态的时间
-	IdleWait           time.Duration // 不在战斗时的等待
+	// SwitchNoAfterHeavy / SwitchNoAfterSkill / SwitchNoAfterLiberation / SwitchNoAfterPerform
+	// 是候选角色的 NO 锁：最近的重击/技能/解放/在场时间还在窗口内时，
+	// 上游 get_switch_priority() 返回 NO，不优先切给他。
+	SwitchNoAfterHeavy      map[string]time.Duration
+	SwitchNoAfterSkill      map[string]time.Duration
+	SwitchNoAfterLiberation map[string]time.Duration
+	SwitchNoAfterPerform    map[string]time.Duration
+	Switch                  *SwitchPolicy // 切人规则，留空用默认间隔
+	Interval                time.Duration // 每步之间的间隔
+	Hold                    time.Duration // 命中证据后保持战斗态的时间
+	IdleWait                time.Duration // 不在战斗时的等待
 	// LiberationWindows 是各角色"解放动画仍在进行"的时长（上游 still_in_liberation 的
 	// 12 秒基类值，Encore 9.5 秒、Xiangliyao 25 秒各自重写）；缺省 12 秒。
 	LiberationWindows map[string]time.Duration
