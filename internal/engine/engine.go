@@ -104,8 +104,11 @@ type Engine struct {
 	// 最近一拍的时间轴信息，用于观测节拍是否被截图/识别拖慢。
 	tickID  uint64
 	tickLag time.Duration
-	// releaseAt/releaseTimer 管理异步按住的抬起时间。
+	// releaseTimer 管理异步按住的抬起时间。
 	releaseTimer *time.Timer
+	// actionMu 串行化"执行动作"与"暂停/停止时的抬起"，
+	// 否则暂停的抬起可能和某一拍的 Press 交错，导致暂停后键还按着。
+	actionMu sync.Mutex
 	// gatePaused 表示当前暂停是"游戏进程不在"造成的自动暂停，进程回来后自动恢复。
 	gatePaused bool
 	// userPaused 表示用户按了暂停；此时进程回来也不自动恢复。
@@ -615,6 +618,8 @@ func (e *Engine) scheduleRelease(hold time.Duration) {
 		e.mu.Lock()
 		e.releaseTimer = nil
 		e.mu.Unlock()
+		e.actionMu.Lock()
+		defer e.actionMu.Unlock()
 		if err := e.input.Release(); err != nil {
 			e.emit("warn", "抬起左键失败: "+err.Error())
 		}
@@ -623,22 +628,32 @@ func (e *Engine) scheduleRelease(hold time.Duration) {
 }
 
 // stopPendingRelease 取消尚未触发的抬起并立即抬起，供停止/暂停使用。
+// 与 executeActions 互斥：否则暂停的抬起可能和某一拍的 Press 交错。
 func (e *Engine) stopPendingRelease() {
+	e.actionMu.Lock()
+	defer e.actionMu.Unlock()
 	e.mu.Lock()
 	timer := e.releaseTimer
 	e.releaseTimer = nil
 	e.mu.Unlock()
 	if timer != nil {
 		timer.Stop()
-		// 连招里每拍都会重新按住，抬起定时器一直被推后；
-		// 停止/暂停时必须主动抬起，否则键会一直按着。
-		if err := e.input.Release(); err != nil {
-			e.emit("warn", "抬起左键失败: "+err.Error())
-		}
+	}
+	// 连招里每拍都会重新按住，抬起定时器一直被推后；
+	// 停止/暂停时必须主动抬起，否则键会一直按着。
+	if err := e.input.Release(); err != nil {
+		e.emit("warn", "抬起左键失败: "+err.Error())
 	}
 }
 
 func (e *Engine) executeActions(ctx context.Context, actions []assist.Action) error {
+	// 与 Pause/Stop 的抬起互斥：拿到锁后再确认一次没被暂停，
+	// 避免"暂停已经抬起、这一拍又把键按下去"。
+	e.actionMu.Lock()
+	defer e.actionMu.Unlock()
+	if e.isPaused() {
+		return nil
+	}
 	for _, action := range actions {
 		if ctx.Err() != nil {
 			return nil
