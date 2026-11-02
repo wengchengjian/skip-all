@@ -33,6 +33,9 @@ type CombatState struct {
 	Flying bool
 	// InLiberation 表示当前角色的共鸣解放动画是否还在窗口内（上游 still_in_liberation()）。
 	InLiberation bool
+	// NeedFastPerform 表示队友里有人对当前角色返回 MUST（上游 need_fast_perform()），
+	// 当前角色应当尽快收尾让位。
+	NeedFastPerform bool
 }
 
 // StateAware 是扩展可选实现的状态回调。

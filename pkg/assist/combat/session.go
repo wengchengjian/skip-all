@@ -485,12 +485,13 @@ func (s *Session) pushCombatState(frame assist.Frame, now time.Time) {
 			continue
 		}
 		sa.SetCombatState(CombatState{
-			Agent:        s.currentAgent(frame),
-			ConcertoFull: s.concertoLit(frame),
-			InIntro:      !s.introUntil.IsZero(),
-			LastOutro:    s.outroAgent,
-			Flying:       s.flying(frame),
-			InLiberation: s.inLiberation(frame, now),
+			Agent:           s.currentAgent(frame),
+			ConcertoFull:    s.concertoLit(frame),
+			InIntro:         !s.introUntil.IsZero(),
+			LastOutro:       s.outroAgent,
+			Flying:          s.flying(frame),
+			InLiberation:    s.inLiberation(frame, now),
+			NeedFastPerform: s.needFastPerform(frame, now),
 		})
 	}
 }
@@ -579,6 +580,36 @@ func (s *Session) concertoLit(frame assist.Frame) bool {
 		full = defaultConcertoFullRatio
 	}
 	return coverage >= full
+}
+
+// needFastPerform 对应上游 BaseChar.need_fast_perform()：
+// 遍历后台候选，只要有角色对当前角色返回 MUST（协同表或仍在解放窗口），
+// 当前角色就应当尽快收尾让位。
+func (s *Session) needFastPerform(frame assist.Frame, now time.Time) bool {
+	if len(s.spec.SwitchSynergy) == 0 && len(s.spec.LiberationMustSwitch) == 0 {
+		return false
+	}
+	locator, ok := s.spec.Team.(SlotLocator)
+	if !ok {
+		return false
+	}
+	ids, err := locator.Slots(runtimeAdapter{rt: s.rt}, frame)
+	if err != nil || len(ids) == 0 {
+		return false
+	}
+	current := s.currentAgent(frame)
+	if current == "" {
+		return false
+	}
+	for _, id := range ids {
+		if id == "" || id == current {
+			continue
+		}
+		if s.synergyBonus(id, current) > 0 || s.liberationBonus(id, now) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // flying 对应上游 BaseChar.flying()：
