@@ -40,7 +40,7 @@ flying 35   is_con_full 11   check_outro 8   has_intro 7   still_in_liberation 4
 ```
 > 口径：上面是生成脚本的统计（57 个角色、`do_perform()` 一层内联）；全量 `src/char/*.py` 的 if 行更多（审计：flying 45、check_outro 10、still_in_liberation 8），差异来自跨方法（`do_perform_interlock`、`wait_for_accelerate_ready`）与 `get_switch_priority` 等不在提取范围的分支。
 
-| `check_outro()` 的分支 | 10 个角色 | 检测已做会话记账（`CombatState.LastOutro` + `延奏=` 原子）；Brant/Changli/Carlotta 的 3 个多步特殊收尾已接入近似队列（`agentOutroRules`），其余 4 个时长 + 3 个标志位只影响上游循环，不进规则表 |
+| `check_outro()` 的分支 | 10 个角色 | 检测已做会话记账（`CombatState.LastOutro` + `延奏=` 原子）；Brant/Changli/Carlotta 的多步收尾、Cantarella/Phrolova/Lupa 的标志位分支都已接入近似队列（`agentOutroRules`），其余 4 个只改循环时长的分支不进规则表 |
 | `get_switch_priority()` 重写 | 26 个角色 | 同上；其中**可机械提取的那一类"在场是谁则必须切我"已经做了**（`SwitchSynergy`，14 对；含 Carlotta<-Zhezhi、Linnai<-Mornye、Mornye<-Aemeath/Qingxiao） |
 | 协奏百分比 | — | 我们已有环覆盖率，上游也是面积比，改成百分比不改变任何决策 |
 

@@ -352,6 +352,6 @@
 
 `flying()` 照抄上游：开战用 `edge_levitator` 模板（阈值 0.65）确认滑翔装置，图标区 `text_white_color`（244-255）白色占比 < 0.1 算在空中。`still_in_liberation()` 也照抄上游：按角色记录最近一次解放时间，基类窗口 12 秒，Encore 9.5 秒、Xiangliyao 25 秒各自重写；本项目按墙钟计时（未扣游戏冻结时间，属已知近似）。
 
-`check_outro()` 在上游是纯记账：取队伍里 `last_switch_time` 最大的队友（即刚放完延奏的人），`has_intro` 为 false 时返回 `'null'`。本项目在切人动作发出时把当前角色记进 `Session.outroAgent`，只有 `InIntro` 窗口内 `延奏=` 原子才成立。上游 10 个 `check_outro()` 分支里，4 个只改循环时长、3 个只设标志位、3 个是多步特殊收尾（Brant/Changli/Carlotta 的 `perform_in_outro`/`do_perform_outro`）。前 7 个不产生单步动作，只做记账；3 个多步收尾按上游动作顺序抽成 `agentOutroRules` 近似队列（带 forte 层数/while 循环的精确形态仍无法从像素判定）；生成脚本已能映射 `check_outro()`、`flying()`、`still_in_liberation()` 条件；本次重生成后规则共 171 条（含 9 个元组键角色的规则；Chisa/Douling/Hsin/Iuno/Lucilla 这 5 个只转调助手方法的角色也补了近似规则）。
+`check_outro()` 在上游是纯记账：取队伍里 `last_switch_time` 最大的队友（即刚放完延奏的人），`has_intro` 为 false 时返回 `'null'`。本项目在切人动作发出时把当前角色记进 `Session.outroAgent`，只有 `InIntro` 窗口内 `延奏=` 原子才成立。上游 10 个 `check_outro()` 分支里，4 个只改循环时长、3 个只设标志位、3 个是多步特殊收尾（Brant/Changli/Carlotta 的 `perform_in_outro`/`do_perform_outro`）。4 个时长分支只影响上游循环，不产生单步动作；其余 6 个动作分支按上游动作顺序抽成 `agentOutroRules` 近似队列（带 forte 层数/while 循环的精确形态仍无法从像素判定）。生成脚本已能映射 `check_outro()`、`flying()`、`still_in_liberation()` 条件；本次重生成后规则共 171 条（含 9 个元组键角色的规则；Chisa/Douling/Hsin/Iuno/Lucilla 这 5 个只转调助手方法的角色也补了近似规则）。
 
 提取不了的（内部计时器、`crisis_time_left`、`nightfall_time_left`、`last_heavy` 等）不计入条件——那条分支会退化成无条件规则，宁可粗略也不伪造精确。生成脚本：`.research/wuwa_rules.py`。
