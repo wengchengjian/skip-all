@@ -81,12 +81,25 @@ type Session interface {
 }
 
 // Runtime 提供给 Feature 的只读运行时服务。
+//
+// OCR 的返回值可能来自一两拍之前的识别结果（异步运行时）。需要知道
+// 信息新鲜度的调用方用 OCRFresh。
 type Runtime interface {
 	Screen(name string) (*screen.Screen, error)
 	OCR(frame Frame, area screen.Area, opts vision.OCROptions) ([]vision.TextBlock, error)
 	MatchTemplate(frame Frame, area screen.Area, ref vision.TemplateRef, threshold float64) ([]vision.Match, error)
 	ColorStats(frame Frame, area screen.Area) (vision.ColorStats, error)
 	Log() *slog.Logger
+}
+
+// FreshOCR 是可选接口：返回识别结果以及它基于的那一帧的时间。
+//
+// 异步运行时下结果会滞后一到两拍（实测识别 130ms、tick 100ms 时
+// 平均旧 150ms、最旧 200ms）。对"几秒内不会变"的判据（技能冷却数字、
+// 按钮文字）没有影响；对瞬时判据（是否在入场、是否被击飞）调用方
+// 应当检查年龄。返回的 time.Time 是零值表示"就是当前帧，没有滞后"。
+type FreshOCR interface {
+	OCRFresh(frame Frame, area screen.Area, opts vision.OCROptions) ([]vision.TextBlock, time.Time, error)
 }
 
 // Feature 是一个可插拔功能。

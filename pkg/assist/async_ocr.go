@@ -64,6 +64,8 @@ type AsyncRuntime struct {
 	completed atomic.Int64
 	dropped   atomic.Int64
 	cacheHits atomic.Int64
+	// worstAge 是观测到的最大信息年龄（异步结果基于的帧与当前帧的差）。
+	worstAge atomic.Int64
 }
 
 // AsyncStats 是异步 OCR 的观测数据。
@@ -76,6 +78,9 @@ type AsyncStats struct {
 	CacheHits int64
 	// Pending 是当前在途请求数。
 	Pending int
+	// WorstAge 是观测到的最大信息年龄：异步返回的结果可能基于
+	// 一两拍之前的帧，调用方用 OCRFresh 可以拿到具体时间。
+	WorstAge time.Duration
 }
 
 // NewAsyncRuntime 在 rt 外面包一层异步 OCR。workers 是并发识别数。
@@ -126,6 +131,13 @@ func (a *AsyncRuntime) worker() {
 // OCR 提交一次识别并立刻返回上一次的结果。
 // 只有该区域从未识别成功过时才同步调用一次，避免首帧拿到空结果。
 func (a *AsyncRuntime) OCR(frame Frame, area screen.Area, opts vision.OCROptions) ([]vision.TextBlock, error) {
+	blocks, _, err := a.OCRFresh(frame, area, opts)
+	return blocks, err
+}
+
+// OCRFresh 与 OCR 相同，但额外返回结果所基于的那一帧的时间。
+// 同步路径返回零值（表示就是当前帧）；异步路径返回实际的那一帧时间。
+func (a *AsyncRuntime) OCRFresh(frame Frame, area screen.Area, opts vision.OCROptions) ([]vision.TextBlock, time.Time, error) {
 	key := keyFor(area)
 
 	a.mu.Lock()
@@ -144,14 +156,24 @@ func (a *AsyncRuntime) OCR(frame Frame, area screen.Area, opts vision.OCROptions
 		a.mu.Lock()
 		a.latest[key] = ocrResult{blocks: blocks, seq: seq, at: frame.At, err: err}
 		a.mu.Unlock()
-		return blocks, err
+		// 同步路径：结果就是这一帧的，年龄为零。
+		return blocks, time.Time{}, err
+	}
+
+	// 记录信息年龄：这次决策拿到的结果基于的是 prev.at 那一帧。
+	if !prev.at.IsZero() && !frame.At.IsZero() {
+		if age := frame.At.Sub(prev.at); age > 0 {
+			if prev := time.Duration(a.worstAge.Load()); int64(age) > int64(prev) {
+				a.worstAge.Store(int64(age))
+			}
+		}
 	}
 
 	// 有历史结果：返回旧的，同时把新请求丢给 worker。
 	if busy {
 		// 上一请求还在跑，合并掉这次请求（等它完成自然会更新）。
 		a.dropped.Add(1)
-		return append([]vision.TextBlock(nil), prev.blocks...), prev.err
+		return append([]vision.TextBlock(nil), prev.blocks...), prev.at, prev.err
 	}
 
 	frame.Hold()
@@ -166,7 +188,7 @@ func (a *AsyncRuntime) OCR(frame Frame, area screen.Area, opts vision.OCROptions
 		frame.Drop()
 		a.dropped.Add(1)
 	}
-	return append([]vision.TextBlock(nil), prev.blocks...), prev.err
+	return append([]vision.TextBlock(nil), prev.blocks...), prev.at, prev.err
 }
 
 // Screen 转发给底层 Runtime。
@@ -196,6 +218,7 @@ func (a *AsyncRuntime) Stats() AsyncStats {
 		Dropped:   a.dropped.Load(),
 		CacheHits: a.cacheHits.Load(),
 		Pending:   pending,
+		WorstAge:  time.Duration(a.worstAge.Load()),
 	}
 }
 

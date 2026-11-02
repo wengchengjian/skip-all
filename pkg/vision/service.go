@@ -17,7 +17,51 @@ type Service struct {
 
 	mu    sync.Mutex
 	frame *image.RGBA
+	// sum 是当前帧在识别区域内的像素校验和，用来发现"缓冲被复用了"。
+	sum   uint64
 	cache map[ocrCacheKey][]TextBlock
+}
+
+// pixelSum 计算区域内像素的快速校验和（每 4 字节取一个采样点）。
+// 只用来判"这块内存的内容变没变"，不要求密码学强度。
+func pixelSum(img *image.RGBA, rect geom.Rect) uint64 {
+	if img == nil {
+		return 0
+	}
+	b := img.Bounds()
+	x1, y1, x2, y2 := rect.X1, rect.Y1, rect.X2, rect.Y2
+	if x1 < b.Min.X {
+		x1 = b.Min.X
+	}
+	if y1 < b.Min.Y {
+		y1 = b.Min.Y
+	}
+	if x2 > b.Max.X {
+		x2 = b.Max.X
+	}
+	if y2 > b.Max.Y {
+		y2 = b.Max.Y
+	}
+	if x2 <= x1 || y2 <= y1 {
+		return 0
+	}
+	var sum uint64
+	// 采样步长：区域越大采样越稀，保证大区域也不会拖慢。
+	step := 1
+	if area := (x2 - x1) * (y2 - y1); area > 1<<20 {
+		step = area >> 20
+	}
+	n := 0
+	for y := y1; y < y2; y += step {
+		row := img.Pix[y*img.Stride:]
+		for x := x1; x < x2; x += step {
+			i := x * 4
+			sum = sum*31 + uint64(row[i]) + uint64(row[i+1])<<8 + uint64(row[i+2])<<16
+			n++
+		}
+	}
+	// 把采样数量混进去，避免"采样点不同但和恰好相同"。
+	return sum ^ uint64(n)*0x9e3779b97f4a7c15
 }
 
 type ocrCacheKey struct {
@@ -56,9 +100,17 @@ func (s *Service) OCR(frame *image.RGBA, area screen.Area, opts OCROptions) ([]T
 		key.colorHigh = colorRange[1]
 	}
 
+	// 缓存按"图像指针 + 像素校验和"判新。
+	//
+	// 只比指针是不够的：帧缓冲来自池、会被复用，同一块内存每拍都在变。
+	// 只比校验和也不够：不同区域/不同时刻的相同画面应当命中缓存。
+	// 两者一起用，既能在同一帧内复用结果，又不会把上一拍的识别结果
+	// 当成这一拍的。
+	sum := pixelSum(frame, geom.Rect{X1: search.Min.X, Y1: search.Min.Y, X2: search.Max.X, Y2: search.Max.Y})
 	s.mu.Lock()
-	if s.frame != frame {
+	if s.frame != frame || s.sum != sum {
 		s.frame = frame
+		s.sum = sum
 		s.cache = make(map[ocrCacheKey][]TextBlock)
 	}
 	if blocks, ok := s.cache[key]; ok {
