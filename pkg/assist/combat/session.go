@@ -25,6 +25,11 @@ const abortOCRTTL = 2 * time.Second
 // OCR 单次约 130ms，按 500ms 采样既不会漏掉中断，也不会让每个决策拍都被拖住。
 const abortCheckInterval = 500 * time.Millisecond
 
+// cooldownMinConfidence 是判定"读到冷却数字"的最低置信度。
+// 实测（真实战斗截图）：真正的冷却数字置信度 0.95~1.00，
+// 而技能图标花纹被误读出的数字只有 0.10。
+const cooldownMinConfidence = 0.5
+
 // cooldownOCRTTL 是冷却 OCR 的缓存时间。
 const cooldownOCRTTL = 500 * time.Millisecond
 
@@ -267,7 +272,13 @@ func (s *Session) coolingDown(frame assist.Frame, kind StepKind, rect geom.Rect)
 	}
 	cooling := false
 	for _, block := range blocks {
-		if seconds, ok := parseCooldownSeconds(block.Text); ok && seconds > 0 {
+		// 置信度门槛：技能图标的花纹会被 OCR 读成数字（真实截图里
+		// 一个空按钮被读成 "2"，置信度 0.10；真正的冷却数字都在 0.95 以上）。
+		// 误判成冷却会让技能永远不放，退化成只会普攻，所以这里必须过滤。
+		if block.Confidence < cooldownMinConfidence {
+			continue
+		}
+		if seconds, ok := ParseCooldownSeconds(block.Text); ok && seconds > 0 {
 			cooling = true
 			break
 		}
@@ -276,8 +287,9 @@ func (s *Session) coolingDown(frame assist.Frame, kind StepKind, rect geom.Rect)
 	return cooling, nil
 }
 
-// parseCooldownSeconds 从 OCR 文本里解析冷却秒数，例如 "12"、"3.5"、" 8 "。
-func parseCooldownSeconds(text string) (float64, bool) {
+// ParseCooldownSeconds 从 OCR 文本里解析冷却秒数，例如 "12"、"3.5"、" 8 "。
+// 导出是为了让游戏层能用真实截图验证"不会误判就绪的技能为冷却"。
+func ParseCooldownSeconds(text string) (float64, bool) {
 	cleaned := strings.TrimSpace(text)
 	cleaned = strings.TrimSuffix(cleaned, "s")
 	cleaned = strings.TrimSpace(cleaned)

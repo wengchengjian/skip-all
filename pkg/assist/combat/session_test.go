@@ -577,7 +577,7 @@ func TestCooldownSkipsSkill(t *testing.T) {
 func TestParseCooldownSeconds(t *testing.T) {
 	cases := map[string]bool{"12": true, "3.5": true, " 8s ": true, "": false, "x": false}
 	for text, ok := range cases {
-		if _, got := parseCooldownSeconds(text); got != ok {
+		if _, got := ParseCooldownSeconds(text); got != ok {
 			t.Fatalf("%q 解析结果 = %v, want %v", text, got, ok)
 		}
 	}
