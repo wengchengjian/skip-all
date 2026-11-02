@@ -869,7 +869,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.switchLocked(id, now) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.synergyAfterBonus(id, agent, now) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id, now)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.synergyAfterBonus(id, agent, now) + s.teamSynergyBonus(id, agent, ids) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id, now)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
 		}
@@ -917,6 +917,20 @@ func (s *Session) synergyBonus(candidate, current string) float64 {
 	}
 	for _, trigger := range s.spec.SwitchSynergy[candidate] {
 		if trigger == current {
+			return synergyScore
+		}
+	}
+	return 0
+}
+
+// teamSynergyBonus 处理"队伍里有指定队友且当前不是该队友"的 MUST 协同。
+func (s *Session) teamSynergyBonus(candidate, current string, ids []string) float64 {
+	required := s.spec.SwitchSynergyTeam[candidate]
+	if required == "" || current == required {
+		return 0
+	}
+	for _, id := range ids {
+		if id == required {
 			return synergyScore
 		}
 	}

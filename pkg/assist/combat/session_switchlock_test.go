@@ -38,6 +38,27 @@ func TestSwitchNoLocks(t *testing.T) {
 	}
 }
 
+// TestSwitchSynergyTeam 验证 Mornye 的队伍条件：队里有 Linnai 且当前不是 Linnai。
+func TestSwitchSynergyTeam(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"a", "char_linnai", "char_moning"}}
+	spec.Roles = map[string]Role{"a": RoleMainDPS, "char_linnai": RoleSubDPS, "char_moning": RoleSupport}
+	spec.SwitchSynergyTeam = map[string]string{"char_moning": "char_linnai"}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: time.Now()})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("队伍有 Linnai 时 Mornye 应被 MUST 切入，actions=%+v", actions)
+	}
+}
+
 // TestSwitchHold 验证 Zani/Carlotta 的 wait_switch()：重击动画未结束时先不切走。
 func TestSwitchHold(t *testing.T) {
 	spec := testSpec()
