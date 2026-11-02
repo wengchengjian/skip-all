@@ -822,7 +822,7 @@ func (s *Session) chooseSwitchKey(frame assist.Frame) string {
 		if s.switchLocked(id, now) {
 			continue
 		}
-		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id)
+		score := roleScore(currentRole, s.spec.Roles[id]) + s.staleBonus(i, now) + s.ultBonus(frame, i) + s.buffBonus(i, id, now) + s.synergyBonus(id, agent) + s.synergyAfterBonus(id, agent, now) + s.liberationBonus(id, now) + s.resonanceBonus(id, now) + s.introMustBonus(id)
 		if score > best {
 			best, bestKey, bestIndex = score, keys[i], i
 		}
@@ -872,6 +872,19 @@ func (s *Session) synergyBonus(candidate, current string) float64 {
 		if trigger == current {
 			return synergyScore
 		}
+	}
+	return 0
+}
+
+// synergyAfterBonus 处理带"上次解放已超过 N 秒"条件的 MUST 协同。
+func (s *Session) synergyAfterBonus(candidate, current string, now time.Time) float64 {
+	triggers := s.spec.SwitchSynergyAfter[candidate]
+	d, ok := triggers[current]
+	if !ok || d <= 0 {
+		return 0
+	}
+	if at, ok := s.lastLiberation[candidate]; ok && now.Sub(at) >= d {
+		return synergyScore
 	}
 	return 0
 }

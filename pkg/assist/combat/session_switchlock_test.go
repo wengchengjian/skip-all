@@ -37,3 +37,28 @@ func TestSwitchNoLocks(t *testing.T) {
 		t.Fatalf("NO 锁过期后应按定位切 a，actions=%+v", actions)
 	}
 }
+
+// TestSwitchSynergyAfter 验证 Phrolova 的 "last_liberation > 14s + 当前 Cantarella -> MUST"。
+func TestSwitchSynergyAfter(t *testing.T) {
+	spec := testSpec()
+	spec.Keys.Switch = []string{"1", "2", "3"}
+	spec.Team = slotTeam{current: 0, ids: []string{"char_cantarella", "char_x", "char_phrolova"}}
+	spec.Roles = map[string]Role{"char_cantarella": RoleSubDPS, "char_x": RoleMainDPS, "char_phrolova": RoleSupport}
+	spec.SwitchSynergyAfter = map[string]map[string]time.Duration{
+		"char_phrolova": {"char_cantarella": 14 * time.Second},
+	}
+	spec.Concerto = &Concerto{
+		Rect:      geom.Rect{X1: 700, Y1: 960, X2: 763, Y2: 1023},
+		Colors:    [][2][3]uint8{{{205, 190, 90}, {235, 222, 130}}},
+		Inner:     0.35119,
+		Outer:     0.42261,
+		FullRatio: 0.95,
+	}
+	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
+	base := time.Now()
+	session.lastLiberation["char_phrolova"] = base.Add(-15 * time.Second)
+	_, actions := step(t, session, assist.Frame{Image: concertoFullFrame(), At: base})
+	if len(actions) != 1 || actions[0].Key != "3" {
+		t.Fatalf("Phrolova 满足 14 秒条件应被 MUST 切入，actions=%+v", actions)
+	}
+}

@@ -9,7 +9,7 @@
 | 战斗判据 | `has_health_bar()`：整帧找 `enemy_health_color_red`（174-225 / 55-85 / 55-76），宽≥50、高 5-14 | `games/wuwa/combat.go` 的 `HealthBar` |
 | 首领判据 | `is_boss()`：`(1269,58)-(2533,200)`/4K 的 `boss_health_color` 且区域内恰好一条 | `BossBar`（折半 `(634,29)-(1266,100)`） |
 | 协奏满切人 | `get_current_con()` 必须等于 1；`_ensure_ring_index()` 先认同色再单色计数 | `Concerto`（门限 0.95）+ `vision.RingCoverages` |
-| 切人打分 | `get_switch_priority` / `_choose_switch_target` / `_unbuffed_support_target` | `SwitchPolicy` + `Roles` + `BuffTimes`（57 个角色增益时长）+ `SwitchSynergy`（15 个协同对）+ `LiberationMustSwitch`（Brant/Encore/Lupa 在解放窗口内 MUST）+ `SwitchIntroMUST`（Camellya/Jinhsi 入场 MUST）+ `SwitchNoAfterHeavy/Skill/Liberation/Perform`（Encore/Brant/Phrolova/Douling 的 NO 锁）+ `ResonanceMustSwitch`（Encore 共鸣二段 MUST） |
+| 切人打分 | `get_switch_priority` / `_choose_switch_target` / `_unbuffed_support_target` | `SwitchPolicy` + `Roles` + `BuffTimes`（57 个角色增益时长）+ `SwitchSynergy`（15 个协同对，含 Phrolova 的 14 秒延后条件）+ `LiberationMustSwitch`（Brant/Encore/Lupa 在解放窗口内 MUST）+ `SwitchIntroMUST`（Camellya/Jinhsi 入场 MUST）+ `SwitchNoAfterHeavy/Skill/Liberation/Perform`（Encore/Brant/Phrolova/Douling 的 NO 锁）+ `ResonanceMustSwitch`（Encore 共鸣二段 MUST） |
 | 治疗位换入冷却 | `HEALER_FULL_CON_SWITCH_LOCKOUT = 16` 秒 | `SwitchPolicy.HealerLockout` |
 | 切人确认 | `switch_next_char` 里循环复查 `in_team()`，没切过去补普攻 | `Session` 的 800ms 复查窗口 |
 | 角色识别 | `in_team()`：队伍栏三个数字标签缺一个即为当前角色 | `wuwaTeam`（模板 69 个） |

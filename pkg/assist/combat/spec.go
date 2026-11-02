@@ -193,6 +193,9 @@ type Spec struct {
 	// SwitchSynergy 是"谁在场时必须切给谁"的协同表：candidate -> 触发它的在场角色列表。
 	// 对应上游各角色 get_switch_priority() 里 "if has_intro and current_char.char_name in {...}: MUST"。
 	SwitchSynergy map[string][]string
+	// SwitchSynergyAfter 是带时间条件的 MUST 协同：candidate -> 触发角色 -> 候选上次解放后至少多久。
+	// 对应上游 Phrolova._cantarella_outro_ready(): last_liberation > 14s 且 current 是 Cantarella。
+	SwitchSynergyAfter map[string]map[string]time.Duration
 	// LiberationMustSwitch 是"候选角色仍在解放动画窗口内时必须优先切给他"的表。
 	// 对应上游 Brant/Encore/Lupa 的 get_switch_priority(): still_in_liberation() -> MUST。
 	LiberationMustSwitch map[string]bool

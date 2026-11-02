@@ -137,6 +137,9 @@ func combatSpec() combat.Spec {
 		// 角色定位（上游 char_type）与大招就绪一起决定协奏满切谁。
 		Roles:         agentRoles,
 		SwitchSynergy: agentSynergy,
+		SwitchSynergyAfter: map[string]map[string]time.Duration{
+			"char_phrolova": {"char_cantarella": 14 * time.Second},
+		},
 		LiberationMustSwitch: map[string]bool{
 			"char_brant":  true,
 			"char_encore": true,
