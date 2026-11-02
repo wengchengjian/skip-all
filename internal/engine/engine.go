@@ -102,8 +102,11 @@ type Engine struct {
 	cancel      context.CancelFunc
 	fps         float64
 	// 最近一拍的时间轴信息，用于观测节拍是否被截图/识别拖慢。
-	tickID  uint64
-	tickLag time.Duration
+	tickID      uint64
+	tickLag     time.Duration
+	tickDropped uint64
+	// clock 是固定步长节拍时钟；Run 期间非 nil。
+	clock *tickClock
 	// releaseTimer 管理异步按住的抬起时间。
 	releaseTimer *time.Timer
 	// actionMu 串行化"执行动作"与"暂停/停止时的抬起"，
@@ -171,6 +174,7 @@ func (e *Engine) Status() Status {
 		TargetFPS:   e.cfg.TargetFPS,
 		TickID:      e.tickID,
 		TickLag:     e.tickLag,
+		TickDropped: e.tickDropped,
 		Features:    make([]FeatureStatus, 0, len(e.features)),
 	}
 	for _, f := range e.features {
@@ -190,10 +194,12 @@ type Status struct {
 	LastError   string
 	FPS         float64
 	TargetFPS   int
-	// TickID 是最近一拍的序号；TickLag 是那一拍落后计划时间的量。
-	TickID   uint64
-	TickLag  time.Duration
-	Features []FeatureStatus
+	// TickID 是最近一拍的序号；TickLag 是那一拍落后计划时间的量；
+	// TickDropped 是因落后过多被跳过的拍数（持续增长说明拍长不够）。
+	TickID      uint64
+	TickLag     time.Duration
+	TickDropped uint64
+	Features    []FeatureStatus
 }
 
 // FeatureIDs 返回本会话的功能 ID 列表，供服务层比对配置。
@@ -249,8 +255,12 @@ func (e *Engine) setFPS(fps float64) {
 // markTick 记录本拍的时间轴信息。
 func (e *Engine) markTick(tick Tick, wait time.Duration) {
 	e.mu.Lock()
+	clock := e.clock
 	e.tickID = tick.ID
 	e.tickLag = tick.Lag
+	if clock != nil {
+		e.tickDropped = clock.Dropped()
+	}
 	e.mu.Unlock()
 	if tick.Lag > 0 {
 		e.logger.Debug("节拍落后", "tick", tick.ID, "lag", tick.Lag, "wait", wait)
@@ -337,6 +347,9 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 
 	interval := time.Second / time.Duration(e.cfg.TargetFPS)
 	clock := newTickClock(interval)
+	e.mu.Lock()
+	e.clock = clock
+	e.mu.Unlock()
 	failures := 0
 	lastFrameAt := time.Time{}
 	for {
@@ -413,7 +426,7 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		lastFrameAt = now
 		clock.Schedule(tick.Time, wait)
 		e.markTick(tick, wait)
-		if !sleepUntil(runCtx, clock.next) {
+		if !sleepUntil(runCtx, clock.Next()) {
 			return nil
 		}
 	}
@@ -562,10 +575,12 @@ func (e *Engine) logFeatureStep(f *featureRuntime, tick Tick, state string, acti
 	e.mu.Unlock()
 	if !changed {
 		if action != "" {
-			e.logger.Debug("重复动作", "feature", f.feature.ID(), "state", state, "action", action)
+			// 带 tick：定位"第几拍出了这个动作"，重复动作刷屏时也能对上时间轴。
+			e.logger.Debug("重复动作", "tick", tick.ID, "feature", f.feature.ID(), "state", state, "action", action)
 		}
 		return
 	}
+	e.logger.Debug("状态切换", "tick", tick.ID, "lag", tick.Lag, "feature", f.feature.ID(), "state", state, "action", action)
 	message := "剧情流程: " + state
 	if action != "" {
 		message += " | " + action

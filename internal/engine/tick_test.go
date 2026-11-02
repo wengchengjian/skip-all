@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/wengchengjian/skip-all/pkg/assist"
-	"github.com/wengchengjian/skip-all/pkg/geom"
 	"github.com/wengchengjian/skip-all/pkg/screen"
 )
 
@@ -92,6 +91,35 @@ func TestTickSkipsWhenTooFarBehind(t *testing.T) {
 	if t3.ID != 3 || t3.Lag != 0 {
 		t.Fatalf("tick=%d lag=%v", t3.ID, t3.Lag)
 	}
+	if got := clock.Dropped(); got != 1 {
+		t.Fatalf("跳拍计数 = %d，应当 = 1", got)
+	}
 }
 
-var _ = geom.Point{}
+// TestTickIDMonotonic 验证 tick ID 单调递增、并暴露到 Status。
+func TestTickIDMonotonic(t *testing.T) {
+	dev := &fakeDevice{}
+	dev.active.Store(true)
+	sess := &busySession{busy: time.Millisecond}
+	eng := New(dev, &fakeInput{}, screen.NewSet(), fakeMatcher{}, slog.Default(),
+		[]FeatureSpec{{Feature: &fakeFeature{session: sess}}}, Config{TargetFPS: 50}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = eng.Run(ctx) }()
+
+	var last uint64
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		st := eng.Status()
+		if st.TickID < last {
+			t.Fatalf("tick ID 回退: %d -> %d", last, st.TickID)
+		}
+		last = st.TickID
+	}
+	cancel()
+	<-done
+	if last == 0 {
+		t.Fatal("Status 里没有 tick ID")
+	}
+	t.Logf("最终 tick=%d", last)
+}

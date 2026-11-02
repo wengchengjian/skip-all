@@ -110,6 +110,13 @@ export interface StatusView {
     "startedAt": string;
     "fps": number;
     "targetFps": number;
+    /**
+     * TickID/TickLagMs/TickDropped 是节拍观测：ID 单调递增，
+     * Lag 是最近一拍落后计划时间的毫秒数，Dropped 是跳过的拍数。
+     */
+    "tickId": number;
+    "tickLagMs": number;
+    "tickDropped": number;
     "ocrBackend": string;
     "features": FeatureStateView[] | null;
 }

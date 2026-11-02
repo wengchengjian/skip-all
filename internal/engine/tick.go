@@ -69,19 +69,11 @@ func (c *tickClock) Schedule(start time.Time, wait time.Duration) {
 	c.next = start.Add(wait)
 }
 
-// Wait 返回到下一拍计划时间还需要等多久。
-func (c *tickClock) Wait(now time.Time) time.Duration {
-	d := c.next.Sub(now)
-	if d < 0 {
-		return 0
-	}
-	return d
-}
+// Next 返回下一拍的计划开始时间。
+func (c *tickClock) Next() time.Time { return c.next }
 
-// Metrics 返回时钟的观测指标。
-func (c *tickClock) Metrics() (tickID uint64, lag time.Duration, dropped uint64) {
-	return c.id, c.lag, c.dropped
-}
+// Dropped 返回因落后过多而跳过的拍数。
+func (c *tickClock) Dropped() uint64 { return c.dropped }
 
 // sleepUntil 睡到指定时刻；ctx 取消时返回 false。
 func sleepUntil(ctx context.Context, at time.Time) bool {

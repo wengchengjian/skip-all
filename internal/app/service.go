@@ -128,17 +128,22 @@ type TrayStateView struct {
 
 // StatusView 是当前运行状态。
 type StatusView struct {
-	State       string             `json:"state"`
-	Running     bool               `json:"running"`
-	Paused      bool               `json:"paused"`
-	GameID      string             `json:"gameId"`
-	FeatureID   string             `json:"featureId"`
-	FeatureName string             `json:"featureName"`
-	Message     string             `json:"message"`
-	Error       string             `json:"error"`
-	StartedAt   time.Time          `json:"startedAt"`
-	FPS         float64            `json:"fps"`
-	TargetFPS   int                `json:"targetFps"`
+	State       string    `json:"state"`
+	Running     bool      `json:"running"`
+	Paused      bool      `json:"paused"`
+	GameID      string    `json:"gameId"`
+	FeatureID   string    `json:"featureId"`
+	FeatureName string    `json:"featureName"`
+	Message     string    `json:"message"`
+	Error       string    `json:"error"`
+	StartedAt   time.Time `json:"startedAt"`
+	FPS         float64   `json:"fps"`
+	TargetFPS   int       `json:"targetFps"`
+	// TickID/TickLagMs/TickDropped 是节拍观测：ID 单调递增，
+	// Lag 是最近一拍落后计划时间的毫秒数，Dropped 是跳过的拍数。
+	TickID      uint64             `json:"tickId"`
+	TickLagMs   float64            `json:"tickLagMs"`
+	TickDropped uint64             `json:"tickDropped"`
 	OCRBackend  string             `json:"ocrBackend"`
 	Features    []FeatureStateView `json:"features"`
 }
@@ -687,6 +692,9 @@ func (s *Service) GetStatus() StatusView {
 		st := sess.eng.Status()
 		gameIDs = append(gameIDs, sess.gameID)
 		status.TargetFPS = st.TargetFPS
+		status.TickID = st.TickID
+		status.TickLagMs = float64(st.TickLag.Microseconds()) / 1000
+		status.TickDropped += st.TickDropped
 		if st.LastMessage != "" {
 			status.Message = st.LastMessage
 		}

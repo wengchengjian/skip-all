@@ -56,6 +56,12 @@ const pageCode = computed(() => ({ home: "DASHBOARD", settings: "CONFIGURATION",
 const fpsLabel = computed(() =>
   status.value.running ? `${status.value.fps.toFixed(1)} / ${status.value.targetFps} FPS` : "— FPS",
 );
+// 节拍落后超过一拍（100ms）时把 chip 标黄，提示识别/截图拖慢了循环。
+const tickLagging = computed(() => status.value.running && status.value.tickLagMs > 100);
+const tickTitle = computed(() => {
+  if (!status.value.running) return "";
+  return `第 ${status.value.tickId} 拍，落后 ${status.value.tickLagMs.toFixed(0)}ms，已跳 ${status.value.tickDropped} 拍`;
+});
 </script>
 
 <template>
@@ -100,7 +106,7 @@ const fpsLabel = computed(() =>
           <h1>{{ pageTitle }}</h1>
         </div>
         <div class="status-cluster">
-          <span class="fps-chip" :class="{ live: status.running }">{{ fpsLabel }}</span>
+          <span class="fps-chip" :class="{ live: status.running, lagging: tickLagging }" :title="tickTitle">{{ fpsLabel }}</span>
           <span v-if="status.ocrBackend" class="ocr-chip">OCR {{ status.ocrBackend }}</span>
           <div class="status-chip" :class="status.state">
             <span class="status-pulse"></span>

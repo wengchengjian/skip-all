@@ -177,6 +177,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 }
 .fps-chip { min-width: 64px; justify-content: center; font-variant-numeric: tabular-nums; }
 .fps-chip.live { color: var(--blue); border-color: rgba(0, 113, 227, 0.22); }
+/* 节拍落后：识别/截图拖慢了循环，标黄提示。 */
+.fps-chip.lagging { color: var(--orange); border-color: rgba(255, 159, 10, 0.4); }
 .ocr-chip { text-transform: uppercase; }
 .status-chip {
   display: flex;

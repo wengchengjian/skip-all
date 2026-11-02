@@ -22,6 +22,9 @@ export function useSkipAll() {
     startedAt: "",
     fps: 0,
     targetFps: 0,
+    tickId: 0,
+    tickLagMs: 0,
+    tickDropped: 0,
     ocrBackend: "",
     features: [],
   });
