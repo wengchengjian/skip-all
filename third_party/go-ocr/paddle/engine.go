@@ -87,6 +87,18 @@ func NewEngine(cfg Config) (*Engine, error) {
 	return engine, nil
 }
 
+// SetDetMaxSideLen 修改检测模型的最长边。用于按输入尺寸收紧算量：
+// preprocessDetImage 会把整图缩放到这个边长，小裁剪区被放大到 960 纯属浪费。
+// 非并发安全，调用方需保证不与 RunOCR 并发。
+func (e *Engine) SetDetMaxSideLen(side int) {
+	if side > 0 {
+		e.detMaxSideLen = side
+	}
+}
+
+// DetMaxSideLen 返回当前检测模型的最长边。
+func (e *Engine) DetMaxSideLen() int { return e.detMaxSideLen }
+
 // RunDetect 图像文字区域检测
 func (e *Engine) RunDetect(img image.Image) ([][4]int, error) {
 	origBounds := img.Bounds()

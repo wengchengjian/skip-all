@@ -57,6 +57,47 @@ func DefaultPaddleOptions() PaddleOptions {
 type paddleOCR struct {
 	mu     sync.Mutex
 	engine ocr.Engine
+	// detMaxSideLen 是配置里的上限；实际每帧按输入尺寸再压一次。
+	detMaxSideLen int
+}
+
+// adaptiveDetSideLen 按输入尺寸收紧检测模型的最长边。
+//
+// go-ocr 的 preprocessDetImage 会把整图缩放到 DetMaxSideLen，跟原图多小无关：
+// 68x57 的技能冷却小区域也会被放大到 960x832，白跑十几倍算力。
+// 实测同一张 68x57 区域：side=960 平均 334ms，side=480 平均 80ms，
+// 真实截图上"是否在冷却"的判定在 side=480/320/160 都仍然正确。
+//
+// 规则：最长边不超过 4 倍上限时就不再放大（至少留 4 倍余量给 det 找小字），
+// 同时不低于 minDetSideLen，避免缩太狠导致小字检不出。
+func adaptiveDetSideLen(w, h, limit int) int {
+	longest := w
+	if h > longest {
+		longest = h
+	}
+	if longest <= 0 {
+		return limit
+	}
+	side := limit
+	if scaled := longest * 4; scaled < side {
+		side = scaled
+	}
+	if side < minDetSideLen {
+		side = minDetSideLen
+	}
+	if side > limit {
+		side = limit
+	}
+	return side
+}
+
+// minDetSideLen 是自适应检测边长下限，保证小字仍能检出。
+const minDetSideLen = 160
+
+// detSideLenSetter 是 go-ocr 引擎按帧调整检测边长的能力。
+type detSideLenSetter interface {
+	SetDetMaxSideLen(int)
+	DetMaxSideLen() int
 }
 
 // NewPaddleOCR 使用 modelDir 下的 det.onnx、rec.onnx、字典和 onnxruntime 动态库创建 OCR 引擎。
@@ -113,7 +154,7 @@ func NewPaddleOCRWithOptions(modelDir string, opts PaddleOptions) (OCR, error) {
 	if err != nil {
 		return nil, fmt.Errorf("创建 PaddleOCR 引擎: %w", err)
 	}
-	return &paddleOCR{engine: engine}, nil
+	return &paddleOCR{engine: engine, detMaxSideLen: opts.DetMaxSideLen}, nil
 }
 
 // Recognize 识别整张图片中的文本。
@@ -135,6 +176,14 @@ func (p *paddleOCR) Recognize(img image.Image, opts OCROptions) (blocks []TextBl
 	input := img
 	if opts.ColorRange != nil {
 		input = filterByColorRange(img, *opts.ColorRange)
+	}
+	// 按本次输入的尺寸收紧检测边长：小裁剪区不该被放大到 960 白跑算力。
+	if sized, ok := p.engine.(detSideLenSetter); ok {
+		bounds := input.Bounds()
+		side := adaptiveDetSideLen(bounds.Dx(), bounds.Dy(), p.detMaxSideLen)
+		if side != sized.DetMaxSideLen() {
+			sized.SetDetMaxSideLen(side)
+		}
 	}
 	results, runErr := p.engine.RunOCR(input)
 	blocks = make([]TextBlock, 0, len(results))
