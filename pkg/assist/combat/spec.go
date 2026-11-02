@@ -79,6 +79,19 @@ const (
 	IntroBurn IntroMode = "burn"
 )
 
+// FlyingCheck 是鸣潮 BaseChar.flying() 的判据：
+// 队伍带滑翔装置时，edge_levitator 图标的白色像素占比 < 0.1 表示角色在空中。
+// 滑翔装置本身要在开战时用 edge_levitator 模板确认（上游 CombatCheck.has_lavitator）。
+type FlyingCheck struct {
+	Area              geom.Rect // edge_levitator 图标区域（1080p）
+	ColorRange        [2][3]uint8
+	MaxRatio          float64 // 白色占比低于此值算在空中，上游 0.1
+	TemplateArea      geom.Rect
+	TemplateSubDir    string
+	TemplateID        string
+	TemplateThreshold float64 // 上游 find_one threshold=0.65
+}
+
 // ForteCheck 是"共鸣回路是否已满"的判据：上游 BaseChar.is_forte_full() 在
 // (2251,1993)-(2311,2016)（4K）里数接近纯白的像素占比，超过 0.08 就算满。
 type ForteCheck struct {
@@ -172,6 +185,7 @@ type Spec struct {
 	AbortArea    string                   // 中断检测的 OCR 区域名（画面配置里），留空不检测
 	AbortTexts   []string                 // 命中这些文字说明战斗被打断（复活/失败界面），暂停出招
 	UltReady     *UltReadyCheck           // 后台角色大招就绪判据，命中给切人加分
+	Flying       *FlyingCheck             // 空中判据（鸣潮 flying()），留空表示不判定
 	ForteFull    *ForteCheck              // 共鸣回路是否已满的判据（鸣潮）
 	ForteGate    map[string]ForteNeed     // 哪些角色的技能要等回路状态，对应上游 is_forte_full()
 	Roles        map[string]Role          // 角色定位，切人时用来打分
@@ -183,6 +197,9 @@ type Spec struct {
 	Interval      time.Duration // 每步之间的间隔
 	Hold          time.Duration // 命中证据后保持战斗态的时间
 	IdleWait      time.Duration // 不在战斗时的等待
+	// LiberationWindows 是各角色"解放动画仍在进行"的时长（上游 still_in_liberation 的
+	// 12 秒基类值，Encore 9.5 秒、Xiangliyao 25 秒各自重写）；缺省 12 秒。
+	LiberationWindows map[string]time.Duration
 }
 
 // DefaultPlan 是一套通用的连招节奏：普攻起手、夹技能、中间接爆发与闪避。

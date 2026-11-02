@@ -27,6 +27,14 @@ func TestCombatSpecIsConsistent(t *testing.T) {
 		}
 	}
 
+	// 2.1 滑翔装置模板必须存在，否则 flying() 永远不成立。
+	if spec.Flying != nil && spec.Flying.TemplateID != "" {
+		p := filepath.Join(templatesRoot, spec.Flying.TemplateSubDir, spec.Flying.TemplateID, "raw.png")
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("空中判据缺少模板 %s: %v", p, err)
+		}
+	}
+
 	// 3. 就绪/冷却区域必须落在 1920x1080 逻辑分辨率内。
 	inBounds := func(r [4]int, name string) {
 		if r[0] < 0 || r[1] < 0 || r[2] > 1920 || r[3] > 1080 || r[2] <= r[0] || r[3] <= r[1] {

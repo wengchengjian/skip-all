@@ -31,7 +31,7 @@
 | `is_health_bar()` / `is_boss()` 判据 | `HealthBar` 红条 + `BossBar` 橙色，整帧颜色矩形 | 已移植 |
 | 协奏满切人 | `Concerto` 环覆盖率 + 切人打分 | 已移植 |
 | 角色识别（键位数字缺失法） | `games/wuwa/team.go`，模板 `char_N_text` | 已移植 |
-| 队伍头像认人 | 62 个角色头像模板，白名单缓存 | 已移植 |
+| 队伍头像认人 | 63 个角色头像模板，白名单缓存 | 已移植 |
 | 角色定位（`char_type`） | 57 条，`agent_roles.go` | 已移植 |
 | 角色专属连招（`do_perform()`） | 55 个角色，`agent_plans.go` | 近似（出手顺序） |
 | 技能可用性 `available()` | `Spec.Ready` 三个按钮 | 已移植 |
@@ -41,7 +41,9 @@
 | 治疗位 `switch_healer()` | `HealerLocator`，8 个治疗角色模板 | 已移植 |
 | 入场技 `handle_intro()` | `Spec.IntroSteps` = 技能 + 普攻 | 近似（无角色条件分支） |
 | 切人优先级 `get_switch_priority()` | 定位打分模型 | 近似（无 intro/buff 时间） |
-| 角色条件分支（能量、Forte 层数） | `wuwaRuleExt` + `agent_rules.go`：155 条规则（49 个角色）用 技能/声骸/解放可用、回路满/未满、协奏满、入场中、延奏来源 判定 | 部分移植（能量/Forte 层数等内部计时器条件仍未支持） |
+| 空中判据 `flying()` | `FlyingCheck` + `CombatState.Flying`：edge_levitator 模板确认滑翔装置，白色占比 < 0.1 | 已移植 |
+| 解放窗口 `still_in_liberation()` | `CombatState.InLiberation`：按角色记录解放时刻，基类 12 秒 / Encore 9.5 / Xiangliyao 25 | 已移植（墙钟近似） |
+| 角色条件分支（能量、Forte 层数） | `wuwaRuleExt` + `agent_rules.go`：157 条规则（49 个角色）用 技能/声骸/解放可用、回路满/未满、协奏满、入场中、飞行中、解放中、延奏来源 判定 | 部分移植（能量/Forte 层数等内部计时器条件仍未支持） |
 
 ## 绝区零
 
@@ -111,7 +113,7 @@
 
 ## 已知差异汇总
 
-1. 鸣潮角色连招是 `do_perform()` 的出手顺序近似；逐角色条件规则已机械提取 155 条（49 个角色），但能量/Forte 层数与内部计时器条件仍未支持。
+1. 鸣潮角色连招是 `do_perform()` 的出手顺序近似；逐角色条件规则已机械提取 157 条（49 个角色），但能量/Forte 层数与内部计时器条件仍未支持。
 2. 绝区零 81/369 条规则条件依赖本项目无法判定的状态（主要是 `仪玄-术法值`、`雅-落霜` 这类没有颜色定义的专属资源条），不会命中。
 3. `zzzDodgeExt` 用颜色占比近似上游的 YOLO 分类，阈值需要实机校准。
 4. 所有坐标来自上游 1080p/4K 参考裁剪并按固定像素归一化，未在实机上逐项校色。

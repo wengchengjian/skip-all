@@ -21,27 +21,27 @@
 | 今汐入场爆发 | `Jinhsi.handle_intro()`：技能能按就按，进冷却后声骸收尾 | `IntroByAgent["char_jinhsi"]` |
 | 今汐 incarnate | `Jinhsi.handle_incarnation()`：交替普攻/共鸣，动画结束后收尾 | `wuwaJinhsiExt` |
 | 重击 | `heavy_attack(duration=0.6)` / `heavy_click_forte()` | `StepHeavy` → `ActionClickHold` → `Input.ClickHold`（16 个角色用到） |
+| 空中判据 | `BaseChar.flying()`：`edge_levitator` 模板确认滑翔装置（阈值 0.65），图标区白色占比 < 0.1 算在空中 | `FlyingCheck` + `CombatState.Flying` |
 | 角色连招 | 各 `do_perform()` 里出手顺序 | `agentPlans`（55 个角色） |
-| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**155 条角色专属规则（49 个角色）+ BaseChar 回退规则（其余 8 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 延奏=<角色id> |
+| **逐角色条件规则** | 各 `do_perform()` 里的 `if` 分支 | `wuwaRuleExt` + `agent_rules.go`（**157 条角色专属规则（49 个角色）+ BaseChar 回退规则（其余 8 个角色）**），条件语法同绝区零：`! & | ()`，原子 = 技能可用 / 声骸可用 / 解放可用 / 回路满 / 回路未满 / 协奏满 / 入场中 / 飞行中 / 解放中 / 延奏=<角色id> |
 | 角色定位 | `char_type` | `agentRoles`（57 个） |
 
 ## 明确不做
 
 | 项 | 上游规模 | 为什么不做 |
 | --- | --- | --- |
-| 逐条件连招里**无法表达**的部分 | 见下 | 条件依赖上游内部计时器（`still_in_liberation`、`crisis_time_left`、`nightfall_time_left`、`last_heavy` 等），屏幕上观测不到；这类条件所在的分支**被降级为无条件规则或直接跳过**，不假装精确 |
+| 逐条件连招里**无法表达**的部分 | 见下 | 条件依赖上游内部计时器（`crisis_time_left`、`nightfall_time_left`、`last_heavy` 等），屏幕上观测不到；这类条件所在的分支**被降级为无条件规则或直接跳过**，不假装精确 |
 
-机械提取时统计到的条件出现次数（来自生成脚本输出；其中 `is_con_full` / `has_intro` / `check_outro` 已映射成规则原子）：
+机械提取时统计到的条件出现次数（来自生成脚本输出；其中 `is_con_full` / `has_intro` / `check_outro` / `flying` / `still_in_liberation` 已映射成规则原子）：
 
 ```text
-flying 22   is_con_full 10   check_outro 8   still_in_liberation 5   has_intro 7   can_resonance_step2 1
+flying 21   is_con_full 10   check_outro 8   has_intro 7   still_in_liberation 4   can_resonance_step2 1
 ```
 > 口径：上面是生成脚本的统计（57 个角色、`do_perform()` 一层内联）；全量 `src/char/*.py` 的 if 行更多（审计：flying 45、check_outro 10、still_in_liberation 8），差异来自跨方法（`do_perform_interlock`、`wait_for_accelerate_ready`）与 `get_switch_priority` 等不在提取范围的分支。
 
 | `check_outro()` 的分支 | 10 个角色 | 检测已做会话记账（`CombatState.LastOutro` + `延奏=` 原子）；10 个分支全是循环时长/收尾序列的修饰，不产生单步动作，因此不进规则表 |
 | `get_switch_priority()` 重写 | 26 个角色 | 同上；其中**可机械提取的那一类"在场是谁则必须切我"已经做了**（`SwitchSynergy`，10 对） |
 | `need_fast_perform()` | 6 个角色 | 判据就是"队友的 `get_switch_priority` 是否 MUST"，自身没有独立语义 |
-| `flying()` | 8 个角色 | 只在装备滑翔装置（`has_lavitator`）时生效 |
 | 协奏百分比 | — | 我们已有环覆盖率，上游也是面积比，改成百分比不改变任何决策 |
 
 ## 未验证的部分

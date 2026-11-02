@@ -110,3 +110,31 @@ func TestRuleExtOutroAtom(t *testing.T) {
 		}
 	}
 }
+
+// TestRuleExtFlyingAndLiberationAtoms 验证 飞行中 / 解放中 两个会话状态原子。
+func TestRuleExtFlyingAndLiberationAtoms(t *testing.T) {
+	rules := map[string][]wuwaRule{
+		"char_changli": {
+			{Cond: "飞行中", Ops: []combat.Step{{Kind: combat.StepHeavy}}},
+			{Cond: "解放中", Ops: []combat.Step{{Kind: combat.StepAttack}}},
+			{Cond: "1", Ops: []combat.Step{{Kind: combat.StepSkill}}},
+		},
+	}
+	cases := []struct {
+		name string
+		st   combat.CombatState
+		want string
+	}{
+		{"飞行中", combat.CombatState{Flying: true}, "规则-飞行中"},
+		{"解放中", combat.CombatState{InLiberation: true}, "规则-解放中"},
+		{"都不成立", combat.CombatState{}, "规则-1"},
+	}
+	for _, c := range cases {
+		ext := &wuwaRuleExt{Team: ruleTeam{agent: "char_changli"}, Rules: rules}
+		ext.SetCombatState(c.st)
+		_, state, ok, err := ext.Step(nil, assist.Frame{Image: ruleFrame(false, false), At: time.Now()})
+		if err != nil || !ok || state != c.want {
+			t.Fatalf("%s: state=%q err=%v", c.name, state, err)
+		}
+	}
+}

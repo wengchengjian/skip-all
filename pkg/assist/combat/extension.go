@@ -29,6 +29,10 @@ type CombatState struct {
 	// 队里 last_switch_time 最大的那个队友，即刚放完延奏的人）。
 	// 只有 InIntro 期间才有意义；没切过人时为空。
 	LastOutro string
+	// Flying 表示当前是否在空中（上游 BaseChar.flying()）。
+	Flying bool
+	// InLiberation 表示当前角色的共鸣解放动画是否还在窗口内（上游 still_in_liberation()）。
+	InLiberation bool
 }
 
 // StateAware 是扩展可选实现的状态回调。

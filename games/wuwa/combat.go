@@ -108,6 +108,23 @@ func combatSpec() combat.Spec {
 			Threshold: 0.8,
 			Bonus:     15,
 		},
+		// 空中判据：上游 BaseChar.flying() —— 队伍带滑翔装置（edge_levitator 模板，
+		// 开战 find_one threshold=0.65）时，edge_levitator 图标区域白色像素占比 < 0.1 算在空中。
+		// 模板记录 4K (3015,1887) 82x82，折半后图标区 (1507,943)-(1549,985)。
+		Flying: &combat.FlyingCheck{
+			Area:              geom.Rect{X1: 1507, Y1: 943, X2: 1549, Y2: 985},
+			ColorRange:        [2][3]uint8{{244, 244, 244}, {255, 255, 255}},
+			MaxRatio:          0.1,
+			TemplateArea:      geom.Rect{X1: 1499, Y1: 935, X2: 1557, Y2: 993},
+			TemplateSubDir:    "flying",
+			TemplateID:        "edge_levitator",
+			TemplateThreshold: 0.65,
+		},
+		// 解放窗口：上游 BaseChar.still_in_liberation() 基类 12 秒；Encore 9.5、Xiangliyao 25 各自重写。
+		LiberationWindows: map[string]time.Duration{
+			"char_encore":     9500 * time.Millisecond,
+			"char_xiangliyao": 25 * time.Second,
+		},
 		// 共鸣回路是否已满：上游 BaseChar.is_forte_full()，4K (2251,1993)-(2311,2016) 折半，
 		// 近白像素（244-255/246-255/250-255）占比 > 0.08 视为满。
 		ForteFull: &combat.ForteCheck{

@@ -54,12 +54,17 @@ type Session struct {
 	// outroAgent 是上一次切走的角色模板 id。上游 check_outro() 在入场时
 	// 取队伍里 last_switch_time 最大的队友，就是刚放完延奏的那个人。
 	outroAgent string
-	cdCache    map[StepKind]cdEntry
-	slotSeen   map[int]time.Time
-	switchInAt map[int]time.Time
-	introLeft  []Step
-	introUntil time.Time
-	introMode  IntroMode
+	// lastLiberation 记录每个角色最近一次按解放的时刻（上游 last_liberation/liberation_time）。
+	lastLiberation map[string]time.Time
+	// flyingChecked/hasLavitator 是开战后用 edge_levitator 模板确认的一次性状态。
+	flyingChecked bool
+	hasLavitator  bool
+	cdCache       map[StepKind]cdEntry
+	slotSeen      map[int]time.Time
+	switchInAt    map[int]time.Time
+	introLeft     []Step
+	introUntil    time.Time
+	introMode     IntroMode
 	// 切人后要确认真的切过去了：后台输入可能被吞，上游 switch_next_char 里也会复查 in_team。
 	pendingFrom int
 	pendingAt   time.Time
@@ -68,7 +73,7 @@ type Session struct {
 }
 
 func newSession(rt assist.Runtime, spec Spec, cfg sessionSettings) *Session {
-	return &Session{rt: rt, spec: spec, cfg: cfg, cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
+	return &Session{rt: rt, spec: spec, cfg: cfg, lastLiberation: make(map[string]time.Time), cdCache: make(map[StepKind]cdEntry), slotSeen: make(map[int]time.Time), switchInAt: make(map[int]time.Time)}
 }
 
 // cdEntry 是冷却 OCR 的短时缓存，避免每帧都对技能按钮跑 OCR。
@@ -101,6 +106,9 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		s.agentAt = time.Time{}
 		s.agentID = ""
 		s.outroAgent = ""
+		s.lastLiberation = make(map[string]time.Time)
+		s.flyingChecked = false
+		s.hasLavitator = false
 		s.introLeft = nil
 		// 上游在战斗结束后会切回治疗位；这里也是同一件事。
 		if s.healed && !s.cfg.noHealer {
@@ -432,6 +440,11 @@ func (s *Session) stepAction(frame assist.Frame, step Step) (assist.Action, stri
 		if s.spec.Keys.Liberation == "" || s.cfg.noLiberation || !s.ready(frame, StepLiberation) {
 			return assist.Action{}, "", false
 		}
+		now := frame.At
+		if now.IsZero() {
+			now = time.Now()
+		}
+		s.noteLiberation(frame, now)
 		return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Liberation}, "爆发", true
 	case StepDodge:
 		if s.spec.Keys.Dodge == "" || s.cfg.noDodge {
@@ -476,6 +489,8 @@ func (s *Session) pushCombatState(frame assist.Frame, now time.Time) {
 			ConcertoFull: s.concertoLit(frame),
 			InIntro:      !s.introUntil.IsZero(),
 			LastOutro:    s.outroAgent,
+			Flying:       s.flying(frame),
+			InLiberation: s.inLiberation(frame, now),
 		})
 	}
 }
@@ -494,6 +509,7 @@ func (s *Session) runExtensions(frame assist.Frame) (assist.Action, string, bool
 			return assist.Action{}, "", false, fmt.Errorf("扩展 %s: %w", ext.Name(), err)
 		}
 		if ok {
+			s.noteAction(action, frame)
 			return action, state, true, nil
 		}
 	}
@@ -563,6 +579,74 @@ func (s *Session) concertoLit(frame assist.Frame) bool {
 		full = defaultConcertoFullRatio
 	}
 	return coverage >= full
+}
+
+// flying 对应上游 BaseChar.flying()：
+// 先确认队伍带滑翔装置（edge_levitator 模板，开战一次），
+// 再看 edge_levitator 图标区域白色占比是否 < 0.1。
+func (s *Session) flying(frame assist.Frame) bool {
+	check := s.spec.Flying
+	if check == nil {
+		return false
+	}
+	if !s.flyingChecked {
+		s.flyingChecked = true
+		if check.TemplateID != "" {
+			matches, err := s.rt.MatchTemplate(frame, screen.Area{Name: "滑翔装置", Rect: check.TemplateArea},
+				vision.TemplateRef{SubDir: check.TemplateSubDir, ID: check.TemplateID}, check.TemplateThreshold)
+			if err == nil && len(matches) > 0 {
+				s.hasLavitator = true
+			}
+		}
+	}
+	if !s.hasLavitator {
+		return false
+	}
+	max := check.MaxRatio
+	if max <= 0 {
+		max = 0.1
+	}
+	return vision.ColorRatio(frame.Image, check.Area, check.ColorRange) < max
+}
+
+// noteLiberation 记录当前角色按下了共鸣解放。上游 click_liberation() 成功后
+// 会更新 last_liberation（部分角色用 liberation_time），这是 still_in_liberation 的起点。
+func (s *Session) noteLiberation(frame assist.Frame, now time.Time) {
+	agent := s.currentAgent(frame)
+	if agent == "" {
+		return
+	}
+	s.lastLiberation[agent] = now
+}
+
+// inLiberation 对应上游 BaseChar.still_in_liberation()：
+// 当前角色最近一次解放后未超过该角色的窗口（基类 12 秒，Encore 9.5、Xiangliyao 25）。
+func (s *Session) inLiberation(frame assist.Frame, now time.Time) bool {
+	agent := s.currentAgent(frame)
+	if agent == "" {
+		return false
+	}
+	at, ok := s.lastLiberation[agent]
+	if !ok {
+		return false
+	}
+	window := 12 * time.Second
+	if w, ok := s.spec.LiberationWindows[agent]; ok && w > 0 {
+		window = w
+	}
+	return now.Sub(at) < window
+}
+
+// noteAction 在扩展返回动作时补记解放（扩展直接按了爆发键的情况）。
+func (s *Session) noteAction(action assist.Action, frame assist.Frame) {
+	if s.spec.Keys.Liberation == "" || action.Kind != assist.ActionKeyTap || action.Key != s.spec.Keys.Liberation {
+		return
+	}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s.noteLiberation(frame, now)
 }
 
 func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Action, bool) {
