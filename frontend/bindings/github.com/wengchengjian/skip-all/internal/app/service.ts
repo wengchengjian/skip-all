@@ -203,3 +203,10 @@ export function Stop(): $CancellablePromise<void> {
 export function StopAll(): $CancellablePromise<void> {
     return $Call.ByID(3450832536);
 }
+
+/**
+ * ToggleFeatureEverywhere 翻转功能开关并返回新状态，供全局快捷键使用。
+ */
+export function ToggleFeatureEverywhere(featureID: string): $CancellablePromise<boolean> {
+    return $Call.ByID(1146425843, featureID);
+}

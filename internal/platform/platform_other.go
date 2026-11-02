@@ -58,6 +58,49 @@ func ProcessAlive([]string) bool { return true }
 // ProcessUsage 在非 Windows 平台不统计性能占用。
 func ProcessUsage() (cpuPercent, memMB float64) { return 0, 0 }
 
+// Hotkey 是一条快捷键绑定（非 Windows 平台为空实现）。
+type Hotkey struct {
+	Accelerator string
+	Callback    func()
+}
+
+// HotkeyBinding 是解析后的快捷键（非 Windows 平台不使用）。
+type HotkeyBinding struct{ Source string }
+
+// HotkeyManager 在非 Windows 平台是空实现。
+type HotkeyManager struct{}
+
+// NewHotkeyManager 在非 Windows 平台返回空实现。
+func NewHotkeyManager(func() bool) *HotkeyManager { return &HotkeyManager{} }
+
+// Start 在非 Windows 平台不做任何事。
+func (*HotkeyManager) Start() {}
+
+// Stop 在非 Windows 平台不做任何事。
+func (*HotkeyManager) Stop() {}
+
+// Set 在非 Windows 平台忽略全部绑定。
+func (*HotkeyManager) Set([]Hotkey) []error { return nil }
+
+// ParseAccelerator 在非 Windows 平台不解析快捷键。
+func ParseAccelerator(s string) (*HotkeyBinding, error) { return &HotkeyBinding{Source: s}, nil }
+
+// ForegroundProcessName 在非 Windows 平台返回空串。
+func ForegroundProcessName() string { return "" }
+
+// TrayIcon 在非 Windows 平台返回空图标。
+func TrayIcon(r, g, b uint8, size int) []byte { return nil }
+
+// 提示音类型（非 Windows 平台不使用）。
+const (
+	BeepInfo    uint32 = 0
+	BeepWarning uint32 = 0
+	BeepError   uint32 = 0
+)
+
+// Beep 在非 Windows 平台不做任何事。
+func Beep(uint32) {}
+
 // NewCapturer 在非 Windows 平台返回占位截图器。
 func NewCapturer(w Window) Capturer { return unsupportedCapturer{} }
 

@@ -23,6 +23,40 @@ func TestDefaultApp(t *testing.T) {
 	if !cfg.Update.AutoCheck || !cfg.Update.AutoDownload || cfg.Update.Repo != "wengchengjian/skip-all" {
 		t.Fatalf("默认更新配置错误: %+v", cfg.Update)
 	}
+	if cfg.Hotkeys.Toggle != "Home" {
+		t.Fatalf("默认运行开关应为 Home: %+v", cfg.Hotkeys)
+	}
+	if !cfg.Hotkeys.GameOnly {
+		t.Fatalf("默认应只在游戏前台生效: %+v", cfg.Hotkeys)
+	}
+	if !cfg.Hotkeys.Sound {
+		t.Fatalf("默认应开启提示音: %+v", cfg.Hotkeys)
+	}
+	if cfg.Hotkeys.Features["story_skip"] != "F11" || cfg.Hotkeys.Features["auto_combat"] != "F12" {
+		t.Fatalf("默认功能快捷键错误: %+v", cfg.Hotkeys.Features)
+	}
+}
+
+func TestNormalizeFillsFeatureHotkeys(t *testing.T) {
+	cfg := DefaultApp()
+	// 模拟旧配置文件：只有 toggle/panic，没有 features 段。
+	cfg.Hotkeys.Features = nil
+	if err := cfg.normalizeAndValidate(); err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if cfg.Hotkeys.Features["story_skip"] != "F11" || cfg.Hotkeys.Features["auto_combat"] != "F12" {
+		t.Fatalf("应补上默认功能快捷键: %+v", cfg.Hotkeys.Features)
+	}
+
+	// 显式留空表示该功能不绑快捷键，不能被默认值覆盖。
+	cfg = DefaultApp()
+	cfg.Hotkeys.Features["auto_combat"] = ""
+	if err := cfg.normalizeAndValidate(); err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if cfg.Hotkeys.Features["auto_combat"] != "" {
+		t.Fatalf("显式留空应保留: %+v", cfg.Hotkeys.Features)
+	}
 }
 
 func TestLoadAppMissingFile(t *testing.T) {

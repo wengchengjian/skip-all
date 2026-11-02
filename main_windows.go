@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,8 +16,10 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"github.com/wengchengjian/skip-all/games"
 	"github.com/wengchengjian/skip-all/internal/app"
 	"github.com/wengchengjian/skip-all/internal/engine"
+	"github.com/wengchengjian/skip-all/internal/platform"
 )
 
 //go:embed all:frontend/dist
@@ -109,8 +113,13 @@ type trayUI struct {
 	tray     *application.SystemTray
 	games    map[string]*application.MenuItem
 	features map[string]*application.MenuItem
-	pause    *application.MenuItem
+	run      *application.MenuItem
 	usage    *application.MenuItem
+
+	// 状态相关的展示：图标颜色 + 提示音，只在状态真正变化时更新。
+	lastState  string
+	icons      map[string][]byte
+	statusText string
 }
 
 // setupTray 建立托盘图标与菜单：轻量模式下这是唯一常驻的界面。
@@ -119,12 +128,11 @@ func setupTray() *trayUI {
 	ui := &trayUI{
 		games:    make(map[string]*application.MenuItem),
 		features: make(map[string]*application.MenuItem),
+		icons:    stateIcons(),
 	}
 	tray := wailsApp.SystemTray.New()
 	ui.tray = tray
-	if len(trayIcon) > 0 {
-		tray.SetIcon(trayIcon)
-	}
+	tray.SetIcon(ui.icons[stateKey(appSvc.GetStatus())])
 	tray.SetTooltip("SkipAll")
 
 	state := appSvc.GetTrayState()
@@ -140,10 +148,14 @@ func setupTray() *trayUI {
 	}
 	menu.AddSeparator()
 
-	// 功能开关：一次只玩一个游戏，开关直接作用于全部游戏。
+	// 功能开关：一次只玩一个游戏，开关直接作用于全部游戏；标签里带上各自的快捷键。
 	for _, feature := range state.Features {
 		featureID := feature.ID
-		item := menu.AddCheckbox(feature.Name, feature.Enabled)
+		label := feature.Name
+		if key := featureHotkey(feature.ID); key != "" {
+			label = label + "  " + key
+		}
+		item := menu.AddCheckbox(label, feature.Enabled)
 		item.OnClick(func(ctx *application.Context) {
 			if err := appSvc.SetFeatureEnabledEverywhere(featureID, ctx.IsChecked()); err != nil {
 				log.Printf("切换功能 %s 失败: %v", featureID, err)
@@ -153,10 +165,9 @@ func setupTray() *trayUI {
 	}
 	menu.AddSeparator()
 
-	menu.Add("开始").OnClick(func(*application.Context) { startAll() })
-	ui.pause = menu.Add("暂停")
-	ui.pause.OnClick(func(*application.Context) { togglePause() })
-	menu.Add("停止").OnClick(func(*application.Context) { appSvc.StopAll() })
+	// 运行控制压成一行：显示当前状态并标注启动/暂停/急停快捷键，点击等同于启动/停止。
+	ui.run = menu.Add(runLabel(state.Status))
+	ui.run.OnClick(func(*application.Context) { toggleRun() })
 	menu.AddSeparator()
 
 	ui.usage = menu.Add(usageLabel(state))
@@ -197,13 +208,62 @@ func (ui *trayUI) refresh() {
 			item.SetChecked(feature.Enabled)
 		}
 	}
-	if state.Status.Paused {
-		ui.pause.SetLabel("继续")
-	} else {
-		ui.pause.SetLabel("暂停")
-	}
+	ui.run.SetLabel(runLabel(state.Status))
 	ui.usage.SetLabel(usageLabel(state))
 	ui.tray.SetTooltip(tooltipText(state))
+	ui.syncState(state.Status)
+}
+
+// syncState 在运行状态真正变化时换图标颜色并播放提示音。
+func (ui *trayUI) syncState(status app.StatusView) {
+	key := stateKey(status)
+	if key == ui.lastState {
+		return
+	}
+	ui.lastState = key
+	if icon := ui.icons[key]; len(icon) > 0 {
+		ui.tray.SetIcon(icon)
+	}
+	beepFor(key)
+}
+
+// stateKey 把状态归成托盘要区分的几种：idle / running / paused / error。
+func stateKey(status app.StatusView) string {
+	switch engine.State(status.State) {
+	case engine.StateRunning:
+		return "running"
+	case engine.StatePaused:
+		return "paused"
+	case engine.StateError:
+		return "error"
+	}
+	return "idle"
+}
+
+// stateIcons 生成四种状态对应的托盘图标颜色。
+// 灰=待命、绿=运行中、琥珀=已暂停、红=异常。
+func stateIcons() map[string][]byte {
+	return map[string][]byte{
+		"idle":    platform.TrayIcon(148, 152, 160, 32),
+		"running": platform.TrayIcon(64, 186, 106, 32),
+		"paused":  platform.TrayIcon(232, 168, 64, 32),
+		"error":   platform.TrayIcon(224, 90, 90, 32),
+	}
+}
+
+// beepFor 按状态播放提示音；用户关掉 sound 时静音。
+func beepFor(key string) {
+	if !appSvc.GetConfig().App.Hotkeys.Sound {
+		return
+	}
+	switch key {
+	case "running":
+		platform.Beep(platform.BeepInfo)
+	case "paused", "idle":
+		platform.Beep(platform.BeepWarning)
+	case "error":
+		platform.Beep(platform.BeepError)
+	}
 }
 
 // gameLabel 把游戏状态压成菜单里的一行。
@@ -223,6 +283,39 @@ func gameLabel(game app.GameStateView) string {
 		text = "异常"
 	}
 	return mark + " " + game.Name + " · " + text
+}
+
+// runLabel 把运行状态压成一行：状态 + 唯一的切换快捷键与下一步动作。
+// 点击这一行等同于按该快捷键。
+func runLabel(status app.StatusView) string {
+	key := toggleKeyLabel()
+	switch engine.State(status.State) {
+	case engine.StateRunning:
+		return "● 运行中 · " + key + " 暂停"
+	case engine.StatePaused:
+		return "● 已暂停 · " + key + " 继续"
+	case engine.StateError:
+		return "● 异常 · " + key + " 重新开始"
+	}
+	return "○ 已停止 · " + key + " 启动"
+}
+
+// toggleKeyLabel 返回运行开关的显示名，缺省 Home。
+func toggleKeyLabel() string {
+	key := strings.TrimSpace(appSvc.GetConfig().App.Hotkeys.Toggle)
+	if key == "" {
+		key = "Home"
+	}
+	return key
+}
+
+// featureHotkey 返回功能的全局快捷键，未配置返回空串。
+func featureHotkey(featureID string) string {
+	hotkeys := appSvc.GetConfig().App.Hotkeys
+	if key, ok := hotkeys.Features[featureID]; ok {
+		return strings.TrimSpace(key)
+	}
+	return ""
 }
 
 // usageLabel 生成性能占用那一行。
@@ -375,23 +468,88 @@ func quitApp() {
 	wailsApp.Quit()
 }
 
-// registerHotkeys 注册全局快捷键，轻量模式下同样有效。
+// hotkeyManager 用低级键盘钩子实现快捷键：能拦住 F12 这类系统保留键，
+// 并且只在游戏窗口处于前台时才吃掉按键。
+var hotkeyManager *platform.HotkeyManager
+
+// registerHotkeys 绑定快捷键；配置变化时可重复调用以重新绑定。
 func registerHotkeys() {
 	hotkeys := appSvc.GetConfig().App.Hotkeys
-	toggleKey := hotkeys.Toggle
+	toggleKey := strings.TrimSpace(hotkeys.Toggle)
 	if toggleKey == "" {
 		toggleKey = "F9"
 	}
-	panicKey := hotkeys.Panic
-	if panicKey == "" {
-		panicKey = "F10"
+	bindings := []platform.Hotkey{
+		{Accelerator: toggleKey, Callback: toggleRun},
 	}
-	if err := wailsApp.GlobalShortcut.Register(toggleKey, togglePauseOrStart); err != nil {
-		log.Printf("注册快捷键 %s 失败: %v", toggleKey, err)
+	for featureID, key := range hotkeys.Features {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		id := featureID
+		bindings = append(bindings, platform.Hotkey{
+			Accelerator: key,
+			Callback: func() {
+				enabled, err := appSvc.ToggleFeatureEverywhere(id)
+				if err != nil {
+					log.Printf("快捷键 %s 切换 %s 失败: %v", key, id, err)
+					return
+				}
+				log.Printf("快捷键 %s：%s %s", key, id, enabledText(enabled))
+			},
+		})
 	}
-	if err := wailsApp.GlobalShortcut.Register(panicKey, func() { appSvc.StopAll() }); err != nil {
-		log.Printf("注册快捷键 %s 失败: %v", panicKey, err)
+
+	if hotkeyManager == nil {
+		hotkeyManager = platform.NewHotkeyManager(hotkeyGate)
+		hotkeyManager.Start()
 	}
+	for _, err := range hotkeyManager.Set(bindings) {
+		log.Printf("快捷键配置无效: %v", err)
+	}
+}
+
+// hotkeyGate 决定快捷键此刻是否生效：默认只在游戏窗口（或本程序窗口）位于
+// 前台时拦截按键，避免抢占其它应用的 F9/F11/F12。
+func hotkeyGate() bool {
+	cfg := appSvc.GetConfig().App
+	if !cfg.Hotkeys.GameOnly {
+		return true
+	}
+	foreground := platform.ForegroundProcessName()
+	if foreground == "" {
+		return false
+	}
+	// 本程序自己的窗口在前台时也放行，方便开着主界面直接按快捷键。
+	if own := ownProcessName(); own != "" && foreground == own {
+		return true
+	}
+	for _, game := range games.All() {
+		for _, name := range game.ProcessNames() {
+			if strings.EqualFold(foreground, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ownProcessName 返回本程序的可执行文件名（小写）。
+func ownProcessName() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(filepath.Base(exe))
+}
+
+// enabledText 把开关状态转成日志用词。
+func enabledText(enabled bool) string {
+	if enabled {
+		return "已启用"
+	}
+	return "已停用"
 }
 
 // startAll 开始全部会话，失败时只记日志。
@@ -401,17 +559,9 @@ func startAll() {
 	}
 }
 
-// togglePause 在暂停与继续之间切换。
-func togglePause() {
-	if appSvc.GetStatus().Paused {
-		appSvc.ResumeAll()
-		return
-	}
-	appSvc.PauseAll()
-}
-
-// togglePauseOrStart 对应 F9：空闲时开始全部，运行中暂停，暂停中继续。
-func togglePauseOrStart() {
+// toggleRun 是唯一的运行开关，按一次走一步：
+// 已停止/异常 → 启动，运行中 → 暂停，已暂停 → 继续。
+func toggleRun() {
 	status := appSvc.GetStatus()
 	switch {
 	case status.Paused:

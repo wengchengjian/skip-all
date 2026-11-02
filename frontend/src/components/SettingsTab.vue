@@ -49,8 +49,11 @@ const form = reactive({
   useConcerto: true,
   combatInterval: 0.15,
   excludedGames: [] as string[],
-  hotkeyToggle: "F9",
-  hotkeyPanic: "F10",
+  hotkeyToggle: "Home",
+  hotkeyStorySkip: "F11",
+  hotkeyAutoCombat: "F12",
+  hotkeyGameOnly: true,
+  hotkeySound: true,
   updateAutoCheck: true,
   updateAutoDownload: true,
 });
@@ -98,8 +101,12 @@ watch(
     form.ocrGpu = config.app.OCR?.GPU || "auto";
     form.gamepad = config.app.Input.Gamepad;
     form.excludedGames = [...(config.app.ExcludedGames ?? [])];
-    form.hotkeyToggle = config.app.Hotkeys.Toggle || "F9";
-    form.hotkeyPanic = config.app.Hotkeys.Panic || "F10";
+    form.hotkeyToggle = config.app.Hotkeys.Toggle || "Home";
+    const featureKeys = config.app.Hotkeys.Features ?? {};
+    form.hotkeyStorySkip = featureKeys[STORY_SKIP] ?? "F11";
+    form.hotkeyAutoCombat = featureKeys[AUTO_COMBAT] ?? "F12";
+    form.hotkeyGameOnly = config.app.Hotkeys.GameOnly ?? true;
+    form.hotkeySound = config.app.Hotkeys.Sound ?? true;
     form.updateAutoCheck = config.app.Update?.AutoCheck ?? true;
     form.updateAutoDownload = config.app.Update?.AutoDownload ?? true;
   },
@@ -126,8 +133,15 @@ function save() {
   view.app.Input.PauseWhenBackground = form.pauseWhenBackground;
   if (view.app.OCR) view.app.OCR.GPU = form.ocrGpu;
   view.app.ExcludedGames = [...form.excludedGames];
-  view.app.Hotkeys.Toggle = form.hotkeyToggle.trim() || "F9";
-  view.app.Hotkeys.Panic = form.hotkeyPanic.trim() || "F10";
+  view.app.Hotkeys.Toggle = form.hotkeyToggle.trim() || "Home";
+  // 功能快捷键留空表示该功能不绑快捷键。
+  view.app.Hotkeys.Features = {
+    ...(view.app.Hotkeys.Features ?? {}),
+    [STORY_SKIP]: form.hotkeyStorySkip.trim(),
+    [AUTO_COMBAT]: form.hotkeyAutoCombat.trim(),
+  };
+  view.app.Hotkeys.GameOnly = form.hotkeyGameOnly;
+  view.app.Hotkeys.Sound = form.hotkeySound;
   if (view.app.Update) {
     view.app.Update.AutoCheck = form.updateAutoCheck;
     view.app.Update.AutoDownload = form.updateAutoDownload;
@@ -255,14 +269,32 @@ function save() {
           <div class="section-title"><span>03</span><h3>快捷键</h3></div>
           <div class="form-grid">
             <label class="field">
-              <span>切换快捷键 / TOGGLE</span>
-              <input v-model="form.hotkeyToggle" type="text" placeholder="F9" />
+              <span>运行开关 / TOGGLE</span>
+              <input v-model="form.hotkeyToggle" type="text" placeholder="Home" />
             </label>
             <label class="field">
-              <span>急停快捷键 / PANIC</span>
-              <input v-model="form.hotkeyPanic" type="text" placeholder="F10" />
+              <span>剧情跳过开关 / STORY</span>
+              <input v-model="form.hotkeyStorySkip" type="text" placeholder="F11（留空不绑定）" />
+            </label>
+            <label class="field">
+              <span>自动战斗开关 / COMBAT</span>
+              <input v-model="form.hotkeyAutoCombat" type="text" placeholder="F12（留空不绑定）" />
+            </label>
+            <label class="checkbox-field">
+              <input v-model="form.hotkeyGameOnly" type="checkbox" />
+              <span>只在游戏窗口前台时生效（不抢占其它应用的按键）</span>
+            </label>
+            <label class="checkbox-field">
+              <input v-model="form.hotkeySound" type="checkbox" />
+              <span>状态变化播放提示音</span>
             </label>
           </div>
+          <p class="form-hint">
+            运行开关按一次走一步：已停止 → 启动，运行中 → 暂停，已暂停 → 继续。托盘图标颜色随状态变化：灰=已停止、绿=运行中、琥珀=已暂停、红=异常。
+          </p>
+          <p class="form-hint">
+            快捷键支持 F1–F24、字母数字、Home/End/Insert/Delete 等具名键，以及 Ctrl/Alt/Shift/Win 组合，例如 Home、F9、Ctrl+F11。由键盘钩子实现，F12 这类系统保留键同样可用。
+          </p>
         </div>
 
         <div class="settings-section">

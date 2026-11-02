@@ -38,10 +38,28 @@ export interface GameConfig {
 
 /**
  * HotkeysConfig 是全局快捷键。
+ * Features 按功能 ID 指定开关快捷键；缺省时用 DefaultFeatureHotkeys。
  */
 export interface HotkeysConfig {
+    /**
+     * Toggle 是唯一的运行开关，按一次在 启动 / 暂停 / 继续 / 停止 之间轮转。
+     */
     "Toggle": string;
-    "Panic": string;
+
+    /**
+     * Features 按功能 ID 指定开关快捷键。
+     */
+    "Features": { [_ in string]?: string } | null;
+
+    /**
+     * GameOnly 为 true 时快捷键只在游戏窗口处于前台才生效，不影响其它程序。
+     */
+    "GameOnly": boolean;
+
+    /**
+     * Sound 为 true 时状态变化会播放提示音。
+     */
+    "Sound": boolean;
 }
 
 /**

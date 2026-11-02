@@ -6,6 +6,7 @@ package platform
 import (
 	"errors"
 	"image"
+	"image/color"
 	"time"
 
 	win "github.com/wengchengjian/skip-all/internal/platform/windows"
@@ -61,6 +62,39 @@ func ProcessAlive(names []string) bool { return win.ProcessAlive(names) }
 
 // ProcessUsage 返回本进程的 CPU 占用率（%）与工作集（MB），供托盘显示性能占用。
 func ProcessUsage() (cpuPercent, memMB float64) { return win.ProcessUsage() }
+
+// Hotkey 是一条快捷键绑定。
+type Hotkey = win.Hotkey
+
+// HotkeyBinding 是解析后的快捷键。
+type HotkeyBinding = win.HotkeyBinding
+
+// HotkeyManager 用低级键盘钩子实现全局快捷键：只有前台是目标进程时才拦截按键。
+type HotkeyManager = win.HotkeyManager
+
+// NewHotkeyManager 创建快捷键管理器；gate 返回 false 时快捷键不生效，按键透传。
+func NewHotkeyManager(gate func() bool) *HotkeyManager { return win.NewHotkeyManager(gate) }
+
+// ParseAccelerator 解析快捷键字符串，供配置校验。
+func ParseAccelerator(s string) (*HotkeyBinding, error) { return win.ParseAccelerator(s) }
+
+// ForegroundProcessName 返回前台窗口所属进程的文件名（小写）。
+func ForegroundProcessName() string { return win.ForegroundProcessName() }
+
+// TrayIcon 生成指定颜色的圆形托盘图标（ICO 字节流）。
+func TrayIcon(r, g, b uint8, size int) []byte {
+	return win.TrayIcon(color.RGBA{R: r, G: g, B: b, A: 255}, size)
+}
+
+// 提示音类型。
+const (
+	BeepInfo    = win.BeepInfo
+	BeepWarning = win.BeepWarning
+	BeepError   = win.BeepError
+)
+
+// Beep 播放一次系统提示音。
+func Beep(kind uint32) { win.Beep(kind) }
 
 // NewCapturer 创建截图器。
 func NewCapturer(w Window) Capturer {

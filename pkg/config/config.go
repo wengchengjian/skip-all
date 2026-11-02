@@ -43,9 +43,21 @@ type InputConfig struct {
 }
 
 // HotkeysConfig 是全局快捷键。
+// Features 按功能 ID 指定开关快捷键；缺省时用 DefaultFeatureHotkeys。
 type HotkeysConfig struct {
+	// Toggle 是唯一的运行开关，按一次在 启动 / 暂停 / 继续 / 停止 之间轮转。
 	Toggle string `yaml:"toggle"`
-	Panic  string `yaml:"panic"`
+	// Features 按功能 ID 指定开关快捷键。
+	Features map[string]string `yaml:"features"`
+	// GameOnly 为 true 时快捷键只在游戏窗口处于前台才生效，不影响其它程序。
+	GameOnly bool `yaml:"game_only"`
+	// Sound 为 true 时状态变化会播放提示音。
+	Sound bool `yaml:"sound"`
+}
+
+// DefaultFeatureHotkeys 是功能开关的默认快捷键。
+func DefaultFeatureHotkeys() map[string]string {
+	return map[string]string{"story_skip": "F11", "auto_combat": "F12"}
 }
 
 // UpdateConfig 是自动更新配置。
@@ -75,7 +87,7 @@ func DefaultApp() AppConfig {
 		LogLevel:      "info",
 		Capture:       CaptureConfig{Method: "auto", TargetFPS: 5},
 		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "auto", Gamepad: false},
-		Hotkeys:       HotkeysConfig{Toggle: "F9", Panic: "F10"},
+		Hotkeys:       HotkeysConfig{Toggle: "Home", Features: DefaultFeatureHotkeys(), GameOnly: true, Sound: true},
 		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true, GPU: "auto"},
 		Update:        UpdateConfig{AutoCheck: true, AutoDownload: true, Repo: "wengchengjian/skip-all"},
 		ExcludedGames: []string{},
@@ -163,10 +175,16 @@ func (c *AppConfig) normalizeAndValidate() error {
 		return fmt.Errorf("未知 input.cursor_mode: %s", c.Input.CursorMode)
 	}
 	if c.Hotkeys.Toggle == "" {
-		c.Hotkeys.Toggle = "F9"
+		c.Hotkeys.Toggle = "Home"
 	}
-	if c.Hotkeys.Panic == "" {
-		c.Hotkeys.Panic = "F10"
+	// 功能快捷键：配置文件缺项时补默认值，空字符串表示"该功能不绑快捷键"。
+	if c.Hotkeys.Features == nil {
+		c.Hotkeys.Features = DefaultFeatureHotkeys()
+	}
+	for id, key := range DefaultFeatureHotkeys() {
+		if _, ok := c.Hotkeys.Features[id]; !ok {
+			c.Hotkeys.Features[id] = key
+		}
 	}
 	if c.Update.Repo == "" {
 		c.Update.Repo = "wengchengjian/skip-all"
