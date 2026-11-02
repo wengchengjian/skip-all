@@ -779,6 +779,20 @@ func (s *Service) featureTogglesLocked(all []assist.Game) []FeatureToggleView {
 	return out
 }
 
+// ToggleFeatureEverywhere 翻转功能开关并返回新状态，供全局快捷键使用。
+func (s *Service) ToggleFeatureEverywhere(featureID string) (bool, error) {
+	s.mu.Lock()
+	enabled := true
+	for _, game := range games.All() {
+		if !s.featureEnabledLocked(game.ID(), featureID) {
+			enabled = false
+			break
+		}
+	}
+	s.mu.Unlock()
+	return !enabled, s.SetFeatureEnabledEverywhere(featureID, !enabled)
+}
+
 // SetFeatureEnabledEverywhere 在全部游戏上启用/停用某个功能；运行中的会话按新配置重启。
 // 玩家同一时间只玩一个游戏，托盘里的功能开关就没必要再按游戏区分。
 func (s *Service) SetFeatureEnabledEverywhere(featureID string, enabled bool) error {
