@@ -92,7 +92,9 @@ func adaptiveDetSideLen(w, h, limit int) int {
 }
 
 // minDetSideLen 是自适应检测边长下限，保证小字仍能检出。
-const minDetSideLen = 160
+// 放大倍数扫描（TestOCRCooldownUpscaleSweep）显示 192 以下数字会认错，
+// 例如 8.4 被读成 18.4，所以下限取 192。
+const minDetSideLen = 192
 
 // detSideLenSetter 是 go-ocr 引擎按帧调整检测边长的能力。
 type detSideLenSetter interface {
