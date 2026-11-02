@@ -10,6 +10,7 @@ export type {
   GameView,
   LogEntry,
   StatusView,
+  UpdateView,
 } from "../bindings/github.com/wengchengjian/skip-all/internal/app/index.js";
 
 export type {
@@ -20,4 +21,5 @@ export type {
   InputConfig,
   OCRConfig,
   StorySkipConfig,
+  UpdateConfig,
 } from "../bindings/github.com/wengchengjian/skip-all/pkg/config/models.js";

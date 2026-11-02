@@ -12,6 +12,7 @@ export interface AppConfig {
     "Input": InputConfig;
     "Hotkeys": HotkeysConfig;
     "OCR": OCRConfig;
+    "Update": UpdateConfig;
 
     /**
      * ExcludedGames 是启动时跳过的游戏 ID；默认空表示全部启用。
@@ -86,4 +87,12 @@ export interface OCRConfig {
 export interface StorySkipConfig {
     "Enabled": boolean;
     "Settings": { [_ in string]?: any } | null;
+}
+
+/**
+ * UpdateConfig 是自动更新配置。
+ */
+export interface UpdateConfig {
+    "AutoCheck": boolean;
+    "Repo": string;
 }

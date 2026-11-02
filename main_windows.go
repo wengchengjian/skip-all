@@ -31,11 +31,17 @@ func main() {
 	}
 
 	var quitting atomic.Bool
+	var quitApp func()
 
 	appSvc, err := app.NewService(app.Options{
 		EventSink: func(name string, data any) {
 			if wailsApp != nil {
 				wailsApp.Event.Emit(name, data)
+			}
+		},
+		Quit: func() {
+			if quitApp != nil {
+				quitApp()
 			}
 		},
 	})
@@ -59,6 +65,8 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 	})
+
+	quitApp = wailsApp.Quit
 
 	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "SkipAll",
@@ -153,6 +161,8 @@ func main() {
 	if err := wailsApp.GlobalShortcut.Register(panicKey, func() { appSvc.StopAll() }); err != nil {
 		log.Printf("注册快捷键 %s 失败: %v", panicKey, err)
 	}
+
+	appSvc.StartAutoUpdateCheck()
 
 	// 启动即自动执行所有未排除游戏；游戏窗口稍后打开时后台扫描会继续尝试。
 	go func() {

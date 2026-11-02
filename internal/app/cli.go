@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Version 是当前版本号。
-const Version = "0.1.0"
+// Version 是当前版本号；发布构建可用 -ldflags "-X ...Version=x.y.z" 覆盖。
+var Version = "0.1.0"
 
 // RunCLI 执行命令行入口，返回进程退出码。
 func RunCLI(args []string) int {

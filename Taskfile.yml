@@ -21,6 +21,8 @@ includes:
 tasks:
   test:
     summary: Runs go vet and the Go test suite
+    deps:
+      - task: common:build:frontend
     cmds:
       - go vet ./...
       - go test ./... -count=1

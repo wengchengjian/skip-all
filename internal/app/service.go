@@ -17,6 +17,7 @@ import (
 	"github.com/wengchengjian/skip-all/internal/engine"
 	"github.com/wengchengjian/skip-all/internal/model"
 	"github.com/wengchengjian/skip-all/internal/platform"
+	"github.com/wengchengjian/skip-all/internal/update"
 	"github.com/wengchengjian/skip-all/pkg/assist"
 	"github.com/wengchengjian/skip-all/pkg/assist/storyskip"
 	"github.com/wengchengjian/skip-all/pkg/config"
@@ -33,6 +34,7 @@ type Options struct {
 	DataDir   string
 	AssetsDir string
 	EventSink EventSink
+	Quit      func()
 }
 
 // Service 是应用服务。
@@ -48,6 +50,10 @@ type Service struct {
 	gameCfg    map[string]config.GameConfig
 	ocr        vision.OCR
 	ocrBackend string
+
+	updateChecker *update.Checker
+	updateInfo    update.Info
+	quit          func()
 
 	sessions  map[string]*gameSession
 	watchStop chan struct{}
@@ -113,6 +119,30 @@ type StatusView struct {
 type ActionResult struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+}
+
+// UpdateView 是 UI 可见的更新检查结果。
+type UpdateView struct {
+	Current     string `json:"current"`
+	Latest      string `json:"latest"`
+	Available   bool   `json:"available"`
+	Notes       string `json:"notes"`
+	URL         string `json:"url"`
+	AssetName   string `json:"assetName"`
+	AssetURL    string `json:"assetUrl"`
+	AssetDigest string `json:"assetDigest"`
+	AssetSize   int64  `json:"assetSize"`
+	ChecksumURL string `json:"checksumUrl"`
+	PublishedAt string `json:"publishedAt"`
+}
+
+func toUpdateView(info update.Info) UpdateView {
+	return UpdateView{
+		Current: info.Current, Latest: info.Latest, Available: info.Available,
+		Notes: info.Notes, URL: info.URL, AssetName: info.AssetName,
+		AssetURL: info.AssetURL, AssetDigest: info.AssetDigest, AssetSize: info.AssetSize,
+		ChecksumURL: info.ChecksumURL, PublishedAt: info.PublishedAt,
+	}
 }
 
 // DoctorReport 是 doctor 命令的输出。
@@ -190,7 +220,7 @@ func NewService(opts Options) (*Service, error) {
 	if _, statErr := os.Stat(assets); statErr != nil {
 		assets = ""
 	}
-	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, sink: opts.EventSink, appCfg: appCfg, gameCfg: gameCfg, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
+	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, sink: opts.EventSink, appCfg: appCfg, gameCfg: gameCfg, updateChecker: update.NewChecker(appCfg.Update.Repo), quit: opts.Quit, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
 	svc.appendLog("info", "skip-all 服务已初始化")
 	return svc, nil
 }

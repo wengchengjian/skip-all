@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from "vue";
-import type { ConfigView, GameView } from "../api";
+import type { ConfigView, GameView, UpdateView } from "../api";
 
 const props = defineProps<{
   config: ConfigView | null;
   games: GameView[];
   selectedGameId: string;
   saving: boolean;
+  version: string;
+  updateInfo: UpdateView | null;
+  updateChecking: boolean;
+  updateInstalling: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "save", view: ConfigView): void;
+  (e: "check-update"): void;
+  (e: "install-update"): void;
 }>();
 
 // 功能 ID 来自后端 registry，通过 GameView.features 暴露；设置页只渲染游戏确实拥有的功能。
@@ -246,6 +252,23 @@ function save() {
               <input v-model="form.hotkeyPanic" type="text" placeholder="F10" />
             </label>
           </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title"><span>04</span><h3>更新</h3></div>
+          <p class="form-hint">
+            当前版本 {{ version || "dev" }}
+            <span v-if="updateInfo?.available"> · 发现 {{ updateInfo.latest }}</span>
+          </p>
+          <div class="form-actions">
+            <button class="btn btn-ghost btn-small" :disabled="updateChecking || updateInstalling" @click="emit('check-update')">
+              {{ updateChecking ? "检查中…" : "检查更新" }}
+            </button>
+            <button v-if="updateInfo?.available" class="btn btn-primary btn-small" :disabled="updateInstalling" @click="emit('install-update')">
+              {{ updateInstalling ? "更新中…" : "立即更新" }}
+            </button>
+          </div>
+          <p v-if="updateInfo?.notes" class="form-hint">{{ updateInfo.notes }}</p>
         </div>
       </section>
 

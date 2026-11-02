@@ -15,6 +15,13 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * CheckForUpdates 查询 GitHub latest release 并缓存结果。
+ */
+export function CheckForUpdates(): $CancellablePromise<$models.UpdateView> {
+    return $Call.ByID(3395477876);
+}
+
+/**
  * Doctor 检查窗口、截图与 OCR 状态，并保存一帧调试图。
  */
 export function Doctor(gameID: string): $CancellablePromise<$models.DoctorReport> {
@@ -47,10 +54,31 @@ export function GetStatus(): $CancellablePromise<$models.StatusView> {
 }
 
 /**
+ * GetUpdateInfo 返回最近一次检查结果。
+ */
+export function GetUpdateInfo(): $CancellablePromise<$models.UpdateView> {
+    return $Call.ByID(444037578);
+}
+
+/**
+ * GetVersion 返回当前构建版本。
+ */
+export function GetVersion(): $CancellablePromise<string> {
+    return $Call.ByID(3729447885);
+}
+
+/**
  * InstallModels 下载并安装 OCR 模型。
  */
 export function InstallModels(): $CancellablePromise<void> {
     return $Call.ByID(1216738998);
+}
+
+/**
+ * InstallUpdate 下载并校验最新版本，随后交给外部脚本替换 exe 并重启。
+ */
+export function InstallUpdate(): $CancellablePromise<$models.ActionResult> {
+    return $Call.ByID(3461829845);
 }
 
 /**
@@ -114,6 +142,13 @@ export function Start(gameID: string, featureID: string): $CancellablePromise<$m
  */
 export function StartAll(): $CancellablePromise<$models.ActionResult> {
     return $Call.ByID(2638882886);
+}
+
+/**
+ * StartAutoUpdateCheck 在启动后异步检查一次更新；失败只写日志，不阻塞主流程。
+ */
+export function StartAutoUpdateCheck(): $CancellablePromise<void> {
+    return $Call.ByID(3143693499);
 }
 
 /**

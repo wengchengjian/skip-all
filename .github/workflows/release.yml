@@ -1,0 +1,69 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: add tool paths
+        shell: pwsh
+        run: |
+          "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "C:\Program Files\Git\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: frontend deps
+        run: pnpm --dir frontend install --frozen-lockfile
+      - name: install wails3
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+      - name: build frontend
+        run: wails3 task common:build:frontend
+      - name: generate syso
+        shell: pwsh
+        run: |
+          Push-Location build
+          wails3 generate syso -arch amd64 -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../wails_windows_amd64.syso
+          Pop-Location
+      - name: build release exe
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          go build -tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui -X github.com/wengchengjian/skip-all/internal/app.Version=$version" -o bin/skip-all.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item wails_windows_amd64.syso -Force -ErrorAction SilentlyContinue
+      - name: package artifacts
+        shell: pwsh
+        run: |
+          Copy-Item bin/skip-all.exe bin/skip-all-windows-amd64.exe -Force
+          if (Test-Path assets/runtime) { Copy-Item assets/runtime bin/runtime -Recurse -Force }
+          if (Test-Path assets/models/ppocrv6) { New-Item -ItemType Directory -Force bin/models | Out-Null; Copy-Item assets/models/ppocrv6 bin/models -Recurse -Force }
+          Compress-Archive -Path bin/skip-all.exe,bin/runtime,bin/models -DestinationPath bin/skip-all-windows-amd64.zip -Force
+          $hash = (Get-FileHash bin/skip-all.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  skip-all-windows-amd64.exe" | Set-Content -Encoding ascii bin/checksums.txt
+      - name: publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bin/skip-all-windows-amd64.exe
+            bin/skip-all-windows-amd64.zip
+            bin/checksums.txt
+          generate_release_notes: true

@@ -26,6 +26,10 @@ const {
   doctor,
   doctorLoading,
   doctorError,
+  version,
+  updateInfo,
+  updateChecking,
+  updateInstalling,
   notice,
   noticeType,
   stateLabel,
@@ -39,6 +43,8 @@ const {
   installModels,
   checkModels,
   runDoctor,
+  checkUpdates,
+  installUpdate,
 } = useSkipAll();
 
 const pageTitle = computed(() => ({ home: "任务总览", settings: "协议配置", logs: "运行日志" }[tab.value]));
@@ -78,7 +84,7 @@ const fpsLabel = computed(() =>
       </nav>
 
       <div class="sidebar-foot">
-        <span>BUILD 0.1.0</span>
+        <span>BUILD {{ version || "dev" }}</span>
         <span>WIN / X64</span>
       </div>
     </aside>
@@ -136,7 +142,13 @@ const fpsLabel = computed(() =>
           :games="games"
           :selected-game-id="selectedGameId"
           :saving="busy"
+          :version="version"
+          :update-info="updateInfo"
+          :update-checking="updateChecking"
+          :update-installing="updateInstalling"
           @save="saveConfig"
+          @check-update="checkUpdates"
+          @install-update="installUpdate"
         />
         <LogsTab v-else :logs="logs" />
       </main>

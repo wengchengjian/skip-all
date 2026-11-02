@@ -8,5 +8,6 @@ export type {
     HotkeysConfig,
     InputConfig,
     OCRConfig,
-    StorySkipConfig
+    StorySkipConfig,
+    UpdateConfig
 } from "./models.js";

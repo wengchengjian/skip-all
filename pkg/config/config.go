@@ -23,6 +23,7 @@ type AppConfig struct {
 	Input         InputConfig   `yaml:"input"`
 	Hotkeys       HotkeysConfig `yaml:"hotkeys"`
 	OCR           OCRConfig     `yaml:"ocr"`
+	Update        UpdateConfig  `yaml:"update"`
 	// ExcludedGames 是启动时跳过的游戏 ID；默认空表示全部启用。
 	ExcludedGames []string `yaml:"excluded_games"`
 }
@@ -47,6 +48,12 @@ type HotkeysConfig struct {
 	Panic  string `yaml:"panic"`
 }
 
+// UpdateConfig 是自动更新配置。
+type UpdateConfig struct {
+	AutoCheck bool   `yaml:"auto_check"`
+	Repo      string `yaml:"repo"`
+}
+
 // OCRConfig 是 OCR 模型配置。
 type OCRConfig struct {
 	Model        string `yaml:"model"`
@@ -68,6 +75,7 @@ func DefaultApp() AppConfig {
 		Input:         InputConfig{PauseWhenBackground: false, Mode: "background", CursorMode: "auto", Gamepad: false},
 		Hotkeys:       HotkeysConfig{Toggle: "F9", Panic: "F10"},
 		OCR:           OCRConfig{Model: "ppocrv6", AutoDownload: true, GPU: "auto"},
+		Update:        UpdateConfig{AutoCheck: true, Repo: "wengchengjian/skip-all"},
 		ExcludedGames: []string{},
 	}
 }
@@ -157,6 +165,9 @@ func (c *AppConfig) normalizeAndValidate() error {
 	}
 	if c.Hotkeys.Panic == "" {
 		c.Hotkeys.Panic = "F10"
+	}
+	if c.Update.Repo == "" {
+		c.Update.Repo = "wengchengjian/skip-all"
 	}
 	if c.OCR.Model == "" {
 		c.OCR.Model = "ppocrv6"

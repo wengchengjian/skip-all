@@ -81,3 +81,20 @@ export interface StatusView {
     "targetFps": number;
     "ocrBackend": string;
 }
+
+/**
+ * UpdateView 是 UI 可见的更新检查结果。
+ */
+export interface UpdateView {
+    "current": string;
+    "latest": string;
+    "available": boolean;
+    "notes": string;
+    "url": string;
+    "assetName": string;
+    "assetUrl": string;
+    "assetDigest": string;
+    "assetSize": number;
+    "checksumUrl": string;
+    "publishedAt": string;
+}

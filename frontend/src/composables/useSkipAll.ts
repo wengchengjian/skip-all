@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { Events } from "@wailsio/runtime";
 import { Service } from "../api";
-import type { ConfigView, DoctorReport, GameView, LogEntry, StatusView } from "../api";
+import type { ConfigView, DoctorReport, GameView, LogEntry, StatusView, UpdateView } from "../api";
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -40,6 +40,11 @@ export function useSkipAll() {
   const doctor = ref<DoctorReport | null>(null);
   const doctorLoading = ref(false);
   const doctorError = ref("");
+
+  const version = ref("");
+  const updateInfo = ref<UpdateView | null>(null);
+  const updateChecking = ref(false);
+  const updateInstalling = ref(false);
 
   const notice = ref("");
   const noticeType = ref<"ok" | "error">("ok");
@@ -232,6 +237,42 @@ export function useSkipAll() {
     }
   }
 
+  async function loadVersion() {
+    try {
+      version.value = await Service.GetVersion();
+    } catch {
+      version.value = "";
+    }
+  }
+
+  async function checkUpdates() {
+    updateChecking.value = true;
+    try {
+      const info = await Service.CheckForUpdates();
+      updateInfo.value = info ?? null;
+      if (info?.available) showNotice("发现新版本 " + info.latest);
+      else showNotice("当前已是最新版本");
+    } catch (err) {
+      showNotice("检查更新失败：" + errorText(err), "error");
+    } finally {
+      updateChecking.value = false;
+    }
+  }
+
+  async function installUpdate() {
+    if (!updateInfo.value?.available || updateInstalling.value) return;
+    updateInstalling.value = true;
+    try {
+      const result = await Service.InstallUpdate();
+      if (result.ok) showNotice("更新已下载，应用即将重启");
+      else showNotice(result.error || "安装更新失败", "error");
+    } catch (err) {
+      showNotice("安装更新失败：" + errorText(err), "error");
+    } finally {
+      updateInstalling.value = false;
+    }
+  }
+
   async function runDoctor() {
     doctorLoading.value = true;
     doctorError.value = "";
@@ -262,9 +303,14 @@ export function useSkipAll() {
         modelProgress.value = Math.min(100, Math.max(0, data.percent ?? 0));
         modelMessage.value = data.message ?? "";
       }),
+      Events.On("skipall:update", (event) => {
+        const data = event.data as UpdateView;
+        updateInfo.value = data;
+        if (data.available) showNotice("发现新版本 " + data.latest);
+      }),
     );
     statusTimer = window.setInterval(refreshStatus, 1000);
-    await Promise.all([loadGames(), loadConfig(), refreshStatus(), loadLogs(), checkModels()]);
+    await Promise.all([loadGames(), loadConfig(), refreshStatus(), loadLogs(), checkModels(), loadVersion()]);
   });
 
   onBeforeUnmount(() => {
@@ -294,6 +340,10 @@ export function useSkipAll() {
     doctor,
     doctorLoading,
     doctorError,
+    version,
+    updateInfo,
+    updateChecking,
+    updateInstalling,
     notice,
     noticeType,
     selectGame,
@@ -306,5 +356,7 @@ export function useSkipAll() {
     installModels,
     checkModels,
     runDoctor,
+    checkUpdates,
+    installUpdate,
   };
 }
