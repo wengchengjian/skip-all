@@ -142,6 +142,10 @@ func combatSpec() combat.Spec {
 			"char_encore": true,
 			"char_lupa":   true,
 		},
+		SwitchIntroMUST: map[string]bool{
+			"char_camellya": true,
+			"char_jinhsi":   true,
+		},
 		BuffTimes: agentBuffTime,
 		Switch:    &combat.SwitchPolicy{MinInterval: 3 * time.Second},
 		// 角色专属连招（上游 do_perform() 的出手顺序）。

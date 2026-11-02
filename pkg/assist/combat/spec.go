@@ -196,10 +196,13 @@ type Spec struct {
 	// LiberationMustSwitch 是"候选角色仍在解放动画窗口内时必须优先切给他"的表。
 	// 对应上游 Brant/Encore/Lupa 的 get_switch_priority(): still_in_liberation() -> MUST。
 	LiberationMustSwitch map[string]bool
-	Switch               *SwitchPolicy // 切人规则，留空用默认间隔
-	Interval             time.Duration // 每步之间的间隔
-	Hold                 time.Duration // 命中证据后保持战斗态的时间
-	IdleWait             time.Duration // 不在战斗时的等待
+	// SwitchIntroMUST 是"只要本次是协奏入场就必须切给他"的候选表。
+	// 对应上游 Camellya / Jinhsi 的 get_switch_priority() 里 has_intro -> MUST。
+	SwitchIntroMUST map[string]bool
+	Switch          *SwitchPolicy // 切人规则，留空用默认间隔
+	Interval        time.Duration // 每步之间的间隔
+	Hold            time.Duration // 命中证据后保持战斗态的时间
+	IdleWait        time.Duration // 不在战斗时的等待
 	// LiberationWindows 是各角色"解放动画仍在进行"的时长（上游 still_in_liberation 的
 	// 12 秒基类值，Encore 9.5 秒、Xiangliyao 25 秒各自重写）；缺省 12 秒。
 	LiberationWindows map[string]time.Duration
