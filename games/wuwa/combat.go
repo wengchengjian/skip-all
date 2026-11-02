@@ -150,13 +150,13 @@ func combatSpec() combat.Spec {
 			"char_camellya": true,
 			"char_jinhsi":   true,
 		},
-		SwitchIntroAfter: map[string]time.Duration{"char_luhesi": 24 * time.Second},
+		SwitchIntroAfter: map[string]time.Duration{"char_luhesi": 24 * time.Second, "char_suisui": 40 * time.Second},
 		// 上游 get_switch_priority 的 NO 锁：Brant 的 perform_anchor<4s、
 		// Encore 的 last_heavy<4.6s。用最近一次技能/重击时间近似。
 		SwitchNoAfterSkill:      map[string]time.Duration{"char_brant": 4 * time.Second, "char_zani": 1600 * time.Millisecond},
 		SwitchNoAfterHeavy:      map[string]time.Duration{"char_encore": 4600 * time.Millisecond},
 		SwitchNoAfterLiberation: map[string]time.Duration{"char_phrolova": 24 * time.Second},
-		SwitchNoAfterPerform:    map[string]time.Duration{"char_douling": 8 * time.Second},
+		SwitchNoAfterPerform:    map[string]time.Duration{"char_douling": 8 * time.Second, "char_suisui": 16 * time.Second},
 		ResonanceMustSwitch:     map[string]bool{"char_encore": true},
 		// 上游 wait_switch()：Zani 的夜落 2.2s、Carlotta 的声骸后 2.5s 先不切走；
 		// Cantarella 的 perform_under_outro 在 last_heavy<8s 内继续循环。
