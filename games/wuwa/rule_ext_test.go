@@ -111,6 +111,34 @@ func TestRuleExtOutroAtom(t *testing.T) {
 	}
 }
 
+// TestRuleExtOutroRules 验证 check_outro 多步收尾：LastOutro 匹配时才替换普通规则。
+func TestRuleExtOutroRules(t *testing.T) {
+	ext := &wuwaRuleExt{
+		Team:       ruleTeam{agent: "char_brant"},
+		Rules:      map[string][]wuwaRule{"char_brant": {{Cond: "1", Ops: []combat.Step{{Kind: combat.StepAttack}}}}},
+		OutroRules: agentOutroRules,
+		Skill:      geom.Rect{X1: 1592, Y1: 938, X2: 1660, Y2: 995},
+		Forte:      geom.Rect{X1: 1125, Y1: 996, X2: 1156, Y2: 1008},
+		Ready:      [2][3]uint8{{253, 253, 253}, {255, 255, 255}},
+		ForteRGB:   [2][3]uint8{{244, 246, 250}, {255, 255, 255}},
+	}
+	ext.SetCombatState(combat.CombatState{InIntro: true, LastOutro: "char_lupa"})
+	action, state, ok, err := ext.Step(nil, assist.Frame{Image: ruleFrame(true, true), At: time.Now()})
+	if err != nil || !ok || state != "规则-回路满&技能可用" || action.Key != "e" {
+		t.Fatalf("Brant 从露帕入场应走多步收尾: state=%q action=%+v err=%v", state, action, err)
+	}
+	// 来源不匹配 -> 普通规则（普攻）。
+	ext2 := &wuwaRuleExt{
+		Team: ruleTeam{agent: "char_brant"}, Rules: ext.Rules, OutroRules: agentOutroRules,
+		Skill: ext.Skill, Forte: ext.Forte, Ready: ext.Ready, ForteRGB: ext.ForteRGB,
+	}
+	ext2.SetCombatState(combat.CombatState{InIntro: true, LastOutro: "char_zhezhi"})
+	action, state, ok, err = ext2.Step(nil, assist.Frame{Image: ruleFrame(true, true), At: time.Now()})
+	if err != nil || !ok || state != "规则-1" || action.Kind != assist.ActionClick {
+		t.Fatalf("来源不匹配应走普通规则: state=%q action=%+v err=%v", state, action, err)
+	}
+}
+
 // TestRuleExtFlyingAndLiberationAtoms 验证 飞行中 / 解放中 两个会话状态原子。
 func TestRuleExtFlyingAndLiberationAtoms(t *testing.T) {
 	rules := map[string][]wuwaRule{

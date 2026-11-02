@@ -71,6 +71,7 @@ func wuwaExtensions(team combat.Team) []combat.Extension {
 			Ready:      [2][3]uint8{{253, 253, 253}, {255, 255, 255}},
 			ForteRGB:   [2][3]uint8{{244, 246, 250}, {255, 255, 255}},
 			Rules:      agentRules,
+			OutroRules: agentOutroRules,
 		},
 		&wuwaForteExt{
 			Area:        screen.Area{Name: "回路提示", Rect: geom.Rect{X1: 1080, Y1: 950, X2: 1220, Y2: 1045}},

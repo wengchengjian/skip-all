@@ -31,6 +31,9 @@ type wuwaRuleExt struct {
 	Forte      geom.Rect   // 回路满判据区域
 	ForteRGB   [2][3]uint8
 	Rules      map[string][]wuwaRule
+	// OutroRules 是 check_outro() 特殊分支的近似多步收尾：agent -> 延奏来源 -> 规则。
+	// 只有在 InIntro 且 LastOutro 匹配时才替换该角色的普通规则。
+	OutroRules map[string]map[string][]wuwaRule
 
 	lastAt  time.Time
 	queue   []combat.Step
@@ -73,6 +76,11 @@ func (e *wuwaRuleExt) Step(rt combat.Runtime, frame assist.Frame) (assist.Action
 	}
 	// 没有专属规则的角色沿用上游 BaseChar.do_perform 的保守动作（"__base__"）。
 	rules := e.Rules[agent]
+	if e.state.InIntro && e.state.LastOutro != "" {
+		if outro := e.OutroRules[agent][e.state.LastOutro]; len(outro) > 0 {
+			rules = outro
+		}
+	}
 	if len(rules) == 0 {
 		rules = e.Rules[baseRuleKey]
 	}
