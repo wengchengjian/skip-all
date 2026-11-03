@@ -22,6 +22,7 @@ var (
 	procRoGetActivationFactory = combase.NewProc("RoGetActivationFactory")
 	procWindowsCreateString    = combase.NewProc("WindowsCreateString")
 	procWindowsDeleteString    = combase.NewProc("WindowsDeleteString")
+	procCoTaskMemFree          = combase.NewProc("CoTaskMemFree")
 )
 
 // HSTRING 是 WinRT 的字符串句柄。
