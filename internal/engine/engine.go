@@ -408,6 +408,9 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 				}
 			}
 		}
+		// 本拍起点取"开始截图之前"。截图的 10~15ms 必须算进这一拍里，
+		// 否则实际周期 = 截图耗时 + 间隔，比 TargetFPS 慢一截。
+		tickStart := time.Now()
 		img, scale, frameRetain, frameRelease, err := e.captureFrame()
 		if err != nil {
 			// 进程刚好退出时截图会失败，交给进程门控处理，不累计失败次数。
@@ -429,9 +432,9 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 			continue
 		}
 		failures = 0
-		// 一拍从本拍开始时间起算，截图与决策的耗时被吸收进这一拍，
+		// 一拍从截图前的时间起算，截图与决策的耗时都被吸收进这一拍，
 		// 而不是像"干完活再睡 wait"那样累加到周期上。
-		tick := clock.Begin(time.Now())
+		tick := clock.Begin(tickStart)
 		frame := assist.Frame{Image: img, At: tick.Time, Scale: scale}
 		// 帧缓冲来自池时，本拍用完释放一次；异步 worker 会各自 Retain/Release。
 		frame.Retain = frameRetain

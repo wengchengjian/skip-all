@@ -39,6 +39,21 @@ try {
     if ($rows.Count -eq 0) { throw '没有拿到任何 PERF| 读数' }
 
 
+
+    # 引擎整拍开销：用 Wait=0 的空功能隔离功能成本。
+    $engRaw = & go test ./internal/perf -run TestEngineTickOverhead -count=1 -v -timeout 600s 2>&1
+    $engs = @()
+    foreach ($line in $engRaw) {
+        if ($line -match '^ENGINE\|(.+)$') {
+            $kv = @{}
+            foreach ($p in $Matches[1].Split('|')) {
+                $i = $p.IndexOf('=')
+                if ($i -gt 0) { $kv[$p.Substring(0, $i)] = $p.Substring($i + 1) }
+            }
+            $engs += [pscustomobject]@{ Case = $kv['case']; Fps = [double]$kv['fps']; PeriodMs = [double]$kv['period_ms'] }
+        }
+    }
+
     # 截图路径：只能对着真实 HWND 量，单独跑一个包。
     $capRaw = & go test ./internal/platform/windows -run TestCaptureBreakdown -count=1 -v -timeout 600s 2>&1
     $caps = @()
@@ -110,6 +125,19 @@ try {
         }
         $kb = '{0:N1} KB' -f ($r.Bytes / 1024.0)
         [void]$md.AppendLine("| $($r.Stage) | $($r.N) | $mean | $p50 | $p95 | $kb | $($r.Allocs) |")
+    }
+    if ($engs.Count -gt 0) {
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('## 引擎整拍')
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('用一个 Wait=0 的空功能隔离功能成本，量实际周期是否等于 TargetFPS 间隔。')
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('| 配置 | 实际 FPS | 实际周期 |')
+        [void]$md.AppendLine('| --- | ---: | ---: |')
+        foreach ($e in $engs) {
+            [void]$md.AppendLine(('| {0} | {1:N2} | {2:N2} ms |' -f $e.Case, $e.Fps, $e.PeriodMs))
+        }
+        [void]$md.AppendLine('')
     }
     if ($caps.Count -gt 0) {
         [void]$md.AppendLine('')
