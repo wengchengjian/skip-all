@@ -118,6 +118,15 @@ WGC 的 COM 调用跑在一条 `runtime.LockOSThread` 固定的专用线程上�
 5.5ms 比裸 WGC 的 3.5ms 多出来的 2ms 是 BGRA->RGBA + 缩放到 1920x1080，
 GDI 那 31.6ms 里也含同样的转换。
 
+两个必须处理的 WGC 细节：
+
+- **黄色边框**：WGC 默认会在被捕获窗口外面画一圈黄框。实测
+  `IGraphicsCaptureSession2::get_IsBorderRequired` 返回 1，用 `put_IsBorderRequired(false)`
+  可以关掉（关不掉时静默继续，旧系统没有该接口）。
+- **与游戏图形 API 无关**：WGC 捕获的是 DWM 合成后的表面，游戏用 DX11 还是 DX12
+  都不影响。鸣潮目录里同时有 `D3D12Core.dll`、`amd_fidelityfx_dx12.dll` 和
+  `Saved/PSO/D3D12`，说明它支持 DX12；但捕获层不需要知道这些。
+
 #### 候选替代方案：go2tv.app/screencast（评估结论：不直接引入）
 
 社区库 [go2tv.app/screencast](https://pkg.go.dev/go2tv.app/screencast)（MIT，

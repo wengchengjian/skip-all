@@ -11,6 +11,8 @@ import (
 const (
 	// IID_IDirect3D11CaptureFramePoolStatics（运行时 GetIids 查得）
 	iidFramePoolStatics = "7784056A-67AA-4D53-AE54-1088D5A8CA21"
+	// IGraphicsCaptureSession2，提供 put_IsBorderRequired
+	iidGraphicsCaptureSession2 = "2C39AE40-7D2E-5044-804E-8B6799D4CF9E"
 	// DirectXPixelFormat.B8G8R8A8UIntNormalized
 	pixelFormatBGRA8 = 87
 	// 帧池缓冲数
@@ -57,6 +59,10 @@ func newFramePool(dev *d3dDevice, item comPtr, width, height int32) (*framePool,
 		pool.release()
 		return nil, fmt.Errorf("CreateCaptureSession: %w", err)
 	}
+	// 关掉 WGC 默认画的黄色边框，否则用户会看到游戏窗口外一圈黄框。
+	// 关不掉不是错误（旧系统没有 IGraphicsCaptureSession2），照常继续。
+	disableBorder(session)
+
 	// IGraphicsCaptureSession::StartCapture
 	if _, err := session.call(6); err != nil {
 		session.release()
@@ -64,6 +70,24 @@ func newFramePool(dev *d3dDevice, item comPtr, width, height int32) (*framePool,
 		return nil, fmt.Errorf("StartCapture: %w", err)
 	}
 	return &framePool{pool: pool, session: session}, nil
+}
+
+// disableBorder 关掉捕获时的黄色边框。
+//
+// IGraphicsCaptureSession2 派生自 IInspectable：
+// 6 get_IsBorderRequired，7 put_IsBorderRequired。
+func disableBorder(session comPtr) {
+	id, err := parseGUID(iidGraphicsCaptureSession2)
+	if err != nil {
+		return
+	}
+	var s2 comPtr
+	if _, err := session.call(0, uintptr(unsafe.Pointer(&id)), uintptr(unsafe.Pointer(&s2.p))); err != nil {
+		return
+	}
+	defer s2.release()
+	// VARIANT_BOOL：0 = false
+	_, _ = s2.call(7, 0)
 }
 
 func (f *framePool) release() {
