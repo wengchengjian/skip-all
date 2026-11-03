@@ -139,6 +139,9 @@ type featureRuntime struct {
 	lastState  string
 	lastAction string
 	lastFrame  time.Time
+	// nextRun 是该功能下次最早被调用的时刻（由上一拍的 Wait 决定）。
+	// 零值表示"随时可以跑"。
+	nextRun time.Time
 }
 
 // New 创建 engine。features 里至少要有一个功能。
@@ -433,7 +436,7 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		// 帧缓冲来自池时，本拍用完释放一次；异步 worker 会各自 Retain/Release。
 		frame.Retain = frameRetain
 		frame.Release = frameRelease
-		wait := e.stepFeatures(runCtx, tick, frame)
+		earliest, allWaiting := e.stepFeatures(runCtx, tick, frame)
 		if runCtx.Err() != nil {
 			return nil
 		}
@@ -447,9 +450,16 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 			e.markFrame(now.Sub(lastFrameAt))
 		}
 		lastFrameAt = now
-		clock.Schedule(tick.Time, wait)
-		e.markTick(tick, wait)
-		if !sleepUntil(runCtx, clock.Next()) {
+		// 节拍周期只由 TargetFPS 决定；功能给的 Wait 不再改周期。
+		clock.Schedule(tick.Time, interval)
+		next := clock.Next()
+		// 空闲回退：只有"所有功能都要等到更晚"时才睡到那个时刻，
+		// 否则会饿死每拍都该跑的 Wait=0 功能。
+		if allWaiting && !earliest.IsZero() && earliest.After(next) {
+			next = earliest
+		}
+		e.markTick(tick, next.Sub(tick.Time))
+		if !sleepUntil(runCtx, next) {
 			return nil
 		}
 	}
@@ -480,17 +490,32 @@ func (e *Engine) createSessions(rt assist.Runtime) int {
 	return started
 }
 
-// stepFeatures 用同一帧驱动全部功能，返回本帧建议的等待时长（取各功能的最小值）。
-func (e *Engine) stepFeatures(ctx context.Context, tick Tick, frame assist.Frame) time.Duration {
-	wait := time.Duration(0)
+// stepFeatures 用同一帧驱动到期功能。
+//
+// 语义：
+//   - 节拍周期由 TargetFPS 决定，功能不能把它拉快或拉慢。
+//   - 功能返回的 Wait 只表示"这个功能下次最早什么时候再叫我"，记在 nextRun 上。
+//   - 返回 earliest = 所有在等的最小到期时刻；allWaiting = 是否**所有**运行中的
+//     功能都还在等。只有 allWaiting 为真才能做空闲回退，否则会饿死
+//     Wait=0 的功能（它每拍都该跑）。
+func (e *Engine) stepFeatures(ctx context.Context, tick Tick, frame assist.Frame) (earliest time.Time, allWaiting bool) {
+	allWaiting = true
+	anyRunning := false
 	for _, f := range e.features {
 		if ctx.Err() != nil {
-			return 0
+			return time.Time{}, false
 		}
 		e.mu.Lock()
-		session, state := f.session, f.state
+		session, state, due := f.session, f.state, f.nextRun
 		e.mu.Unlock()
 		if session == nil || state != StateRunning {
+			continue
+		}
+		anyRunning = true
+		if !due.IsZero() && tick.Time.Before(due) {
+			if earliest.IsZero() || due.Before(earliest) {
+				earliest = due
+			}
 			continue
 		}
 		result, actions, err := session.Step(ctx, frame)
@@ -501,6 +526,7 @@ func (e *Engine) stepFeatures(ctx context.Context, tick Tick, frame assist.Frame
 			f.message = err.Error()
 			e.mu.Unlock()
 			e.emit("error", fmt.Sprintf("%s 执行失败: %v", f.feature.Name(), err))
+			allWaiting = false
 			continue
 		}
 		if result.Message != "" {
@@ -516,13 +542,27 @@ func (e *Engine) stepFeatures(ctx context.Context, tick Tick, frame assist.Frame
 			f.err = err.Error()
 			e.mu.Unlock()
 			e.emit("error", fmt.Sprintf("%s 动作执行失败: %v", f.feature.Name(), err))
+			allWaiting = false
 			continue
 		}
-		if result.Wait > 0 && (wait <= 0 || result.Wait < wait) {
-			wait = result.Wait
+		next := time.Time{}
+		if result.Wait > 0 {
+			next = tick.Time.Add(result.Wait)
+			if earliest.IsZero() || next.Before(earliest) {
+				earliest = next
+			}
+		} else {
+			// Wait<=0 表示这个功能下一拍就要再跑，不能进入空闲回退。
+			allWaiting = false
 		}
+		e.mu.Lock()
+		f.nextRun = next
+		e.mu.Unlock()
 	}
-	return wait
+	if !anyRunning {
+		allWaiting = false
+	}
+	return earliest, allWaiting
 }
 
 // allFailed 报告是否全部功能都因错误退出。
