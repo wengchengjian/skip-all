@@ -38,14 +38,22 @@ var combatRules = []stepRule{
 // 脱战判定会被短暂打断（敌人转到身后、血条被特效挡住）触发，
 // 于是"战斗结束切治疗"之后两三秒又判成"战斗前切治疗"，
 // 表现就是玩家手动切到别人、程序立刻又切回治疗位。加冷却压掉这种抖动。
-const healCooldown = 20 * time.Second
+//
+// 3 秒够盖住实测的抖动窗口（2.1 秒），又不会挡住正常的
+// "打完一波、歇一下、再打下一波"。
+const healCooldown = 3 * time.Second
+
+// healReady 报告现在允许切治疗位（距离上次切治疗已超过冷却）。
+func (s *Session) healReady(now time.Time) bool {
+	return s.healAt.IsZero() || now.Sub(s.healAt) >= healCooldown
+}
 
 // rulePreHeal 在开打前先切到治疗位，保证有人能奶。
 func (s *Session) rulePreHeal(frame assist.Frame, now time.Time) (assist.Result, []assist.Action, bool, error) {
 	if s.cfg.noHealer || s.healed {
 		return assist.Result{}, nil, false, nil
 	}
-	if !s.healAt.IsZero() && now.Sub(s.healAt) < healCooldown {
+	if !s.healReady(now) {
 		s.healed = true
 		return assist.Result{}, nil, false, nil
 	}
@@ -143,9 +151,14 @@ func (s *Session) gateCombat(frame assist.Frame, now time.Time) (assist.Result, 
 	}
 	s.resetOutOfCombat()
 	// 上游在战斗结束后会切回治疗位；这里也是同一件事。
-	if s.healed && !s.cfg.noHealer {
+	//
+	// 同样要受 healCooldown 约束：脱战判定会被短暂打断反复触发，
+	// 不加约束就会"战斗结束切治疗"两秒后又"战斗前切治疗"，
+	// 玩家手动切到别人时程序立刻又切回治疗位。
+	if s.healed && !s.cfg.noHealer && s.healReady(now) {
 		if key := s.healerKey(frame); key != "" {
 			s.healed = false
+			s.healAt = now
 			return assist.Result{State: "战斗结束切治疗", Wait: s.spec.Interval},
 				[]assist.Action{{Kind: assist.ActionKeyTap, Key: key}}, true, nil
 		}
