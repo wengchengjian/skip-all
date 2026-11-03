@@ -22,8 +22,11 @@ const (
 	chosenOptionHold = 500 * time.Millisecond
 	chosenOptionMax  = 2 * time.Second
 	// 同一区域 OCR 结果缓存时间；降低循环里的重复识别开销。
-	storyCacheTTL        = 400 * time.Millisecond
-	storyButtonCacheTTL  = time.Second
+	storyCacheTTL       = 400 * time.Millisecond
+	storyButtonCacheTTL = time.Second
+	// staleResultTolerance 是"异步识别结果仍可当作当前画面"的最大滞后。
+	// 超过它就认为这份结果描述的是另一幅画面，不写进缓存。
+	staleResultTolerance = 150 * time.Millisecond
 	gamepadStoryCacheTTL = 3 * time.Second
 	guardCacheTTL        = time.Second
 	gamepadGuardCacheTTL = 3 * time.Second
@@ -145,14 +148,40 @@ func (s *Session) ocrArea(frame assist.Frame, area screen.Area, opts vision.OCRO
 			return append([]vision.TextBlock(nil), entry.blocks...), nil
 		}
 	}
-	blocks, err := s.rt.OCR(frame, area, opts)
+	blocks, srcAt, err := s.ocrFresh(frame, area, opts)
 	if err != nil {
 		return nil, err
 	}
+	// 缓存按"结果所基于的那一帧"记账。
+	//
+	// 异步运行时下 blocks 常来自更早一帧，若拿当前帧的哈希记账，就是
+	// "用新画面的哈希认证旧画面的结论"：画面变了缓存却一直命中。
+	// 反过来完全不记账又会让同画面重复请求每次都重新识别（实测 6 次识别 6 次）。
+	//
+	// 折中：记录结果真正对应的帧时间，命中时要求"这一帧画面内容没变"。
+	// 内容变了（哈希不同）或时间对不上，就重新识别。
+	entry := ocrCacheEntry{at: now, hash: hash, blocks: append([]vision.TextBlock(nil), blocks...)}
+	if !srcAt.IsZero() {
+		// 结果基于更早的帧：只有当那个帧的画面内容与当前帧一致时才可信。
+		// 拿不到旧帧的像素，就用"时间差是否在一拍之内"作为近似。
+		if now.Sub(srcAt) > staleResultTolerance {
+			// 明显滞后：这份结果描述的是别的画面，不记进缓存。
+			return blocks, nil
+		}
+	}
 	if ttl > 0 && s.ocrCache != nil {
-		s.ocrCache[key] = ocrCacheEntry{at: now, hash: hash, blocks: append([]vision.TextBlock(nil), blocks...)}
+		s.ocrCache[key] = entry
 	}
 	return blocks, nil
+}
+
+// ocrFresh 优先走 FreshOCR（能拿到结果所基于的帧时间），否则退回普通 OCR。
+func (s *Session) ocrFresh(frame assist.Frame, area screen.Area, opts vision.OCROptions) ([]vision.TextBlock, time.Time, error) {
+	if fresh, ok := s.rt.(assist.FreshOCR); ok {
+		return fresh.OCRFresh(frame, area, opts)
+	}
+	blocks, err := s.rt.OCR(frame, area, opts)
+	return blocks, time.Time{}, err
 }
 
 // Close 释放会话资源。

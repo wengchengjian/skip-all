@@ -25,6 +25,10 @@ const abortOCRTTL = 2 * time.Second
 // OCR 单次约 130ms，按 500ms 采样既不会漏掉中断，也不会让每个决策拍都被拖住。
 const abortCheckInterval = 500 * time.Millisecond
 
+// abortStaleTolerance 是中断提示判定能接受的异步滞后上限。
+// 超过它就认为这份结果描述的是"之前的画面"，不足以断言此刻有没有中断。
+const abortStaleTolerance = 150 * time.Millisecond
+
 // cooldownMinConfidence 是判定"读到冷却数字"的最低置信度。
 // 实测（真实战斗截图）：真正的冷却数字置信度 0.95~1.00，
 // 而技能图标花纹被误读出的数字只有 0.10。
@@ -336,6 +340,15 @@ func (s *Session) currentAgent(frame assist.Frame) string {
 	return s.agentID
 }
 
+// ocrFresh 优先走 FreshOCR（能拿到结果所基于的帧时间），否则退回普通 OCR。
+func (s *Session) ocrFresh(frame assist.Frame, area screen.Area, opts vision.OCROptions) ([]vision.TextBlock, time.Time, error) {
+	if fresh, ok := s.rt.(assist.FreshOCR); ok {
+		return fresh.OCRFresh(frame, area, opts)
+	}
+	blocks, err := s.rt.OCR(frame, area, opts)
+	return blocks, time.Time{}, err
+}
+
 // checkAbort 看画面上是否出现中断提示（复活/失败）。
 func (s *Session) checkAbort(frame assist.Frame) (bool, error) {
 	if s.spec.AbortArea == "" || len(s.spec.AbortTexts) == 0 {
@@ -358,9 +371,18 @@ func (s *Session) checkAbort(frame assist.Frame) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	blocks, err := s.rt.OCR(frame, *area, vision.OCROptions{})
+	// 中断提示是瞬时判据：它决定"立刻停手"。异步运行时可能返回更早一帧
+	// 的结果，若那份结果太旧（角色可能已经复活、提示已经消失），就不能
+	// 拿它当"现在没中断"的依据——这次采样作废，等下一轮。
+	blocks, srcAt, err := s.ocrFresh(frame, *area, vision.OCROptions{})
 	if err != nil {
 		return false, fmt.Errorf("识别中断提示: %w", err)
+	}
+	if !srcAt.IsZero() && now.Sub(srcAt) > abortStaleTolerance {
+		// 结果太旧：既不能断言"有中断"，也不能断言"没中断"。
+		// 撤销本次采样时间，让下一拍重新识别。
+		s.abortCheckedAt = time.Time{}
+		return false, nil
 	}
 	for _, block := range blocks {
 		for _, text := range s.spec.AbortTexts {
