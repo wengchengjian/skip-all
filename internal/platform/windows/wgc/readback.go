@@ -59,6 +59,39 @@ func getDesc(tex comPtr) (texture2DDesc, error) {
 	return d, nil
 }
 
+// stagingTexture 返回一张与 desc 同尺寸/格式的 CPU 可读纹理。
+//
+// 所有权在 d3dDevice：调用方不要 Release，下一次 CopyResource 会覆写内容。
+// 复用是必须的——每拍 CreateTexture2D 会让进程提交内存随拍数上涨。
+func (d *d3dDevice) stagingTexture(desc texture2DDesc) (comPtr, error) {
+	if d.staging.valid() && d.stagingW == desc.Width && d.stagingH == desc.Height && d.stagingFormat == desc.Format {
+		return d.staging, nil
+	}
+	d.staging.release()
+	d.staging = comPtr{}
+	staging := texture2DDesc{
+		Width:          desc.Width,
+		Height:         desc.Height,
+		MipLevels:      1,
+		ArraySize:      1,
+		Format:         desc.Format,
+		SampleCount:    1,
+		Usage:          usageStaging,
+		CPUAccessFlags: cpuAccessRead,
+	}
+	var tex comPtr
+	if _, err := d.raw.call(idxDeviceCreateTexture2D,
+		uintptr(unsafe.Pointer(&staging)),
+		0,
+		uintptr(unsafe.Pointer(&tex.p)),
+	); err != nil {
+		return comPtr{}, fmt.Errorf("CreateTexture2D(staging): %w", err)
+	}
+	d.staging, d.stagingW, d.stagingH, d.stagingFormat = tex, desc.Width, desc.Height, desc.Format
+	d.stagingCreates++
+	return tex, nil
+}
+
 // copyTo 把 GPU 纹理读回并写进 dst（紧凑 BGRA，行跨度 = 宽*4）。
 //
 // 与 readBack 的区别是复用调用方的缓冲，不在每帧分配 8MB。
@@ -79,25 +112,10 @@ func (d *d3dDevice) copyTo(dst []byte, tex comPtr, cropX, cropY, cropW, cropH in
 	if len(dst) < need {
 		return 0, 0, fmt.Errorf("目标缓冲太小: 需要 %d，实际 %d", need, len(dst))
 	}
-	staging := texture2DDesc{
-		Width:          desc.Width,
-		Height:         desc.Height,
-		MipLevels:      1,
-		ArraySize:      1,
-		Format:         desc.Format,
-		SampleCount:    1,
-		Usage:          usageStaging,
-		CPUAccessFlags: cpuAccessRead,
+	stagingTex, err := d.stagingTexture(desc)
+	if err != nil {
+		return 0, 0, err
 	}
-	var stagingTex comPtr
-	if _, err := d.raw.call(idxDeviceCreateTexture2D,
-		uintptr(unsafe.Pointer(&staging)),
-		0,
-		uintptr(unsafe.Pointer(&stagingTex.p)),
-	); err != nil {
-		return 0, 0, fmt.Errorf("CreateTexture2D(staging): %w", err)
-	}
-	defer stagingTex.release()
 
 	if _, err := d.context.call(idxContextCopyResource,
 		uintptr(unsafe.Pointer(stagingTex.p)),
@@ -130,32 +148,17 @@ func (d *d3dDevice) copyTo(dst []byte, tex comPtr, cropX, cropY, cropW, cropH in
 
 // readBack 把 GPU 纹理读回 CPU，返回 BGRA 字节与行跨度。
 //
-// 路径：建同尺寸 staging 纹理 -> CopyResource -> Map -> 拷贝 -> Unmap。
+// 路径：取复用的 staging 纹理 -> CopyResource -> Map -> 拷贝 -> Unmap。
 func readBack(dev *d3dDevice, tex comPtr) ([]byte, texture2DDesc, error) {
 	desc, err := getDesc(tex)
 	if err != nil {
 		return nil, desc, err
 	}
 	// SampleCount 必须 >= 1；写 0 会让 CreateTexture2D 返回 E_INVALIDARG。
-	staging := texture2DDesc{
-		Width:          desc.Width,
-		Height:         desc.Height,
-		MipLevels:      1,
-		ArraySize:      1,
-		Format:         desc.Format,
-		SampleCount:    1,
-		Usage:          usageStaging,
-		CPUAccessFlags: cpuAccessRead,
+	stagingTex, err := dev.stagingTexture(desc)
+	if err != nil {
+		return nil, desc, err
 	}
-	var stagingTex comPtr
-	if _, err := dev.raw.call(idxDeviceCreateTexture2D,
-		uintptr(unsafe.Pointer(&staging)),
-		0,
-		uintptr(unsafe.Pointer(&stagingTex.p)),
-	); err != nil {
-		return nil, desc, fmt.Errorf("CreateTexture2D(staging): %w", err)
-	}
-	defer stagingTex.release()
 
 	if _, err := dev.context.call(idxContextCopyResource,
 		uintptr(unsafe.Pointer(stagingTex.p)),

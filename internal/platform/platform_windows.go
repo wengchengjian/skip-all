@@ -77,6 +77,12 @@ func ProcessAlive(names []string) bool { return win.ProcessAlive(names) }
 // ProcessUsage 返回本进程的 CPU 占用率（%）与工作集（MB），供托盘显示性能占用。
 func ProcessUsage() (cpuPercent, memMB float64) { return win.ProcessUsage() }
 
+// ProcessPrivateMB 返回本进程的私有提交内存（MB），看门狗用它判断是否失控。
+func ProcessPrivateMB() float64 { return win.PrivateMemoryMB() }
+
+// TotalPhysicalMB 返回物理内存总量（MB）。
+func TotalPhysicalMB() float64 { return win.TotalPhysicalMB() }
+
 // Hotkey 是一条快捷键绑定。
 type Hotkey = win.Hotkey
 

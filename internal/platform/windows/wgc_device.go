@@ -5,6 +5,7 @@ package windows
 import (
 	"fmt"
 	"image"
+	"log/slog"
 	"runtime"
 	"sync"
 	"time"
@@ -36,11 +37,14 @@ type WGCDevice struct {
 
 	req       chan wgcRequest
 	quit      chan struct{}
+	done      chan struct{}
 	closeOnce sync.Once
+	logger    *slog.Logger
 
-	mu            sync.Mutex
-	disabledUntil time.Time
-	lastErr       error
+	mu              sync.Mutex
+	disabledUntil   time.Time
+	lastErr         error
+	lastDisabledLog time.Time
 }
 
 type wgcRequest struct {
@@ -62,13 +66,22 @@ var _ interface {
 // NewWGCDevice 创建优先使用 WGC 的截图设备。
 func NewWGCDevice(w *Window) *WGCDevice {
 	d := &WGCDevice{
-		win:  w,
-		gdi:  NewCapturer(w),
-		req:  make(chan wgcRequest),
-		quit: make(chan struct{}),
+		win:    w,
+		gdi:    NewCapturer(w),
+		req:    make(chan wgcRequest),
+		quit:   make(chan struct{}),
+		done:   make(chan struct{}),
+		logger: slog.Default(),
 	}
 	go d.run()
 	return d
+}
+
+// SetLogger 设置日志出口；nil 时保持默认 logger。
+func (d *WGCDevice) SetLogger(l *slog.Logger) {
+	if l != nil {
+		d.logger = l
+	}
 }
 
 // SetBufferPool 让截图器从池里取输出缓冲。
@@ -77,12 +90,16 @@ func (d *WGCDevice) SetBufferPool(pool *BufferPool) {
 	d.gdi.SetBufferPool(pool)
 }
 
-// Close 释放 WGC 会话与 GDI 资源。
+// Close 释放 WGC 会话与 GDI 资源，并等专用线程收尾。
+//
+// 等待是必要的：调用方（engine 停止）紧接着可能启动新会话，
+// 旧线程还持有设备/帧池时重开会短暂出现两份 native 资源。
 func (d *WGCDevice) Close() error {
 	d.closeOnce.Do(func() {
 		close(d.quit)
 		_ = d.gdi.Close()
 	})
+	<-d.done
 	return nil
 }
 
@@ -90,6 +107,7 @@ func (d *WGCDevice) Close() error {
 func (d *WGCDevice) run() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	defer close(d.done)
 
 	if err := wgc.RoInitialize(); err != nil {
 		// 初始化失败就永久回退：把后续请求全部当失败处理。
@@ -104,6 +122,22 @@ func (d *WGCDevice) run() {
 		}
 	}
 	defer wgc.RoUninitialize()
+
+	// 设备复用：会话因窗口尺寸/句柄变化重建时只换帧池，不重建 D3D11 设备。
+	dev, derr := wgc.NewDevice()
+	if derr != nil {
+		// 设备建不起来就永久回退，和 RoInitialize 失败同一处理。
+		d.setDisabled(derr)
+		for {
+			select {
+			case <-d.quit:
+				return
+			case req := <-d.req:
+				req.resp <- derr
+			}
+		}
+	}
+	defer dev.Close()
 
 	var (
 		sess    *wgc.Session
@@ -126,11 +160,15 @@ func (d *WGCDevice) run() {
 			// 窗口句柄或客户区尺寸变了都要重建会话：帧池是按尺寸建的，
 			// 改过分辨率（比如切全屏）之后旧帧池给出的帧尺寸对不上。
 			if sess != nil && (sessKey != req.hwnd || sessW != req.width || sessH != req.height) {
+				d.logger.Debug("WGC 会话重建",
+					"old_hwnd", sessKey, "new_hwnd", req.hwnd,
+					"old_w", sessW, "old_h", sessH,
+					"new_w", req.width, "new_h", req.height)
 				sess.Close()
 				sess = nil
 			}
 			if sess == nil {
-				s, err := wgc.OpenSession(req.hwnd, req.width, req.height)
+				s, err := wgc.OpenSessionWithDevice(dev, req.hwnd, req.width, req.height)
 				if err != nil {
 					req.resp <- err
 					continue
@@ -171,7 +209,15 @@ func (d *WGCDevice) setDisabled(err error) {
 	d.mu.Lock()
 	d.disabledUntil = time.Now().Add(wgcRetryAfter)
 	d.lastErr = err
+	// 取帧失败会每拍触发一次，日志节流到 30 秒一条，避免刷屏。
+	logNow := time.Since(d.lastDisabledLog) >= 30*time.Second
+	if logNow {
+		d.lastDisabledLog = time.Now()
+	}
 	d.mu.Unlock()
+	if logNow {
+		d.logger.Warn("WGC 取帧失败，临时回退 GDI 截图", "err", err)
+	}
 }
 
 func (d *WGCDevice) disabled() bool {

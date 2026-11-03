@@ -3,6 +3,7 @@
 package wgc
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -12,30 +13,48 @@ import (
 type Session struct {
 	item          comPtr
 	dev           *d3dDevice
+	ownsDev       bool
 	pool          *framePool
 	width, height int
 }
 
-// OpenSession 为一个窗口建立 WGC 捕获会话。
-//
-// width/height 是窗口客户区尺寸，用于建帧池；实际帧尺寸以纹理描述为准。
+// OpenSession 为一个窗口建立 WGC 捕获会话，内部创建独立的 D3D11 设备。
 func OpenSession(hwnd uintptr, width, height int) (*Session, error) {
-	item, err := captureItem(hwnd)
+	dev, err := newD3DDevice()
 	if err != nil {
 		return nil, err
 	}
-	dev, err := newD3DDevice()
+	return openSession(dev, true, hwnd, width, height)
+}
+
+// OpenSessionWithDevice 用已有设备建立会话，关闭会话不会释放设备。
+//
+// 窗口改分辨率或句柄变化时只需要新的帧池，设备可以继续用；
+// 每建一次会话就新建一个设备会让 WDDM 资源随重建次数累积。
+func OpenSessionWithDevice(dev *Device, hwnd uintptr, width, height int) (*Session, error) {
+	if dev == nil || dev.dev == nil {
+		return nil, fmt.Errorf("D3D 设备为空")
+	}
+	return openSession(dev.dev, false, hwnd, width, height)
+}
+
+func openSession(dev *d3dDevice, ownsDev bool, hwnd uintptr, width, height int) (*Session, error) {
+	item, err := captureItem(hwnd)
 	if err != nil {
-		item.release()
+		if ownsDev {
+			dev.release()
+		}
 		return nil, err
 	}
 	pool, err := newFramePool(dev, item, int32(width), int32(height))
 	if err != nil {
-		dev.release()
+		if ownsDev {
+			dev.release()
+		}
 		item.release()
 		return nil, err
 	}
-	return &Session{item: item, dev: dev, pool: pool, width: width, height: height}, nil
+	return &Session{item: item, dev: dev, ownsDev: ownsDev, pool: pool, width: width, height: height}, nil
 }
 
 // Size 返回建会话时的窗口尺寸。
@@ -55,12 +74,14 @@ func (s *Session) Capture(dst []byte, cropX, cropY, cropW, cropH int, timeout ti
 	return s.dev.copyTo(dst, tex, cropX, cropY, cropW, cropH)
 }
 
-// Close 释放会话资源。
+// Close 释放会话资源；共享的设备由调用方负责关闭。
 func (s *Session) Close() {
 	if s == nil {
 		return
 	}
 	s.pool.release()
-	s.dev.release()
+	if s.ownsDev {
+		s.dev.release()
+	}
 	s.item.release()
 }

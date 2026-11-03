@@ -39,6 +39,16 @@ type d3dDevice struct {
 	context comPtr
 	// winrt 是 Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice*
 	winrt comPtr
+
+	// staging 是读回用的复用纹理。每拍 CreateTexture2D 会让 WDDM 的
+	// 提交内存随拍数上涨（现场实测 18 分钟涨到 10GB），所以按尺寸/格式缓存，
+	// 只有窗口改分辨率时才重建。
+	staging       comPtr
+	stagingW      uint32
+	stagingH      uint32
+	stagingFormat uint32
+	// stagingCreates 记录分配次数，供测试确认稳态零分配。
+	stagingCreates int
 }
 
 // newD3DDevice 创建带 BGRA 支持的硬件 D3D11 设备，并包装成 WinRT 设备。
@@ -90,7 +100,35 @@ func (d *d3dDevice) release() {
 	if d == nil {
 		return
 	}
+	d.staging.release()
 	d.winrt.release()
 	d.context.release()
 	d.raw.release()
+}
+
+// Device 是一个可跨会话复用的 D3D11 设备。
+//
+// 窗口改分辨率或句柄变化时只需要重建帧池，不必连设备一起重建；
+// 每建一次会话就新建一个设备会让 WDDM 资源随重建次数累积。
+//
+// 只能在调用过 RoInitialize 的线程上使用，且同一时刻只供一个会话取帧
+// （读回缓冲是设备级复用的）。
+type Device struct{ dev *d3dDevice }
+
+// NewDevice 创建带 BGRA 支持的 D3D11 设备。
+func NewDevice() (*Device, error) {
+	dev, err := newD3DDevice()
+	if err != nil {
+		return nil, err
+	}
+	return &Device{dev: dev}, nil
+}
+
+// Close 释放设备及其缓存的读回纹理。
+func (d *Device) Close() {
+	if d == nil || d.dev == nil {
+		return
+	}
+	d.dev.release()
+	d.dev = nil
 }

@@ -59,6 +59,7 @@ type Service struct {
 
 	sessions  map[string]*gameSession
 	watchStop chan struct{}
+	memStop   chan struct{}
 	waiting   map[string]bool
 	autoStop  bool
 
@@ -290,6 +291,7 @@ func NewService(opts Options) (*Service, error) {
 	pruneDebugFrames(filepath.Join(dataDir, "debug"), debugFramesKeep)
 	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, logLevel: level, sink: opts.EventSink, appCfg: appCfg, gameCfg: gameCfg, updateChecker: update.NewChecker(appCfg.Update.Repo), quit: opts.Quit, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
 	svc.appendLog("info", "skip-all 服务已初始化")
+	svc.startMemoryWatchdog()
 	return svc, nil
 }
 
@@ -300,6 +302,10 @@ func (s *Service) Shutdown() {
 	if s.watchStop != nil {
 		close(s.watchStop)
 		s.watchStop = nil
+	}
+	if s.memStop != nil {
+		close(s.memStop)
+		s.memStop = nil
 	}
 	if s.ocr != nil {
 		_ = s.ocr.Close()
@@ -493,6 +499,9 @@ func (s *Service) startGame(game assist.Game, features []assist.Feature) ActionR
 	// 优先 WGC（GPU 纹理直接取帧，1080p 约 3.5ms）；窗口被遮挡或最小化时
 	// 自动回退 GDI，行为与原来一致。
 	capturer := platform.NewDevice(win)
+	if setter, ok := capturer.(interface{ SetLogger(*slog.Logger) }); ok && s.logger != nil {
+		setter.SetLogger(s.logger)
+	}
 	// 帧缓冲池：截图直接写进池里的 1920x1080 缓冲，异步识别 worker
 	// 用 Retain/Release 跨拍持有，不必为每帧深拷贝约 8MB。
 	capturer.SetBufferPool(platform.NewBufferPool(1920, 1080))
@@ -505,6 +514,18 @@ func (s *Service) startGame(game assist.Game, features []assist.Feature) ActionR
 	if appCfg.Input.Gamepad && !input.GamepadAvailable() {
 		s.appendLog("warn", "["+game.Name()+"] 虚拟手柄不可用: "+fmt.Sprint(input.GamepadError()))
 	}
+	// 启动中途失败（配置/资源/功能校验）时把已建好的截图与输入资源关掉：
+	// WGC 设备带一条专用线程和 D3D11 设备，漏掉会随每次失败的启动累积。
+	started := false
+	defer func() {
+		if started {
+			return
+		}
+		_ = capturer.Close()
+		if closer, ok := input.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}()
 	screens, err := screen.LoadFS(game.Assets(), "screens")
 	if err != nil {
 		return ActionResult{OK: false, Error: err.Error()}
@@ -558,6 +579,7 @@ func (s *Service) startGame(game assist.Game, features []assist.Feature) ActionR
 	s.mu.Lock()
 	s.sessions[gameID] = sess
 	s.mu.Unlock()
+	started = true
 	s.appendLog("info", "["+game.Name()+"] 启动 "+strings.Join(names, " + "))
 	go func() {
 		err := eng.Run(ctx)

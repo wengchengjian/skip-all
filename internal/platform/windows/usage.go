@@ -14,7 +14,23 @@ import (
 var (
 	psapi                    = windows.NewLazySystemDLL("psapi.dll")
 	procGetProcessMemoryInfo = psapi.NewProc("GetProcessMemoryInfo")
+
+	kernel32                 = windows.NewLazySystemDLL("kernel32.dll")
+	procGlobalMemoryStatusEx = kernel32.NewProc("GlobalMemoryStatusEx")
 )
+
+// memoryStatusEx 对应 Win32 MEMORYSTATUSEX。
+type memoryStatusEx struct {
+	Length               uint32
+	MemoryLoad           uint32
+	TotalPhys            uint64
+	AvailPhys            uint64
+	TotalPageFile        uint64
+	AvailPageFile        uint64
+	TotalVirtual         uint64
+	AvailVirtual         uint64
+	AvailExtendedVirtual uint64
+}
 
 // processMemoryCounters 对应 Win32 PROCESS_MEMORY_COUNTERS。
 type processMemoryCounters struct {
@@ -61,6 +77,29 @@ func ProcessUsage() (cpuPercent, memMB float64) {
 		memMB = float64(counters.WorkingSetSize) / (1024 * 1024)
 	}
 	return cpuPercent, memMB
+}
+
+// PrivateMemoryMB 返回本进程的私有提交内存（MB）。
+//
+// 这是 native 泄漏（D3D 纹理、ONNX 会话等不受 Go GC 管理）最先体现的指标；
+// 工作集会被系统裁剪，不能用来看泄漏趋势。
+func PrivateMemoryMB() float64 {
+	var counters processMemoryCounters
+	counters.CB = uint32(unsafe.Sizeof(counters))
+	if ret, _, _ := procGetProcessMemoryInfo.Call(uintptr(windows.CurrentProcess()), uintptr(unsafe.Pointer(&counters)), uintptr(counters.CB)); ret != 0 {
+		return float64(counters.PagefileUsage) / (1024 * 1024)
+	}
+	return 0
+}
+
+// TotalPhysicalMB 返回本机物理内存总量（MB）。
+func TotalPhysicalMB() float64 {
+	var status memoryStatusEx
+	status.Length = uint32(unsafe.Sizeof(status))
+	if ret, _, _ := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&status))); ret == 0 {
+		return 0
+	}
+	return float64(status.TotalPhys) / (1024 * 1024)
 }
 
 // filetimeTicks 把 FILETIME 转成 100ns 计数。

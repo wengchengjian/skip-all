@@ -441,9 +441,11 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		frame.Release = frameRelease
 		earliest, allWaiting := e.stepFeatures(runCtx, tick, frame)
 		if runCtx.Err() != nil {
+			frame.Drop()
 			return nil
 		}
 		if e.allFailed() {
+			frame.Drop()
 			return e.fail(errors.New("全部功能已停止: " + e.failedSummary()))
 		}
 		// 本拍的责任已了：释放帧引用（异步 worker 自己持有的那些不受影响）。

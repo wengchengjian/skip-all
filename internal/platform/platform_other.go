@@ -69,6 +69,12 @@ func ProcessAlive([]string) bool { return true }
 // ProcessUsage 在非 Windows 平台不统计性能占用。
 func ProcessUsage() (cpuPercent, memMB float64) { return 0, 0 }
 
+// ProcessPrivateMB 在非 Windows 平台不统计私有内存。
+func ProcessPrivateMB() float64 { return 0 }
+
+// TotalPhysicalMB 在非 Windows 平台不统计物理内存。
+func TotalPhysicalMB() float64 { return 0 }
+
 // Hotkey 是一条快捷键绑定（非 Windows 平台为空实现）。
 type Hotkey struct {
 	Accelerator string
