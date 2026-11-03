@@ -382,7 +382,7 @@ func (s *Session) storyOptionButtons(frame assist.Frame, area screen.Area) []geo
 		return rects
 	}
 	var rects []geom.Rect
-	if vision.ColorRatio(frame.Image, area.Rect, optionDarkRange) >= optionAreaDarkMin {
+	if vision.ColorRatioAtLeast(frame.Image, area.Rect, optionDarkRange, optionAreaDarkMin) {
 		rects = vision.FindOptionButtons(frame.Image, area.Rect, vision.OptionButtonOptions{ColorRange: s.spec.ButtonColorRange})
 	}
 	s.optionCache[area.Name] = rects
@@ -422,7 +422,7 @@ func (s *Session) darkScreen(frame assist.Frame) bool {
 	}
 	b := frame.Image.Bounds()
 	s.frameDark = -1
-	if vision.ColorRatio(frame.Image, geom.Rect{X1: b.Min.X, Y1: b.Min.Y, X2: b.Max.X, Y2: b.Max.Y}, optionDarkRange) >= optionFrameDarkMin {
+	if vision.ColorRatioAtLeast(frame.Image, geom.Rect{X1: b.Min.X, Y1: b.Min.Y, X2: b.Max.X, Y2: b.Max.Y}, optionDarkRange, optionFrameDarkMin) {
 		s.frameDark = 1
 	}
 	return s.frameDark > 0

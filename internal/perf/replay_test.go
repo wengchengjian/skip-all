@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -147,6 +148,20 @@ func TestPerfReplay(t *testing.T) {
 	}
 	shots := loadAllShots(t)
 	t.Logf("截图 %d 张", len(shots))
+
+	// 只对"功能执行"这一段做 CPU profile：截图加载（PNG 解码 + 缩放）占了
+	// 绝大部分 CPU，不排除掉会把真实热点淹没。
+	if path := os.Getenv("PERF_CPUPROFILE"); path != "" {
+		pf, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pf.Close()
+		if err := pprof.StartCPUProfile(pf); err != nil {
+			t.Fatal(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 
 	engine := openOCR(t)
 	defer engine.Close()

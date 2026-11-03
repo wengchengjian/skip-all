@@ -156,6 +156,45 @@ func inRange(r, g, b uint8, colorRange [2][3]uint8) bool {
 	return r >= lo[0] && r <= hi[0] && g >= lo[1] && g <= hi[1] && b >= lo[2] && b <= hi[2]
 }
 
+// ColorRatioAtLeast 判断区域里落在颜色范围内的像素比例是否 >= threshold。
+//
+// 与"算出 ColorRatio 再比较"等价，但可以中途结束：
+//   - 命中数/总数已经 >= threshold：后面只会更高，直接 true
+//   - 即使剩下所有像素都命中也不够：直接 false
+//
+// 用于整屏"是不是黑屏"这类判定（阈值 0.85）：亮屏时扫到 15% 就能确定不达标，
+// 不必把 200 万像素走完。
+func ColorRatioAtLeast(img *image.RGBA, rect geom.Rect, colorRange [2][3]uint8, threshold float64) bool {
+	if img == nil {
+		return false
+	}
+	r := image.Rect(rect.X1, rect.Y1, rect.X2, rect.Y2).Intersect(img.Bounds())
+	if r.Empty() {
+		return false
+	}
+	total := r.Dx() * r.Dy()
+	limit := threshold * float64(total)
+	hit := 0
+	scanned := 0
+	pr := newPixelReader(img)
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			cr, cg, cb := pr.at(x, y)
+			scanned++
+			if inRange(cr, cg, cb, colorRange) {
+				hit++
+				if float64(hit) >= limit {
+					return true
+				}
+			} else if float64(hit+total-scanned) < limit {
+				// 剩下的全算命中也不够。
+				return false
+			}
+		}
+	}
+	return float64(hit) >= limit
+}
+
 // ColorRatio 统计区域里落在颜色范围内的像素比例。
 // 上游大量状态判定都是"颜色占比"（如闪光、技能可用高亮）。
 func ColorRatio(img *image.RGBA, rect geom.Rect, colorRange [2][3]uint8) float64 {

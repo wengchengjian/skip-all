@@ -114,6 +114,26 @@ PrintWindow 有一个很大的固定开销，与窗口大小关系不大：1011x
 截图越慢，这个 bug 吃掉的帧率越多。13ms 截图下 FPS=30 只能跑到 21.3，
 等于**白白损失 29% 的吞吐**。
 
+### 5. 颜色占比判定加提前退出（pkg/vision）
+
+剧情跳过用 `ColorRatio` 判断"整屏是不是过场黑屏"，阈值 0.85。
+原实现要把 200 万像素走完才算比例（注释里作者也记了"约 10ms"）。
+
+新增 `ColorRatioAtLeast(img, rect, colorRange, threshold) bool`，用两条不等式中途结束：
+
+- 命中数/总数已 ≥ threshold：后面只会更高 → true
+- 即使剩下所有像素都命中也不够 → false
+
+**数学上与原实现完全等价**（`TestColorRatioAtLeastEquivalence` 用 40 个随机画面
+× 4 个阈值兜底，结论全部一致）。
+
+| 指标 | 修前 | 修后 |
+| --- | ---: | ---: |
+| story_skip 每帧 mean | 12.5 ms | **9.77 ms**（-22%） |
+| story_skip 每帧 p50 | 8.5 ms | **5.1 ms**（-40%） |
+| 功能执行总 CPU | 2040 ms | **1750 ms**（-14%） |
+| ColorRatio 占功能 CPU | 9.31% | **4.57%** |
+
 ## 已否决（有数据，别再试）
 
 ### 跳过 OCR 的文字检测（det）
@@ -153,14 +173,18 @@ det 占单次识别耗时的 60~80%（技能区 68x57：det 8.85ms / rec 2.66ms�
 
 ## 待办
 
-### A. OCR 每次调用分配 5.4 MB / 2,736 次
+### A. OCR 分配 —— 已降级为"低价值"，不建议做
 
-全部发生在 `third_party/go-ocr`：`preprocessDetImage` 7.2MB、
-`draw.CatmullRom` 临时缓冲 3.1MB、`postprocessHeatmap` 2MB。
-该库是本地 replace 的 fork，可以改，但要同步更新 NOTICE 与 docs/upstream.md。
-收益是降低 GC 压力，不改变耗时。
+OCR 每次调用分配 5.4 MB / 2,736 次，全部发生在 `third_party/go-ocr`。
+本来排在待办第一位，但量了 GC 之后发现不值得：
 
-（注：试过换插值算法，因准确率风险否决，见上。）
+    GODEBUG=gctrace=1 跑完整回放：GC 37 次，单次暂停 0~1ms，GC 占用 < 3%
+
+也就是说分配**没有造成可观测的停顿或 CPU 开销**。再去做缓冲池
+（还得改 third_party、同步 NOTICE）收益接近零。
+
+换插值算法那条路也已因准确率风险否决（见上）。
+**结论：OCR 分配这条线到此为止，不要再投入。**
 
 ### B. 模板调用次数偏多
 
