@@ -38,6 +38,26 @@ try {
     }
     if ($rows.Count -eq 0) { throw '没有拿到任何 PERF| 读数' }
 
+
+    # 截图路径：只能对着真实 HWND 量，单独跑一个包。
+    $capRaw = & go test ./internal/platform/windows -run TestCaptureBreakdown -count=1 -v -timeout 600s 2>&1
+    $caps = @()
+    foreach ($line in $capRaw) {
+        if ($line -match '^CAPTURE\|(.+)$') {
+            $kv = @{}
+            foreach ($p in $Matches[1].Split('|')) {
+                $i = $p.IndexOf('=')
+                if ($i -gt 0) { $kv[$p.Substring(0, $i)] = $p.Substring($i + 1) }
+            }
+            $caps += [pscustomobject]@{
+                Stage = $kv['stage']
+                W     = [int]$kv['w']
+                H     = [int]$kv['h']
+                Us    = [int]$kv['us']
+            }
+        }
+    }
+
     # 回放：用真实截图连续驱动功能，比单帧重复更接近真实运行。
     $replays = @()
     foreach ($line in $raw) {
@@ -90,6 +110,19 @@ try {
         }
         $kb = '{0:N1} KB' -f ($r.Bytes / 1024.0)
         [void]$md.AppendLine("| $($r.Stage) | $($r.N) | $mean | $p50 | $p95 | $kb | $($r.Allocs) |")
+    }
+    if ($caps.Count -gt 0) {
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('## 截图路径拆分')
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('对着本机一个真实窗口量（可用环境变量 CAPTURE_WINDOW 指定进程名）。')
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('| 阶段 | 窗口 | 耗时 |')
+        [void]$md.AppendLine('| --- | --- | ---: |')
+        foreach ($c in $caps) {
+            [void]$md.AppendLine(('| {0} | {1}x{2} | {3:N2} ms |' -f $c.Stage, $c.W, $c.H, ($c.Us / 1000.0)))
+        }
+        [void]$md.AppendLine('')
     }
     if ($replays.Count -gt 0) {
         [void]$md.AppendLine('')
