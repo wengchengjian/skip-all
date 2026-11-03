@@ -98,10 +98,10 @@ func WhiteMask(img image.Image) *image.RGBA {
 	}
 	b := img.Bounds()
 	out := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	pr := newPixelReader(img)
 	for y := 0; y < b.Dy(); y++ {
 		for x := 0; x < b.Dx(); x++ {
-			r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
-			rr, gg, bb := uint8(r>>8), uint8(g>>8), uint8(bl>>8)
+			rr, gg, bb := pr.at(b.Min.X+x, b.Min.Y+y)
 			if rr >= WhiteMaskRange[0][0] && rr <= WhiteMaskRange[1][0] &&
 				gg >= WhiteMaskRange[0][1] && gg <= WhiteMaskRange[1][1] &&
 				bb >= WhiteMaskRange[0][2] && bb <= WhiteMaskRange[1][2] {
@@ -152,12 +152,17 @@ func MatchTemplate(source image.Image, search geom.Rect, raw, mask image.Image, 
 	points := make([]templatePoint, 0, tw*th)
 	var sumT, sumT2 float64
 	rb := raw.Bounds()
+	prRaw := newPixelReader(raw)
+	var prMask pixelReader
+	if mask != nil {
+		prMask = newPixelReader(mask)
+	}
 	for dy := 0; dy < th; dy++ {
 		for dx := 0; dx < tw; dx++ {
-			if mask != nil && grayValueAt(mask, mask.Bounds().Min.X+dx, mask.Bounds().Min.Y+dy) <= 0 {
+			if mask != nil && grayValueAt(prMask, mask.Bounds().Min.X+dx, mask.Bounds().Min.Y+dy) <= 0 {
 				continue
 			}
-			v := grayValueAt(raw, rb.Min.X+dx, rb.Min.Y+dy)
+			v := grayValueAt(prRaw, rb.Min.X+dx, rb.Min.Y+dy)
 			points = append(points, templatePoint{dx: dx, dy: dy, v: v})
 			sumT += v
 			sumT2 += v * v
@@ -175,9 +180,10 @@ func MatchTemplate(source image.Image, search geom.Rect, raw, mask image.Image, 
 
 	sw, sh := searchRect.Dx(), searchRect.Dy()
 	gray := make([]float64, sw*sh)
+	prSrc := newPixelReader(source)
 	for y := 0; y < sh; y++ {
 		for x := 0; x < sw; x++ {
-			gray[y*sw+x] = grayValueAt(source, searchRect.Min.X+x, searchRect.Min.Y+y)
+			gray[y*sw+x] = grayValueAt(prSrc, searchRect.Min.X+x, searchRect.Min.Y+y)
 		}
 	}
 
@@ -220,7 +226,7 @@ type templatePoint struct {
 	v  float64
 }
 
-func grayValueAt(img image.Image, x, y int) float64 {
-	r, g, b, _ := img.At(x, y).RGBA()
-	return 0.299*float64(r>>8) + 0.587*float64(g>>8) + 0.114*float64(b>>8)
+func grayValueAt(pr pixelReader, x, y int) float64 {
+	r, g, b := pr.at(x, y)
+	return 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)
 }

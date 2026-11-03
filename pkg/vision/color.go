@@ -105,9 +105,10 @@ func analyzeColorWith(img image.Image, rect geom.Rect, grayOpts GrayMaskOptions)
 	grayCount := 0
 	colorCount := 0
 	var saturationSum float64
+	pr := newPixelReader(img)
 	for y := r.Min.Y; y < r.Max.Y; y++ {
 		for x := r.Min.X; x < r.Max.X; x++ {
-			cr, cg, cb := rgb8(img.At(x, y))
+			cr, cg, cb := pr.at(x, y)
 			total++
 			maxC := max(cr, max(cg, cb))
 			minC := min(cr, min(cg, cb))
@@ -132,19 +133,14 @@ func analyzeColorWith(img image.Image, rect geom.Rect, grayOpts GrayMaskOptions)
 	return stats, true
 }
 
-// rgb8 把任意颜色转换为 8 位 RGB。
-func rgb8(c color.Color) (uint8, uint8, uint8) {
-	r, g, b, _ := c.RGBA()
-	return uint8(r >> 8), uint8(g >> 8), uint8(b >> 8)
-}
-
 // filterByColorRange 只保留颜色范围内的像素，输出黑白 RGB 图供 OCR 使用。
 func filterByColorRange(img image.Image, colorRange [2][3]uint8) *image.RGBA {
 	bounds := img.Bounds()
 	out := image.NewRGBA(bounds)
+	pr := newPixelReader(img)
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b := rgb8(img.At(x, y))
+			r, g, b := pr.at(x, y)
 			if inRange(r, g, b, colorRange) {
 				out.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
 			} else {

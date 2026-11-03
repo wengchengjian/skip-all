@@ -46,11 +46,11 @@ func FindTextBands(img image.Image, rect geom.Rect, opts TextBandOptions) []geom
 	var cur span
 	gap := 0
 	active := false
+	pr := newPixelReader(img)
 	for y := r.Min.Y; y < r.Max.Y; y++ {
 		rowMin, rowMax, count := r.Max.X, r.Min.X, 0
 		for x := r.Min.X; x < r.Max.X; x++ {
-			cr, cg, cb, _ := img.At(x, y).RGBA()
-			rr, gg, bb := uint8(cr>>8), uint8(cg>>8), uint8(cb>>8)
+			rr, gg, bb := pr.at(x, y)
 			if rr >= colorRange[0][0] && rr <= colorRange[1][0] &&
 				gg >= colorRange[0][1] && gg <= colorRange[1][1] &&
 				bb >= colorRange[0][2] && bb <= colorRange[1][2] {
