@@ -189,25 +189,96 @@ func MatchTemplate(source image.Image, search geom.Rect, raw, mask image.Image, 
 
 	bestScore := math.Inf(-1)
 	bestX, bestY := 0, 0
-	for y := 0; y <= sh-th; y++ {
-		for x := 0; x <= sw-tw; x++ {
-			var sumI, sumI2, sumIT float64
-			for _, p := range points {
-				v := gray[(y+p.dy)*sw+x+p.dx]
-				sumI += v
-				sumI2 += v * v
-				sumIT += v * p.v
+
+	// pos[i] 是第 i 个模板点相对窗口左上角的一维偏移，避免内层每点算一次乘法。
+	pos := make([]int, len(points))
+	for i, p := range points {
+		pos[i] = p.dy*sw + p.dx
+	}
+
+	// eval 由窗口的三个累加量算归一化相关系数；方差过小（纯色窗口）时跳过。
+	eval := func(sumI, sumI2, sumIT float64) (float64, bool) {
+		meanI := sumI / k
+		varI := sumI2/k - meanI*meanI
+		if varI <= 1e-9 {
+			return 0, false
+		}
+		score := (sumIT/k - meanT*meanI) / math.Sqrt(varT*varI)
+		return math.Max(-1, math.Min(1, score)), true
+	}
+
+	if mask == nil {
+		// 无掩码时模板覆盖整个 tw x th 矩形，sumI/sumI2 就是矩形窗口和，
+		// 可以用列和滑动窗口 O(1) 推进，内层只留 sumIT 一个乘加。
+		// 85 个内置模板里只有 1 个带掩码，所以这是主路径。
+		colSum := make([]float64, sw)
+		colSum2 := make([]float64, sw)
+		for x := 0; x < sw; x++ {
+			var a, b float64
+			for y := 0; y < th; y++ {
+				v := gray[y*sw+x]
+				a += v
+				b += v * v
 			}
-			meanI := sumI / k
-			varI := sumI2/k - meanI*meanI
-			if varI <= 1e-9 {
-				continue
+			colSum[x] = a
+			colSum2[x] = b
+		}
+		for y := 0; y <= sh-th; y++ {
+			if y > 0 {
+				// 窗口下移一行：加上新进入的一行，减去离开的一行。
+				for x := 0; x < sw; x++ {
+					in := gray[(y+th-1)*sw+x]
+					out := gray[(y-1)*sw+x]
+					colSum[x] += in - out
+					colSum2[x] += in*in - out*out
+				}
 			}
-			score := (sumIT/k - meanT*meanI) / math.Sqrt(varT*varI)
-			score = math.Max(-1, math.Min(1, score))
-			if score > bestScore {
-				bestScore = score
-				bestX, bestY = x, y
+			var sumI, sumI2 float64
+			for x := 0; x < tw; x++ {
+				sumI += colSum[x]
+				sumI2 += colSum2[x]
+			}
+			base := y * sw
+			for x := 0; x <= sw-tw; x++ {
+				if x > 0 {
+					sumI += colSum[x+tw-1] - colSum[x-1]
+					sumI2 += colSum2[x+tw-1] - colSum2[x-1]
+				}
+				// 方差过小的窗口（纯色背景）直接跳过，省掉整趟 sumIT。
+				if _, ok := eval(sumI, sumI2, 0); !ok {
+					continue
+				}
+				off := base + x
+				var sumIT float64
+				for i, p := range points {
+					sumIT += gray[off+pos[i]] * p.v
+				}
+				score, _ := eval(sumI, sumI2, sumIT)
+				if score > bestScore {
+					bestScore = score
+					bestX, bestY = x, y
+				}
+			}
+		}
+	} else {
+		for y := 0; y <= sh-th; y++ {
+			for x := 0; x <= sw-tw; x++ {
+				off := y*sw + x
+				var sumI, sumI2, sumIT float64
+				for i, p := range points {
+					v := gray[off+pos[i]]
+					sumI += v
+					sumI2 += v * v
+					sumIT += v * p.v
+				}
+				score, ok := eval(sumI, sumI2, sumIT)
+				if !ok {
+					continue
+				}
+				if score > bestScore {
+					bestScore = score
+					bestX, bestY = x, y
+				}
 			}
 		}
 	}
