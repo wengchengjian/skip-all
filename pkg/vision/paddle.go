@@ -6,6 +6,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"sync"
 
@@ -50,8 +51,42 @@ func DefaultPaddleOptions() PaddleOptions {
 		RecHeight:           48,
 		RecModelNumClasses:  18709,
 		ThreadCount:         1,
-		NumThreads:          1,
+		NumThreads:          DefaultNumThreads(),
 	}
+}
+
+// resolveNumThreads 把"未指定"解析成自适应值；显式指定时原样返回。
+func resolveNumThreads(n int) int {
+	if n <= 0 {
+		return DefaultNumThreads()
+	}
+	return n
+}
+
+// DefaultNumThreads 按 CPU 核心数选 ONNX 单 session 的线程数。
+//
+// 实测（OCR 三技能区 68x57，完整 det+rec）：
+//
+//	4 核：  1线 21.1ms  2线 19.7ms  3线 26.9ms  4线 34.4ms  6线 60.7ms
+//	24 核： 1线 70.7ms  4线 38.9ms  6线 38.1ms  8线 39.3ms  12线 52.7ms  16线 187.3ms
+//
+// 两台的规律一致：最优值约为核心数的 1/4，劣化点约在核心数的 1/2。
+// 单 session 的 intra-op 并行要把一次矩阵运算切给多个线程，OCR 的
+// 裁剪区本来就小，线程超过可并行粒度后切分与同步开销超过并行收益。
+//
+// 取 cores/4 并夹在 [2, 8]：下限 2 是因为 4 核机上 2 比 1 快（1 线程
+// 在 4 核机上仍有余量）；上限 8 是因为 24 核机 8 已在平台期边缘，
+// 再多无益且低配机上更危险。
+func DefaultNumThreads() int {
+	cores := runtime.NumCPU()
+	threads := cores / 4
+	if threads < 2 {
+		threads = 2
+	}
+	if threads > 8 {
+		threads = 8
+	}
+	return threads
 }
 
 type paddleOCR struct {
@@ -135,9 +170,7 @@ func NewPaddleOCRWithOptions(modelDir string, opts PaddleOptions) (OCR, error) {
 	if opts.ThreadCount <= 0 {
 		opts.ThreadCount = 1
 	}
-	if opts.NumThreads <= 0 {
-		opts.NumThreads = 1
-	}
+	opts.NumThreads = resolveNumThreads(opts.NumThreads)
 	engine, err := paddle.NewEngine(paddle.Config{
 		OnnxRuntimeLibPath:  files.onnxRuntime,
 		DetModelPath:        files.det,
