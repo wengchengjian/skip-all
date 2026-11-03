@@ -62,7 +62,38 @@ type Service struct {
 	waiting   map[string]bool
 	autoStop  bool
 
-	logs []LogEntry
+	logs     []LogEntry
+	logLevel slog.Level
+}
+
+// logWriter 把日志同时写到文件和 stdout。
+//
+// 不能用 io.MultiWriter：它遇到第一个写入错误就中断。GUI 构建（-H windowsgui）
+// 没有控制台，os.Stdout 写入必然失败，会把文件日志一起挡掉。
+type logWriter struct {
+	file    io.Writer
+	console io.Writer
+}
+
+func (w logWriter) Write(p []byte) (int, error) {
+	if w.console != nil {
+		_, _ = w.console.Write(p) // 没有控制台时失败，忽略
+	}
+	return w.file.Write(p)
+}
+
+// parseLogLevel 把配置里的级别字符串转成 slog 级别。
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // gameSession 是一个游戏当前的 engine 会话；一个游戏可同时运行多个功能。
@@ -236,16 +267,8 @@ func NewService(opts Options) (*Service, error) {
 	}
 
 	logFile := &lumberjack.Logger{Filename: filepath.Join(dataDir, "logs", "skip-all.log"), MaxSize: 10, MaxBackups: 7, MaxAge: 30, Compress: true}
-	level := slog.LevelInfo
-	switch strings.ToLower(appCfg.LogLevel) {
-	case "debug":
-		level = slog.LevelDebug
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	}
-	logger := slog.New(slog.NewTextHandler(io.MultiWriter(os.Stdout, logFile), &slog.HandlerOptions{Level: level}))
+	level := parseLogLevel(appCfg.LogLevel)
+	logger := slog.New(slog.NewTextHandler(logWriter{file: logFile, console: os.Stdout}, &slog.HandlerOptions{Level: level}))
 	assets := opts.AssetsDir
 	if assets == "" {
 		if exe, e := os.Executable(); e == nil {
@@ -265,7 +288,7 @@ func NewService(opts Options) (*Service, error) {
 	}
 	// 启动时清掉历史诊断截图，避免 debug 目录长期堆积。
 	pruneDebugFrames(filepath.Join(dataDir, "debug"), debugFramesKeep)
-	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, sink: opts.EventSink, appCfg: appCfg, gameCfg: gameCfg, updateChecker: update.NewChecker(appCfg.Update.Repo), quit: opts.Quit, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
+	svc := &Service{dataDir: dataDir, assets: assets, logger: logger, logFile: logFile, logLevel: level, sink: opts.EventSink, appCfg: appCfg, gameCfg: gameCfg, updateChecker: update.NewChecker(appCfg.Update.Repo), quit: opts.Quit, sessions: make(map[string]*gameSession), waiting: make(map[string]bool)}
 	svc.appendLog("info", "skip-all 服务已初始化")
 	return svc, nil
 }
@@ -1215,7 +1238,14 @@ func (s *Service) onEngineEvent(gameID string, ev engine.Event) {
 	s.emit("skipall:status", s.GetStatus())
 }
 
+// appendLog 是所有日志的唯一出口：内存缓冲（UI 读它）与文件写的是同一份。
+//
+// 级别按配置过滤一次，两边就永远一致；不要让 UI 和文件各留一份。
 func (s *Service) appendLog(level, message string) {
+	lv := parseLogLevel(level)
+	if lv < s.logLevel {
+		return
+	}
 	entry := LogEntry{Time: time.Now(), Level: level, Message: message}
 	s.mu.Lock()
 	s.logs = append(s.logs, entry)
@@ -1224,7 +1254,7 @@ func (s *Service) appendLog(level, message string) {
 	}
 	s.mu.Unlock()
 	if s.logger != nil {
-		s.logger.Info(message, "level", level)
+		s.logger.Log(context.Background(), lv, message)
 	}
 }
 
