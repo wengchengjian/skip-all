@@ -535,17 +535,14 @@ func (s *Session) concertoLit(frame assist.Frame) bool {
 	if c == nil {
 		return false
 	}
-	coverage := 0.0
-	for _, ratio := range vision.RingCoverages(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer) {
-		if ratio > coverage {
-			coverage = ratio
-		}
-	}
+	// 判据是"环是否闭合"，不是"环内像素占比"。
+	// 环只有 4~5px 宽、实际描边更细，用占比的话满了也只有 0.4~0.7，
+	// 永远达不到 0.95，表现就是"协奏满了也不切人"。
 	full := c.FullRatio
 	if full <= 0 {
 		full = defaultConcertoFullRatio
 	}
-	return coverage >= full
+	return vision.RingFull(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer, full)
 }
 
 // needFastPerform 对应上游 BaseChar.need_fast_perform()：

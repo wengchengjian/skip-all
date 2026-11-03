@@ -662,7 +662,9 @@ func (e *Engine) logFeatureStep(f *featureRuntime, tick Tick, state string, acti
 		return
 	}
 	e.logger.Debug("状态切换", "tick", tick.ID, "lag", tick.Lag, "feature", f.feature.ID(), "state", state, "action", action)
-	message := "剧情流程: " + state
+	// 前缀用功能自己的名字。原来固定写"剧情流程"，自动战斗的状态也被打成
+	// "剧情流程: 战斗前切治疗"，日志根本没法读。
+	message := f.feature.Name() + ": " + state
 	if action != "" {
 		message += " | " + action
 	}
