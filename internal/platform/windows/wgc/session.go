@@ -41,14 +41,14 @@ func OpenSession(hwnd uintptr, width, height int) (*Session, error) {
 // Size 返回建会话时的窗口尺寸。
 func (s *Session) Size() (int, int) { return s.width, s.height }
 
-// Capture 取当前最新一帧，把 BGRA 像素写进 dst。
+// Capture 取当前最新一帧，把 BGRA 像素写进 dst，并返回这一帧的实际尺寸。
 //
-// dst 长度必须 >= width*height*4；行跨度按 width*4 紧凑排列。
-// 帧不可用（窗口被遮挡/最小化/未变化）时返回错误，调用方应回退。
-func (s *Session) Capture(dst []byte, timeout time.Duration) error {
+// 返回的实际尺寸可能和建会话时给的尺寸不同（窗口改过分辨率），
+// 调用方必须按返回值去解释 dst，不要用建会话时的尺寸。
+func (s *Session) Capture(dst []byte, timeout time.Duration) (int, int, error) {
 	frame, tex, err := s.pool.nextFrame(timeout)
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	defer frame.release()
 	defer tex.release()

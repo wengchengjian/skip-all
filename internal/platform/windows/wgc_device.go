@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"fmt"
 	"image"
 	"runtime"
 	"sync"
@@ -105,10 +106,11 @@ func (d *WGCDevice) run() {
 	defer wgc.RoUninitialize()
 
 	var (
-		sess     *wgc.Session
-		sessKey  uintptr
-		scratch  []byte
-		scrWidth int
+		sess    *wgc.Session
+		sessKey uintptr
+		sessW   int
+		sessH   int
+		scratch []byte
 	)
 	defer func() {
 		if sess != nil {
@@ -121,7 +123,9 @@ func (d *WGCDevice) run() {
 		case <-d.quit:
 			return
 		case req := <-d.req:
-			if sess != nil && sessKey != req.hwnd {
+			// 窗口句柄或客户区尺寸变了都要重建会话：帧池是按尺寸建的，
+			// 改过分辨率（比如切全屏）之后旧帧池给出的帧尺寸对不上。
+			if sess != nil && (sessKey != req.hwnd || sessW != req.width || sessH != req.height) {
 				sess.Close()
 				sess = nil
 			}
@@ -131,22 +135,28 @@ func (d *WGCDevice) run() {
 					req.resp <- err
 					continue
 				}
-				sess, sessKey = s, req.hwnd
+				sess, sessKey, sessW, sessH = s, req.hwnd, req.width, req.height
 			}
 			need := req.width * req.height * 4
 			if len(scratch) < need {
 				scratch = make([]byte, need)
-				scrWidth = req.width
 			}
-			_ = scrWidth
-			if err := sess.Capture(scratch, wgcFrameTimeout); err != nil {
+			// 用实际帧尺寸缩放，不用建会话时的尺寸。
+			fw, fh, err := sess.Capture(scratch, wgcFrameTimeout)
+			if err != nil {
 				// 会话可能已失效（窗口重建），下次重新建。
 				sess.Close()
 				sess = nil
 				req.resp <- err
 				continue
 			}
-			scaleBGRAtoRGBAParallel(req.dst, scratch, req.width, req.height, resizeWorkers)
+			if fw*fh*4 > len(scratch) {
+				sess.Close()
+				sess = nil
+				req.resp <- fmt.Errorf("帧尺寸 %dx%d 超出缓冲", fw, fh)
+				continue
+			}
+			scaleBGRAtoRGBAParallel(req.dst, scratch, fw, fh, resizeWorkers)
 			req.resp <- nil
 		}
 	}
