@@ -62,6 +62,7 @@ type Session struct {
 	lockAt     time.Time
 	healed     bool
 	healAt     time.Time
+	diagAt     time.Time
 	switchAt   time.Time
 	agentID    string
 	agentAt    time.Time
@@ -123,6 +124,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	if res, acts, handled, err := s.gateCombat(frame, now); err != nil || handled {
 		return res, acts, err
 	}
+	s.diagnose(frame, now)
 	for _, rule := range combatRules {
 		res, acts, handled, err := rule.run(s, frame, now)
 		if err != nil {
@@ -1111,6 +1113,61 @@ func (s *Session) nextSwitchKey(frame assist.Frame) string {
 		}
 	}
 	return keys[0]
+}
+
+// diagInterval 是决策诊断日志的最小间隔。
+const diagInterval = time.Second
+
+// diagnose 每秒往日志打一次战斗决策的输入，用来定位"哪一环看不见"。
+//
+// 之前只能从状态序列倒推，反复猜错。这里把当前角色、协奏环、锁定目标、
+// 技能可用性一次性打出来，一眼就能看出是哪一步判空了。
+func (s *Session) diagnose(frame assist.Frame, now time.Time) {
+	if s.rt == nil {
+		return
+	}
+	if !s.diagAt.IsZero() && now.Sub(s.diagAt) < diagInterval {
+		return
+	}
+	s.diagAt = now
+	log := s.rt.Log()
+	if log == nil {
+		return
+	}
+
+	slot := -1
+	if s.spec.Team != nil {
+		if idx, ok, err := s.spec.Team.Current(runtimeAdapter{rt: s.rt}, frame); err == nil && ok {
+			slot = idx
+		}
+	}
+	agent := s.currentAgent(frame)
+
+	// 逐色覆盖率，判断协奏环到底差多少。
+	coverage := 0.0
+	if c := s.spec.Concerto; c != nil {
+		for _, ratio := range vision.RingCoverages(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer) {
+			if ratio > coverage {
+				coverage = ratio
+			}
+		}
+	}
+	full := false
+	if s.spec.Concerto != nil {
+		full = s.concertoFull(frame)
+	}
+
+	locked, targetErr := s.hasTarget(frame)
+	log.Debug("战斗诊断",
+		"slot", slot,
+		"agent", agent,
+		"concerto_full", full,
+		"concerto_cover", fmt.Sprintf("%.3f", coverage),
+		"target_locked", locked,
+		"target_err", targetErr,
+		"healed", s.healed,
+		"cursor", s.cursor,
+	)
 }
 
 func (s *Session) area(name string) (*screen.Area, error) {
