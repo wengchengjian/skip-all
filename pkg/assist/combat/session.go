@@ -108,6 +108,9 @@ type cdEntry struct {
 }
 
 // Step 执行一帧。
+//
+// 分两层：gateCombat 判断在不在战斗（脱战要清理状态），
+// 然后按 combatRules 的顺序尝试各条规则，第一条接管的生效。
 func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []assist.Action, error) {
 	if frame.Image == nil {
 		return assist.Result{State: "等待战斗", Wait: s.spec.IdleWait}, nil, nil
@@ -116,88 +119,19 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 	if now.IsZero() {
 		now = time.Now()
 	}
-	inCombat, err := s.inCombat(frame)
-	if err != nil {
-		return assist.Result{}, nil, err
+	if res, acts, handled, err := s.gateCombat(frame, now); err != nil || handled {
+		return res, acts, err
 	}
-	if inCombat {
-		s.lastCombat = now
-	} else if s.lastCombat.IsZero() || now.Sub(s.lastCombat) > s.spec.Hold {
-		// 证据会短暂丢失（转身、切人、特效遮挡），用保持时间把它们连起来。
-		s.cursor = 0
-		s.lockAt = time.Time{}
-		// 脱战了：缓存和入场技都清掉，下一场重新来。
-		s.cdCache = make(map[StepKind]cdEntry)
-		s.agentAt = time.Time{}
-		s.agentID = ""
-		s.outroAgent = ""
-		s.lastLiberation = make(map[string]time.Time)
-		s.lastHeavy = make(map[string]time.Time)
-		s.lastSkill = make(map[string]time.Time)
-		s.lastPerform = make(map[string]time.Time)
-		s.lastEcho = make(map[string]time.Time)
-		s.flyingChecked = false
-		s.hasLavitator = false
-		s.intro.clearSteps()
-		// 上游在战斗结束后会切回治疗位；这里也是同一件事。
-		if s.healed && !s.cfg.noHealer {
-			if key := s.healerKey(frame); key != "" {
-				s.healed = false
-				return assist.Result{State: "战斗结束切治疗", Wait: s.spec.Interval},
-					[]assist.Action{{Kind: assist.ActionKeyTap, Key: key}}, nil
-			}
-		}
-		s.healed = false
-		return assist.Result{State: "等待战斗", Wait: s.spec.IdleWait}, nil, nil
-	}
-	// 上游在开打前先切到治疗位，保证有人能奶。
-	if !s.cfg.noHealer && !s.healed {
-		if key := s.healerKey(frame); key != "" {
-			s.healed = true
-			return assist.Result{State: "战斗前切治疗", Wait: s.spec.Interval},
-				[]assist.Action{{Kind: assist.ActionKeyTap, Key: key}}, nil
-		}
-	}
-	// 游戏专属能力优先：闪光闪避、快速支援这类要抢在连招前面。
-	// 先把会话算出来的状态推给需要的扩展（协奏是否满、是否还在入场、当前角色）。
-	s.pushCombatState(frame, now)
-	if action, state, ok, err := s.runExtensions(frame); err != nil {
-		return assist.Result{}, nil, err
-	} else if ok {
-		return assist.Result{State: state, Wait: s.spec.Interval}, []assist.Action{action}, nil
-	}
-	// 协奏值满了就切人（上游 switch_next_char 的核心判据）。
-	if action, ok := s.concertoSwitch(frame, now); ok {
-		return assist.Result{State: "协奏满切人", Wait: s.spec.Interval}, []assist.Action{action}, nil
-	}
-	// 战斗被打断（复活/失败界面）时先别乱按——这一步要排在锁定之前，
-	// 否则战斗已经结束时还会去按中键。
-	if aborted, err := s.checkAbort(frame); err != nil {
-		return assist.Result{}, nil, err
-	} else if aborted {
-		s.cursor = 0
-		s.intro.clearSteps()
-		return assist.Result{State: "战斗中断", Wait: s.spec.IdleWait}, nil, nil
-	}
-
-	// 中键锁定：上游 target_enemy() 在没锁定目标时反复中键。
-	if s.spec.LockInterval > 0 && (s.lockAt.IsZero() || now.Sub(s.lockAt) >= s.spec.LockInterval) {
-		locked, err := s.hasTarget(frame)
+	for _, rule := range combatRules {
+		res, acts, handled, err := rule.run(s, frame, now)
 		if err != nil {
 			return assist.Result{}, nil, err
 		}
-		if !locked {
-			s.lockAt = now
-			return assist.Result{State: "锁定目标", Wait: s.spec.Interval},
-				[]assist.Action{{Kind: assist.ActionMiddleClick, Point: s.spec.AttackPoint}}, nil
+		if handled {
+			return res, acts, nil
 		}
 	}
-
-	action, state, ok := s.nextAction(frame)
-	if !ok {
-		return assist.Result{State: "等待战斗", Wait: s.spec.IdleWait}, nil, nil
-	}
-	return assist.Result{State: state, Wait: s.spec.Interval}, []assist.Action{action}, nil
+	return assist.Result{State: "等待战斗", Wait: s.spec.IdleWait}, nil, nil
 }
 
 // Close 释放会话。
