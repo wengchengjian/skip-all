@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"math"
 	"sync"
 	"time"
 	"unsafe"
@@ -70,7 +69,6 @@ type Capturer struct {
 	bmp    windows.Handle
 	oldBmp windows.Handle
 	bits   unsafe.Pointer
-	raw    *image.RGBA
 	// pool 提供可复用的 1920x1080 输出缓冲；为 nil 时每帧新建。
 	pool *BufferPool
 
@@ -171,16 +169,7 @@ func (c *Capturer) captureInto(dst *image.RGBA) (float64, error) {
 
 // fillRGBA 把当前 DIB 内容写进 1920x1080 的 dst，不做中间分配。
 func (c *Capturer) fillRGBA(dst *image.RGBA, width, height int) {
-	src := c.pixels()
-	if width == standardWidth && height == standardHeight {
-		convertBGRA(dst, src, width, height)
-		return
-	}
-	if c.raw == nil || c.raw.Rect.Dx() != width || c.raw.Rect.Dy() != height {
-		c.raw = image.NewRGBA(image.Rect(0, 0, width, height))
-	}
-	convertBGRA(c.raw, src, width, height)
-	resizeInto(dst, c.raw)
+	scaleBGRAtoRGBAParallel(dst, c.pixels(), width, height, resizeWorkers)
 }
 
 // Capture 截取窗口客户区，返回 1920x1080 的 RGBA 图。
@@ -288,7 +277,6 @@ func (c *Capturer) releaseLocked() {
 		c.memDC = 0
 	}
 	c.bits = nil
-	c.raw = nil
 	c.hwnd = 0
 	c.width = 0
 	c.height = 0
@@ -327,21 +315,6 @@ func (c *Capturer) pixels() []byte {
 	return unsafe.Slice((*byte)(c.bits), c.width*c.height*4)
 }
 
-// toRGBA 把 DIB 内容转换成 1920x1080 的 RGBA 图。
-func (c *Capturer) toRGBA(width, height int) *image.RGBA {
-	src := c.pixels()
-	if width == standardWidth && height == standardHeight {
-		dst := image.NewRGBA(image.Rect(0, 0, standardWidth, standardHeight))
-		convertBGRA(dst, src, width, height)
-		return dst
-	}
-	if c.raw == nil || c.raw.Rect.Dx() != width || c.raw.Rect.Dy() != height {
-		c.raw = image.NewRGBA(image.Rect(0, 0, width, height))
-	}
-	convertBGRA(c.raw, src, width, height)
-	return resizeRGBA(c.raw, standardWidth, standardHeight)
-}
-
 // convertBGRA 把 BGRA 字节流写入 RGBA 图，并把 alpha 置为不透明。
 func convertBGRA(dst *image.RGBA, src []byte, width, height int) {
 	for y := 0; y < height; y++ {
@@ -370,72 +343,4 @@ func isBlackFrame(pix []byte) bool {
 	}
 	last := len(pix) - 4
 	return pix[last] <= 8 && pix[last+1] <= 8 && pix[last+2] <= 8
-}
-
-// resizeRGBA 用双线性插值缩放图像，避免截图分辨率变化影响 OCR。
-func resizeRGBA(src *image.RGBA, dstWidth, dstHeight int) *image.RGBA {
-	dst := image.NewRGBA(image.Rect(0, 0, dstWidth, dstHeight))
-	resizeInto(dst, src)
-	return dst
-}
-
-// resizeInto 把 src 双线性缩放写入已分配的 dst，不做分配。
-func resizeInto(dst, src *image.RGBA) {
-	dstWidth, dstHeight := dst.Rect.Dx(), dst.Rect.Dy()
-	srcWidth, srcHeight := src.Rect.Dx(), src.Rect.Dy()
-	if srcWidth <= 0 || srcHeight <= 0 || dstWidth <= 0 || dstHeight <= 0 {
-		return
-	}
-	scaleX := float64(srcWidth) / float64(dstWidth)
-	scaleY := float64(srcHeight) / float64(dstHeight)
-	for y := 0; y < dstHeight; y++ {
-		fy := (float64(y)+0.5)*scaleY - 0.5
-		if fy < 0 {
-			fy = 0
-		}
-		y0 := int(fy)
-		if y0 > srcHeight-1 {
-			y0 = srcHeight - 1
-		}
-		y1 := y0 + 1
-		if y1 > srcHeight-1 {
-			y1 = srcHeight - 1
-		}
-		wy := fy - float64(y0)
-		if wy < 0 {
-			wy = 0
-		}
-		rowDst := dst.Pix[y*dst.Stride:]
-		row0 := src.Pix[y0*src.Stride:]
-		row1 := src.Pix[y1*src.Stride:]
-		for x := 0; x < dstWidth; x++ {
-			fx := (float64(x)+0.5)*scaleX - 0.5
-			if fx < 0 {
-				fx = 0
-			}
-			x0 := int(fx)
-			if x0 > srcWidth-1 {
-				x0 = srcWidth - 1
-			}
-			x1 := x0 + 1
-			if x1 > srcWidth-1 {
-				x1 = srcWidth - 1
-			}
-			wx := fx - float64(x0)
-			if wx < 0 {
-				wx = 0
-			}
-			i00, i10 := x0*4, x1*4
-			for ch := 0; ch < 4; ch++ {
-				v00 := float64(row0[i00+ch])
-				v10 := float64(row0[i10+ch])
-				v01 := float64(row1[i00+ch])
-				v11 := float64(row1[i10+ch])
-				top := v00 + (v10-v00)*wx
-				bottom := v01 + (v11-v01)*wx
-				value := top + (bottom-top)*wy
-				rowDst[x*4+ch] = uint8(math.Round(value))
-			}
-		}
-	}
 }

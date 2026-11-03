@@ -38,19 +38,17 @@ func TestIsBlackFrame(t *testing.T) {
 	}
 }
 
+// TestResizeRGBA 验证缩放后的颜色通道顺序正确（源 BGRA -> 目标 RGBA）。
 func TestResizeRGBA(t *testing.T) {
-	src := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	// 左上红、右上绿、左下蓝、右下白
-	setPixel := func(x, y int, r, g, b uint8) {
-		i := y*src.Stride + x*4
-		src.Pix[i], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3] = r, g, b, 255
+	// 2x2 BGRA：左上红、右上绿、左下蓝、右下白
+	src := []byte{
+		0, 0, 255, 255, // 红：B=0 G=0 R=255
+		0, 255, 0, 255, // 绿
+		255, 0, 0, 255, // 蓝
+		255, 255, 255, 255, // 白
 	}
-	setPixel(0, 0, 255, 0, 0)
-	setPixel(1, 0, 0, 255, 0)
-	setPixel(0, 1, 0, 0, 255)
-	setPixel(1, 1, 255, 255, 255)
-
-	dst := resizeRGBA(src, 4, 4)
+	dst := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	scaleBGRAtoRGBA(dst, src, 2, 2)
 	if dst.Rect.Dx() != 4 || dst.Rect.Dy() != 4 {
 		t.Fatalf("尺寸 = %v, want 4x4", dst.Rect)
 	}
