@@ -895,7 +895,7 @@ func TestIntroWaitsForLanding(t *testing.T) {
 	if !strings.HasPrefix(result.State, "连招-") {
 		t.Fatalf("落地后应当回到连招, state=%q", result.State)
 	}
-	if !session.introUntil.IsZero() {
+	if session.intro.windowActive() {
 		t.Fatal("落地后入场等待应当结束")
 	}
 }
@@ -909,7 +909,7 @@ func TestIntroTimesOut(t *testing.T) {
 	dark := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
 	// 超过 MaxDuration 后不再处于入场等待。
 	step(t, session, assist.Frame{Image: dark, At: base.Add(600 * time.Millisecond)})
-	if !session.introUntil.IsZero() {
+	if session.intro.windowActive() {
 		t.Fatal("超时后应当结束入场等待")
 	}
 }
@@ -949,7 +949,7 @@ func TestIntroBurnMode(t *testing.T) {
 	if result.State != "入场-收尾" || actions[0].Key != "q" {
 		t.Fatalf("技能冷却后应当声骸收尾: state=%q actions=%+v", result.State, actions)
 	}
-	if !session.introUntil.IsZero() {
+	if session.intro.windowActive() {
 		t.Fatal("收尾后入场状态应当清空")
 	}
 	// 再下一帧回到连招。

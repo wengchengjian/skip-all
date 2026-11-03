@@ -80,14 +80,11 @@ type Session struct {
 	cdCache       map[StepKind]cdEntry
 	slotSeen      map[int]time.Time
 	switchInAt    map[int]time.Time
-	introLeft     []Step
-	introUntil    time.Time
-	introMode     IntroMode
-	// 切人后要确认真的切过去了：后台输入可能被吞，上游 switch_next_char 里也会复查 in_team。
-	pendingFrom int
-	pendingAt   time.Time
-	pendingDone bool
-	abortAt     time.Time
+	// 入场窗口与入场技队列。见 phase.go。
+	intro introPhase
+	// 切人后要确认真的切过去了。见 phase.go。
+	pending switchPhase
+	abortAt time.Time
 	// abortCheckedAt 是上一次中断提示 OCR 的时间（含未命中）。
 	// 只缓存命中会让"没出现中断提示"这条最常见的路径每帧都跑 OCR。
 	abortCheckedAt time.Time
@@ -141,7 +138,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		s.lastEcho = make(map[string]time.Time)
 		s.flyingChecked = false
 		s.hasLavitator = false
-		s.introLeft = nil
+		s.intro.clearSteps()
 		// 上游在战斗结束后会切回治疗位；这里也是同一件事。
 		if s.healed && !s.cfg.noHealer {
 			if key := s.healerKey(frame); key != "" {
@@ -179,7 +176,7 @@ func (s *Session) Step(_ context.Context, frame assist.Frame) (assist.Result, []
 		return assist.Result{}, nil, err
 	} else if aborted {
 		s.cursor = 0
-		s.introLeft = nil
+		s.intro.clearSteps()
 		return assist.Result{State: "战斗中断", Wait: s.spec.IdleWait}, nil, nil
 	}
 
@@ -209,10 +206,10 @@ func (s *Session) Close() error { return nil }
 // inCombat 依次看模板证据与血条颜色证据，任一命中即认为在战斗。
 func (s *Session) inCombat(frame assist.Frame) (bool, error) {
 	if bar := s.spec.HealthBar; bar != nil {
+		// 只需要"有没有"，用提前退出的版本：命中第一条就停，不再扫完整屏。
 		bounds := frame.Image.Bounds()
-		rects := vision.FindColorRectangles(frame.Image, geom.Rect{X1: bounds.Min.X, Y1: bounds.Min.Y, X2: bounds.Max.X, Y2: bounds.Max.Y},
-			bar.Color, bar.MinWidth, bar.MinHeight, bar.MaxHeight, healthBarFillRatio)
-		if len(rects) > 0 {
+		if vision.FindColorRectanglesAny(frame.Image, geom.Rect{X1: bounds.Min.X, Y1: bounds.Min.Y, X2: bounds.Max.X, Y2: bounds.Max.Y},
+			bar.Color, bar.MinWidth, bar.MinHeight, bar.MaxHeight, healthBarFillRatio) {
 			return true, nil
 		}
 	}
@@ -396,76 +393,21 @@ func (s *Session) checkAbort(frame assist.Frame) (bool, error) {
 }
 
 func (s *Session) nextAction(frame assist.Frame) (assist.Action, string, bool) {
-	// 切人确认：800ms 内发现前台没变，就补一次普攻（上游 switch_next_char 里的兜底）。
-	if !s.pendingAt.IsZero() && s.spec.Team != nil {
-		now := frame.At
-		if now.IsZero() {
-			now = time.Now()
-		}
-		since := now.Sub(s.pendingAt)
-		if since > switchVerifyTimeout || s.pendingFrom < 0 {
-			s.pendingAt = time.Time{}
-		} else if cur, ok, err := s.spec.Team.Current(runtimeAdapter{rt: s.rt}, frame); err == nil && ok && cur != s.pendingFrom {
-			s.pendingAt = time.Time{} // 切人成功
-		} else if since > switchVerifyGrace && !s.pendingDone {
-			s.pendingDone = true
-			action := assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}
-			if s.spec.Keys.Attack != "" {
-				action = assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Attack}
-			}
-			return action, "切人未生效", true
-		}
+	now := frame.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	// 切人确认：宽限期内发现前台没变，就补一次普攻（上游 switch_next_char 里的兜底）。
+	if action, state, ok := s.pending.step(s, frame, now); ok {
+		return action, state, true
 	}
 	// 入场等待：上游 wait_intro() 期间一直点普攻，直到落地（技能可用）或超时。
-	if !s.introUntil.IsZero() {
-		now := frame.At
-		if now.IsZero() {
-			now = time.Now()
-		}
-		// 角色专属入场（如今汐的入场爆发）：切进来才知道是谁，所以在这里解析。
-		if s.spec.Team != nil {
-			if id := s.currentAgent(frame); id != "" {
-				if override, ok := s.spec.IntroByAgent[id]; ok {
-					s.introMode = override.Mode
-					limit := override.MaxDuration
-					if limit <= 0 {
-						limit = 1200 * time.Millisecond
-					}
-					if deadline := s.switchAt.Add(limit); deadline.After(s.introUntil) {
-						s.introUntil = deadline
-					}
-				}
-			}
-		}
-		if now.After(s.introUntil) {
-			s.introUntil = time.Time{}
-		} else if s.introMode == IntroBurn {
-			// 入场爆发：技能可用就一直按，进冷却后用声骸/普攻收尾并结束入场。
-			if s.ready(frame, StepSkill) && s.spec.Keys.Skill != "" {
-				return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Skill}, "入场-爆发", true
-			}
-			if s.spec.Keys.Echo != "" && s.ready(frame, StepEcho) {
-				s.introUntil = time.Time{}
-				return assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Echo}, "入场-收尾", true
-			}
-			s.introUntil = time.Time{}
-		} else if s.ready(frame, StepSkill) {
-			s.introUntil = time.Time{}
-		} else {
-			action := assist.Action{Kind: assist.ActionClick, Point: s.spec.AttackPoint}
-			if s.spec.Keys.Attack != "" {
-				action = assist.Action{Kind: assist.ActionKeyTap, Key: s.spec.Keys.Attack}
-			}
-			return action, "入场-落地", true
-		}
+	if action, state, ok := s.intro.stepWindow(s, frame, now); ok {
+		return action, state, true
 	}
 	// 刚切过人：先把入场技打完（鸣潮的 handle_intro）。
-	if len(s.introLeft) > 0 {
-		step := s.introLeft[0]
-		s.introLeft = s.introLeft[1:]
-		if action, state, ok := s.stepAction(frame, step); ok {
-			return action, "入场-" + state, true
-		}
+	if action, state, ok := s.intro.stepQueue(s, frame); ok {
+		return action, state, true
 	}
 	plan := s.currentPlan(frame)
 	if len(plan) == 0 {
@@ -569,7 +511,7 @@ func (s *Session) pushCombatState(frame assist.Frame, now time.Time) {
 		sa.SetCombatState(CombatState{
 			Agent:             agent,
 			ConcertoFull:      s.concertoLit(frame),
-			InIntro:           !s.introUntil.IsZero(),
+			InIntro:           s.intro.windowActive(),
 			LastOutro:         s.outroAgent,
 			Flying:            s.flying(frame),
 			InLiberation:      s.inLiberation(frame, now),
@@ -836,16 +778,14 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 		return assist.Action{}, false
 	}
 	// 记下切走之前的槽位，切完要确认真的换了人。
+	from := -1
 	if s.spec.Team != nil {
 		if cur, ok, err := s.spec.Team.Current(runtimeAdapter{rt: s.rt}, frame); err == nil && ok {
-			s.pendingFrom = cur
-		} else {
-			s.pendingFrom = -1
+			from = cur
 		}
 	}
 	s.noteSwitch(frame, now)
-	s.pendingAt = now
-	s.pendingDone = false
+	s.pending.enter(now, from)
 	return assist.Action{Kind: assist.ActionKeyTap, Key: s.chooseSwitchKey(frame)}, true
 }
 
@@ -861,7 +801,7 @@ func (s *Session) switchHeld(frame assist.Frame, now time.Time) bool {
 			return true
 		}
 	}
-	if s.introUntil.IsZero() {
+	if !s.intro.windowActive() {
 		return false
 	}
 	if d := s.spec.HoldSwitchAfterHeavy[agent]; d > 0 {
@@ -1182,16 +1122,8 @@ func (s *Session) noteSwitch(frame assist.Frame, now time.Time) {
 	s.cdCache = make(map[StepKind]cdEntry)
 	s.agentAt = time.Time{}
 	s.agentID = ""
-	s.introLeft = append([]Step(nil), s.spec.IntroSteps...)
 	// 入场行为的角色专属覆盖要等"切进来的是谁"确定后再定，这里先按默认值开启窗口。
-	if s.spec.Intro != nil {
-		limit := s.spec.Intro.MaxDuration
-		if limit <= 0 {
-			limit = 1200 * time.Millisecond
-		}
-		s.introUntil = now.Add(limit)
-		s.introMode = s.spec.Intro.Mode
-	}
+	s.intro.enter(now, s.spec)
 	_ = frame
 }
 

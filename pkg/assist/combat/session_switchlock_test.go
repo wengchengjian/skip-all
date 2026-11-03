@@ -75,7 +75,7 @@ func TestSwitchHold(t *testing.T) {
 	}
 	session := newSession(testRuntime(true), spec.withDefaults(), sessionSettings{})
 	base := time.Now()
-	session.introUntil = base.Add(time.Second)
+	session.intro.deadline = base.Add(time.Second)
 	session.lastHeavy["a"] = base
 	if _, ok := session.concertoSwitch(assist.Frame{Image: concertoFullFrame(), At: base}, base); ok {
 		t.Fatal("重击 hold 窗口内不应切走")
