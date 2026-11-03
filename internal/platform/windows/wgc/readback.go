@@ -59,6 +59,65 @@ func getDesc(tex comPtr) (texture2DDesc, error) {
 	return d, nil
 }
 
+// copyTo 把 GPU 纹理读回并写进 dst（紧凑 BGRA，行跨度 = 宽*4）。
+//
+// 与 readBack 的区别是复用调用方的缓冲，不在每帧分配 8MB。
+func (d *d3dDevice) copyTo(dst []byte, tex comPtr) error {
+	desc, err := getDesc(tex)
+	if err != nil {
+		return err
+	}
+	need := int(desc.Width) * int(desc.Height) * 4
+	if len(dst) < need {
+		return fmt.Errorf("目标缓冲太小: 需要 %d，实际 %d", need, len(dst))
+	}
+	staging := texture2DDesc{
+		Width:          desc.Width,
+		Height:         desc.Height,
+		MipLevels:      1,
+		ArraySize:      1,
+		Format:         desc.Format,
+		SampleCount:    1,
+		Usage:          usageStaging,
+		CPUAccessFlags: cpuAccessRead,
+	}
+	var stagingTex comPtr
+	if _, err := d.raw.call(idxDeviceCreateTexture2D,
+		uintptr(unsafe.Pointer(&staging)),
+		0,
+		uintptr(unsafe.Pointer(&stagingTex.p)),
+	); err != nil {
+		return fmt.Errorf("CreateTexture2D(staging): %w", err)
+	}
+	defer stagingTex.release()
+
+	if _, err := d.context.call(idxContextCopyResource,
+		uintptr(unsafe.Pointer(stagingTex.p)),
+		uintptr(unsafe.Pointer(tex.p)),
+	); err != nil {
+		return fmt.Errorf("CopyResource: %w", err)
+	}
+
+	var mapped mappedSubresource
+	if _, err := d.context.call(idxContextMap,
+		uintptr(unsafe.Pointer(stagingTex.p)),
+		0,
+		uintptr(mapRead),
+		0,
+		uintptr(unsafe.Pointer(&mapped)),
+	); err != nil {
+		return fmt.Errorf("Map: %w", err)
+	}
+	defer d.context.call(idxContextUnmap, uintptr(unsafe.Pointer(stagingTex.p)), 0)
+
+	rowBytes := int(desc.Width) * 4
+	src := unsafe.Slice((*byte)(mapped.Data), int(mapped.RowPitch)*int(desc.Height))
+	for y := 0; y < int(desc.Height); y++ {
+		copy(dst[y*rowBytes:(y+1)*rowBytes], src[y*int(mapped.RowPitch):])
+	}
+	return nil
+}
+
 // readBack 把 GPU 纹理读回 CPU，返回 BGRA 字节与行跨度。
 //
 // 路径：建同尺寸 staging 纹理 -> CopyResource -> Map -> 拷贝 -> Unmap。

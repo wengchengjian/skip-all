@@ -111,7 +111,19 @@ const (
 // Beep 播放一次系统提示音。
 func Beep(kind uint32) { win.Beep(kind) }
 
-// NewCapturer 创建截图器。
+// NewDevice 创建截图器：优先 Windows Graphics Capture，不可用时回退 GDI。
+//
+// WGC 走合成器输出的 GPU 纹理，1080p 一帧约 3.5ms；但要求窗口可见，
+// 被遮挡或最小化时自动回退 GDI（约 30ms），行为与纯 GDI 一致。
+func NewDevice(w Window) Capturer {
+	ww, ok := w.(*win.Window)
+	if !ok || ww == nil {
+		return unsupportedCapturer{}
+	}
+	return win.NewWGCDevice(ww)
+}
+
+// NewCapturer 创建纯 GDI 截图器（Doctor 等需要"窗口不可见也能截"的场景用它）。
 func NewCapturer(w Window) Capturer {
 	ww, ok := w.(*win.Window)
 	if !ok || ww == nil {

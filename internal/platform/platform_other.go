@@ -115,6 +115,9 @@ func Beep(uint32) {}
 // NewCapturer 在非 Windows 平台返回占位截图器。
 func NewCapturer(w Window) Capturer { return unsupportedCapturer{} }
 
+// NewDevice 在非 Windows 平台同样返回占位截图器。
+func NewDevice(w Window) Capturer { return unsupportedCapturer{} }
+
 // NewInputWithOptions 在非 Windows 平台返回占位输入。
 func NewInputWithOptions(w Window, opts InputOptions) Input { return unsupportedInput{} }
 

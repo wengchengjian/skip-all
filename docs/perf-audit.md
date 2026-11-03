@@ -104,6 +104,20 @@ GPU 渲染的全屏游戏窗口 PrintWindow 更慢，而它才是真正的目标
 约束：WGC 要求窗口**显示在屏幕上**（被遮挡或最小化拿不到帧），但**不需要有焦点**，
 与"不抢焦点"的定位不冲突。
 
+**已接入产品**：`platform.NewDevice` 返回"WGC 优先 + GDI 回退"的截图设备。
+WGC 失败后冷却 3 秒再重试，这期间全走 GDI，所以窗口被遮挡时行为与改造前完全一致。
+WGC 的 COM 调用跑在一条 `runtime.LockOSThread` 固定的专用线程上（WinRT 要求）。
+
+设备级实测（同一游戏窗口，按产品 10 FPS 节拍取帧）：
+
+| 设备 | min | p50 | p95 |
+| --- | ---: | ---: | ---: |
+| 纯 GDI | 21.7 ms | **31.6 ms** | 39.0 ms |
+| WGC 优先 + GDI 回退 | 4.5 ms | **5.5 ms** | 9.5 ms |
+
+5.5ms 比裸 WGC 的 3.5ms 多出来的 2ms 是 BGRA->RGBA + 缩放到 1920x1080，
+GDI 那 31.6ms 里也含同样的转换。
+
 #### 候选替代方案：go2tv.app/screencast（评估结论：不直接引入）
 
 社区库 [go2tv.app/screencast](https://pkg.go.dev/go2tv.app/screencast)（MIT，

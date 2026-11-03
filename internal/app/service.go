@@ -467,7 +467,9 @@ func (s *Service) startGame(game assist.Game, features []assist.Feature) ActionR
 	if err != nil {
 		return ActionResult{OK: false, Error: "找不到游戏窗口: " + err.Error()}
 	}
-	capturer := platform.NewCapturer(win)
+	// 优先 WGC（GPU 纹理直接取帧，1080p 约 3.5ms）；窗口被遮挡或最小化时
+	// 自动回退 GDI，行为与原来一致。
+	capturer := platform.NewDevice(win)
 	// 帧缓冲池：截图直接写进池里的 1920x1080 缓冲，异步识别 worker
 	// 用 Retain/Release 跨拍持有，不必为每帧深拷贝约 8MB。
 	capturer.SetBufferPool(platform.NewBufferPool(1920, 1080))

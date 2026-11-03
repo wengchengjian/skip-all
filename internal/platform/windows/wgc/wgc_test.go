@@ -4,41 +4,35 @@ package wgc
 
 import (
 	"fmt"
+	"syscall"
 	"testing"
 	"unsafe"
-
-	gamewin "github.com/wengchengjian/skip-all/internal/platform/windows"
 )
 
-const (
-	// IGraphicsCaptureItemInterop 派生自 IUnknown（不是 IInspectable），
-	// 所以 CreateForWindow 在 vtable 的 3 号位。
-	iidGraphicsCaptureItemInterop = "3628E81B-3CAC-4C60-B7F4-23CE0E0C3356"
-	iidGraphicsCaptureItem        = "79C3F95B-31F7-4EC2-A464-632EF5D30760"
-	classNameGraphicsCaptureItem  = "Windows.Graphics.Capture.GraphicsCaptureItem"
-)
+var user32 = syscall.NewLazyDLL("user32.dll")
 
-// captureItem 为一个窗口创建 WGC 捕获项，并返回它和窗口客户区尺寸。
-//
-// 注意：IGraphicsCaptureItem::get_Size 这条路走不通——实测该槽写回的是一个指针
-// 而不是 SizeInt32（2026-11 在 1920x1080 的鸣潮窗口上验证）。尺寸改从
-// GetClientRect 取，后面帧纹理本身也会带尺寸。
-func captureItem(hwnd uintptr) (comPtr, error) {
-	factory, err := activationFactory(classNameGraphicsCaptureItem, iidGraphicsCaptureItemInterop)
-	if err != nil {
-		return comPtr{}, err
+// findWindow 按标题找一个可见窗口，返回 HWND 与客户区尺寸。
+// 测试不 import internal/platform/windows，否则会与它 import wgc 形成环。
+func findWindow(titles ...string) (uintptr, int, int, bool) {
+	procFindWindowW := user32.NewProc("FindWindowW")
+	procGetClientRect := user32.NewProc("GetClientRect")
+	for _, title := range titles {
+		p, err := syscall.UTF16PtrFromString(title)
+		if err != nil {
+			continue
+		}
+		hwnd, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(p)))
+		if hwnd == 0 {
+			continue
+		}
+		var rect [4]int32
+		procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rect[0])))
+		w, h := int(rect[2]-rect[0]), int(rect[3]-rect[1])
+		if w > 0 && h > 0 {
+			return hwnd, w, h, true
+		}
 	}
-	defer factory.release()
-
-	itemIID, err := parseGUID(iidGraphicsCaptureItem)
-	if err != nil {
-		return comPtr{}, err
-	}
-	var item comPtr
-	if _, err := factory.call(3, hwnd, uintptr(unsafe.Pointer(&itemIID)), uintptr(unsafe.Pointer(&item.p))); err != nil {
-		return comPtr{}, fmt.Errorf("CreateForWindow: %w", err)
-	}
-	return item, nil
+	return 0, 0, 0, false
 }
 
 // TestCreateForWindow 验证纯 Go 能通过 WinRT 给真实游戏窗口创建捕获项。
@@ -51,17 +45,13 @@ func TestCreateForWindow(t *testing.T) {
 	}
 	defer RoUninitialize()
 
-	w, err := gamewin.Find([]string{"鸣潮", "Wuthering Waves"}, []string{"Client-Win64-Shipping.exe"})
-	if err != nil {
-		w, err = gamewin.Find(nil, []string{"chrome.exe", "Taskmgr.exe"})
+	hwnd, cw, ch, ok := findWindow("鸣潮", "Wuthering Waves", "任务管理器")
+	if !ok {
+		t.Skip("没有可用窗口")
 	}
-	if err != nil {
-		t.Skipf("没有可用窗口: %v", err)
-	}
-	rect, _ := w.ClientRect()
-	t.Logf("目标窗口 hwnd=0x%X 客户区 %dx%d", w.Handle(), rect.Width(), rect.Height())
+	t.Logf("目标窗口 hwnd=0x%X 客户区 %dx%d", hwnd, cw, ch)
 
-	item, err := captureItem(w.Handle())
+	item, err := captureItem(hwnd)
 	if err != nil {
 		t.Fatalf("创建捕获项失败: %v", err)
 	}
@@ -79,6 +69,5 @@ func TestCreateForWindow(t *testing.T) {
 	}
 	deleteHString(hstr)
 
-	fmt.Printf("WGC|stage=create_for_window|hwnd=0x%X|w=%d|h=%d|runtimeclass_ok=1\n",
-		w.Handle(), rect.Width(), rect.Height())
+	fmt.Printf("WGC|stage=create_for_window|hwnd=0x%X|w=%d|h=%d|runtimeclass_ok=1\n", hwnd, cw, ch)
 }
