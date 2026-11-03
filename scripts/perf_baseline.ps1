@@ -54,6 +54,21 @@ try {
         }
     }
 
+
+    # 屏幕回读的刷新率量化：解释截图为什么慢。
+    $quantRaw = & go test ./internal/platform/windows -run TestCaptureQuantization -count=1 -v -timeout 300s 2>&1
+    $quants = @()
+    foreach ($line in $quantRaw) {
+        if ($line -match '^QUANT\|(.+)$') {
+            $kv = @{}
+            foreach ($p in $Matches[1].Split('|')) {
+                $i = $p.IndexOf('=')
+                if ($i -gt 0) { $kv[$p.Substring(0, $i)] = $p.Substring($i + 1) }
+            }
+            $quants += [pscustomobject]@{ W = $kv['w']; H = $kv['h']; P50 = $kv['p50_us']; MemToMem = $kv['mem_to_mem_us'] }
+        }
+    }
+
     # 截图路径：只能对着真实 HWND 量，单独跑一个包。
     $capRaw = & go test ./internal/platform/windows -run TestCaptureBreakdown -count=1 -v -timeout 600s 2>&1
     $caps = @()
@@ -125,6 +140,30 @@ try {
         }
         $kb = '{0:N1} KB' -f ($r.Bytes / 1024.0)
         [void]$md.AppendLine("| $($r.Stage) | $($r.N) | $mean | $p50 | $p95 | $kb | $($r.Allocs) |")
+    }
+    if ($quants.Count -gt 0) {
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('## 屏幕回读的刷新率量化')
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('不同尺寸的屏幕 BitBlt 往返，用来判断截图慢是带宽还是合成节拍。')
+        [void]$md.AppendLine('1x1 的 p50 约等于一个显示器刷新周期（本机 143Hz -> 6.99ms）。')
+        [void]$md.AppendLine('')
+        [void]$md.AppendLine('| 尺寸 | p50 |')
+        [void]$md.AppendLine('| --- | ---: |')
+        $memToMem = ''
+        foreach ($q in $quants) {
+            if ($q.P50 -ne $null -and $q.P50 -ne '') {
+                [void]$md.AppendLine(('| {0}x{1} | {2:N2} ms |' -f $q.W, $q.H, ([double]$q.P50 / 1000.0)))
+            }
+            if ($q.MemToMem -ne $null -and $q.MemToMem -ne '') {
+                $memToMem = '{0:N2} ms' -f ([double]$q.MemToMem / 1000.0)
+            }
+        }
+        if ($memToMem -ne '') {
+            [void]$md.AppendLine('')
+            [void]$md.AppendLine(('对照：同样 8MB 在两块内存 DIB 之间 blit 只需 **' + $memToMem + '**，所以慢的是屏幕回读，不是拷贝。'))
+        }
+        [void]$md.AppendLine('')
     }
     if ($engs.Count -gt 0) {
         [void]$md.AppendLine('')
