@@ -7,7 +7,7 @@
 | CPU | 13th Gen Intel(R) Core(TM) i7-13700K (24 逻辑核) |
 | OS | Microsoft Windows 11 专业工作站版 |
 | Go | go1.26.1 windows/amd64 |
-| 生成时间 | 2026-11-03 12:53:01 |
+| 生成时间 | 2026-11-03 12:57:49 |
 
 ## 分阶段单次代价
 
@@ -15,16 +15,18 @@
 
 | 阶段 | n | mean | p50 | p95 | 每次分配字节 | 每次分配次数 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ocr.engine.skill_x3 | 20 | 45.22 ms | 45.19 ms | 49.75 ms | 5,418.5 KB | 2736 |
-| ocr.engine.story | 15 | 20.25 ms | 20.54 ms | 22.01 ms | 5,970.9 KB | 487 |
-| ocr.matcher.miss_x3 | 12 | 42.96 ms | 43.43 ms | 44.44 ms | 5,467.9 KB | 2751 |
-| ocr.matcher.hit | 200 | 184 µs | 0 µs | 999 µs | 0.1 KB | 1 |
-| vision.colorstats | 100 | 2.71 ms | 2.76 ms | 3.50 ms | 0.0 KB | 0 |
-| vision.colorrect_full | 100 | 1.89 ms | 2.00 ms | 2.52 ms | 40.7 KB | 0 |
-| vision.textbands | 300 | 351 µs | 0 µs | 1,007 µs | 0.1 KB | 2 |
-| vision.template_match | 100 | 16.97 ms | 17.03 ms | 19.15 ms | 216.0 KB | 2 |
-| feature.story_skip.step | 60 | 213 µs | 0 µs | 1,742 µs | 0.2 KB | 4 |
-| feature.auto_combat.step | 60 | 2.11 ms | 2.00 ms | 3.01 ms | 0.3 KB | 6 |
+| ocr.engine.skill_x3 | 20 | 45.32 ms | 45.35 ms | 51.47 ms | 5,418.4 KB | 2736 |
+| ocr.engine.story | 15 | 20.05 ms | 19.97 ms | 23.05 ms | 5,970.8 KB | 487 |
+| ocr.matcher.miss_x3 | 12 | 45.00 ms | 45.29 ms | 47.02 ms | 5,467.9 KB | 2752 |
+| ocr.matcher.hit | 200 | 170 µs | 0 µs | 1,005 µs | 0.1 KB | 1 |
+| vision.colorstats | 100 | 2.74 ms | 2.50 ms | 3.52 ms | 0.0 KB | 0 |
+| vision.colorrect_full | 100 | 1.91 ms | 2.00 ms | 2.53 ms | 40.7 KB | 0 |
+| vision.textbands | 300 | 350 µs | 0 µs | 1,017 µs | 0.1 KB | 2 |
+| vision.template_match | 100 | 16.75 ms | 16.62 ms | 18.75 ms | 216.0 KB | 2 |
+| feature.story_skip.step | 60 | 266 µs | 0 µs | 2,002 µs | 0.2 KB | 4 |
+| feature.auto_combat.step | 60 | 2.08 ms | 2.00 ms | 3.00 ms | 0.3 KB | 6 |
+| feature.all.step | 60 | 2.02 ms | 2.00 ms | 3.00 ms | 0.5 KB | 10 |
+| async.ocr.submit | 200 | 0 µs | 0 µs | 0 µs | 0.1 KB | 1 |
 
 ## 说明
 

@@ -274,12 +274,14 @@ func TestPerfBaseline(t *testing.T) {
 	}
 
 	base := time.Now()
+	var sessions []assist.Session
 	for _, f := range wuwaGame.Features() {
 		sess, err := f.NewSession(rt, f.DefaultSettings())
 		if err != nil {
 			t.Logf("跳过 feature %s: %v", f.ID(), err)
 			continue
 		}
+		sessions = append(sessions, sess)
 		name := "feature." + f.ID() + ".step"
 		var i int
 		stats = append(stats, measure(name, 5, 60, func() {
@@ -287,7 +289,32 @@ func TestPerfBaseline(t *testing.T) {
 			i++
 			_, _, _ = sess.Step(nil, frame)
 		}))
-		_ = sess.Close()
+	}
+
+	// 同一帧驱动全部功能：这是 engine 每拍真正要做的事。
+	if len(sessions) > 1 {
+		var i int
+		stats = append(stats, measure("feature.all.step", 5, 60, func() {
+			frame := assist.Frame{Image: img, At: base.Add(time.Duration(i) * 150 * time.Millisecond)}
+			i++
+			for _, s := range sessions {
+				_, _, _ = s.Step(nil, frame)
+			}
+		}))
+	}
+
+	// 异步 OCR 的提交代价：tick 里付的是这个，不是 45ms 的识别本身。
+	async := assist.NewAsyncRuntime(rt, 2)
+	defer async.Close()
+	var ai int
+	stats = append(stats, measure("async.ocr.submit", 3, 200, func() {
+		frame := assist.Frame{Image: img, At: base.Add(time.Duration(ai) * 150 * time.Millisecond)}
+		ai++
+		_, _ = async.OCR(frame, screen.Area{Name: "s", Rect: skillRects[0]}, vision.OCROptions{})
+	}))
+
+	for _, s := range sessions {
+		_ = s.Close()
 	}
 
 	for _, s := range stats {
