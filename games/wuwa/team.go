@@ -32,7 +32,18 @@ type wuwaTeam struct {
 	// scanCursor 让全量认人分摊到多帧：一次要比 3 个槽位 × 62 张模板，
 	// 一帧全扫会明显卡顿。
 	scanCursor int
+	// slotAgent 按槽位缓存认出来的角色。
+	//
+	// 鸣潮里每个槽位的角色在整场战斗内是固定的，认一次就该记住。
+	// 原来只靠"白名单 + 分批扫描"，扫描期间 agent 一直为空，
+	// 规则表只能退回 __base__ 通用行为，表现为"打得很呆"。
+	slotAgent   [3]string
+	slotAgentAt [3]time.Time
 }
+
+// slotAgentTTL 是槽位缓存的有效期。角色在战斗内不会变，留长一点；
+// 过期只是为了换队后能自然刷新。
+const slotAgentTTL = 2 * time.Minute
 
 func newWuwaTeam() *wuwaTeam {
 	return &wuwaTeam{
@@ -67,6 +78,15 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 	if now.IsZero() {
 		now = time.Now()
 	}
+	// 槽位缓存命中就直接返回，不再扫模板。
+	t.mu.Lock()
+	cached := t.slotAgent[index]
+	cachedAt := t.slotAgentAt[index]
+	t.mu.Unlock()
+	if cached != "" && now.Sub(cachedAt) < slotAgentTTL {
+		return cached, true, nil
+	}
+
 	candidates, learning := t.candidates(now)
 	area := t.avatarSlots[index]
 	best, bestID := 0.0, ""
@@ -99,6 +119,12 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 	if learning {
 		t.learn([]string{matched}, now)
 	}
+	if index >= 0 && index < len(t.slotAgent) {
+		t.mu.Lock()
+		t.slotAgent[index] = bestID
+		t.slotAgentAt[index] = now
+		t.mu.Unlock()
+	}
 	return bestID, true, nil
 }
 
@@ -107,7 +133,10 @@ func (t *wuwaTeam) Agent(rt combat.Runtime, frame assist.Frame) (string, bool, e
 const teamRefreshTTL = 10 * time.Second
 
 // wuwaScanBatch 是一次最多比对的模板数量。鸣潮的头像模板来自 4K 裁剪、比绝区零的大，
-// 单张匹配约 9ms，所以一帧只比 1 张（3 个槽位 ≈ 28ms），63 张约 2 秒扫完一轮。
+// 单张匹配约 9ms，所以一帧只比 1 张（3 个槽位 ≈ 28ms）。
+//
+// 首次认人要扫完 69 张，5 FPS 下约 14 秒；但每个槽位认出来之后会进 slotAgent 缓存，
+// 后续不再扫模板。改成批量会改变扫描顺序、影响规则表命中，暂时保持 1。
 const wuwaScanBatch = 1
 
 // candidates 返回这一轮要比对的模板：白名单还新鲜就只比那几张，
