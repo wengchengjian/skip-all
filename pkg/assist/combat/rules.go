@@ -33,9 +33,20 @@ var combatRules = []stepRule{
 	{"连招", (*Session).ruleRotation},
 }
 
+// healCooldown 是两次"切治疗"之间的最小间隔。
+//
+// 脱战判定会被短暂打断（敌人转到身后、血条被特效挡住）触发，
+// 于是"战斗结束切治疗"之后两三秒又判成"战斗前切治疗"，
+// 表现就是玩家手动切到别人、程序立刻又切回治疗位。加冷却压掉这种抖动。
+const healCooldown = 20 * time.Second
+
 // rulePreHeal 在开打前先切到治疗位，保证有人能奶。
-func (s *Session) rulePreHeal(frame assist.Frame, _ time.Time) (assist.Result, []assist.Action, bool, error) {
+func (s *Session) rulePreHeal(frame assist.Frame, now time.Time) (assist.Result, []assist.Action, bool, error) {
 	if s.cfg.noHealer || s.healed {
+		return assist.Result{}, nil, false, nil
+	}
+	if !s.healAt.IsZero() && now.Sub(s.healAt) < healCooldown {
+		s.healed = true
 		return assist.Result{}, nil, false, nil
 	}
 	key := s.healerKey(frame)
@@ -43,6 +54,7 @@ func (s *Session) rulePreHeal(frame assist.Frame, _ time.Time) (assist.Result, [
 		return assist.Result{}, nil, false, nil
 	}
 	s.healed = true
+	s.healAt = now
 	return assist.Result{State: "战斗前切治疗", Wait: s.spec.Interval},
 		[]assist.Action{{Kind: assist.ActionKeyTap, Key: key}}, true, nil
 }

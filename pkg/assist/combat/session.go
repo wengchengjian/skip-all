@@ -61,6 +61,7 @@ type Session struct {
 	lastCombat time.Time
 	lockAt     time.Time
 	healed     bool
+	healAt     time.Time
 	switchAt   time.Time
 	agentID    string
 	agentAt    time.Time
@@ -528,21 +529,33 @@ func (s *Session) templateScore(frame assist.Frame, t *Target, id string) (float
 	return best, nil
 }
 
-// concertoSwitch 在协奏值满时返回一次切人动作。
 // concertoLit 只判断协奏环是否算满，不改状态。
 func (s *Session) concertoLit(frame assist.Frame) bool {
+	return s.concertoFull(frame)
+}
+
+// concertoFull 判断协奏值是否已满。
+//
+// 判据是"环是否闭合"，不是"环内像素占比"：环只有 4~5px 宽、实际描边更细，
+// 用占比的话满环也只有 0.68 左右，永远达不到 0.95，表现就是"协奏满了也不切人"。
+//
+// 按上游 _ensure_ring_index 的做法逐色判断：只有当前角色那一种元素色会点亮，
+// 6 种颜色合在一起算会把不该满的环凑满。
+func (s *Session) concertoFull(frame assist.Frame) bool {
 	c := s.spec.Concerto
-	if c == nil {
+	if c == nil || len(c.Colors) == 0 {
 		return false
 	}
-	// 判据是"环是否闭合"，不是"环内像素占比"。
-	// 环只有 4~5px 宽、实际描边更细，用占比的话满了也只有 0.4~0.7，
-	// 永远达不到 0.95，表现就是"协奏满了也不切人"。
 	full := c.FullRatio
 	if full <= 0 {
 		full = defaultConcertoFullRatio
 	}
-	return vision.RingFull(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer, full)
+	for _, color := range c.Colors {
+		if vision.RingFull(frame.Image, c.Rect, [][2][3]uint8{color}, c.Inner, c.Outer, full) {
+			return true
+		}
+	}
+	return false
 }
 
 // needFastPerform 对应上游 BaseChar.need_fast_perform()：
@@ -697,22 +710,7 @@ func (s *Session) concertoSwitch(frame assist.Frame, now time.Time) (assist.Acti
 	if s.switchHeld(frame, now) {
 		return assist.Action{}, false
 	}
-	c := s.spec.Concerto
-	// 上游 _ensure_ring_index()：先看当前角色是哪个元素（哪种颜色占比最高），
-	// 再用这一种颜色算覆盖率，避免 6 种颜色混在一起把不该满的环算满。
-	coverage := 0.0
-	for _, ratio := range vision.RingCoverages(frame.Image, c.Rect, c.Colors, c.Inner, c.Outer) {
-		if ratio > coverage {
-			coverage = ratio
-		}
-	}
-	// 上游 switch_next_char 里要求 current_con == 1 才切；0.8~0.99 之间会 sleep(0.05)
-	// 再查一次，也就是"差一点没满就再等一帧"。这里用 0.95 作为满的门限。
-	full := c.FullRatio
-	if full <= 0 {
-		full = defaultConcertoFullRatio
-	}
-	if coverage < full {
+	if !s.concertoFull(frame) {
 		return assist.Action{}, false
 	}
 	// 记下切走之前的槽位，切完要确认真的换了人。
