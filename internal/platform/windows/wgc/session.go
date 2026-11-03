@@ -45,14 +45,14 @@ func (s *Session) Size() (int, int) { return s.width, s.height }
 //
 // 返回的实际尺寸可能和建会话时给的尺寸不同（窗口改过分辨率），
 // 调用方必须按返回值去解释 dst，不要用建会话时的尺寸。
-func (s *Session) Capture(dst []byte, timeout time.Duration) (int, int, error) {
+func (s *Session) Capture(dst []byte, cropX, cropY, cropW, cropH int, timeout time.Duration) (int, int, error) {
 	frame, tex, err := s.pool.nextFrame(timeout)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer frame.release()
 	defer tex.release()
-	return s.dev.copyTo(dst, tex)
+	return s.dev.copyTo(dst, tex, cropX, cropY, cropW, cropH)
 }
 
 // Close 释放会话资源。

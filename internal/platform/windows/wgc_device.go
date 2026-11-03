@@ -137,12 +137,17 @@ func (d *WGCDevice) run() {
 				}
 				sess, sessKey, sessW, sessH = s, req.hwnd, req.width, req.height
 			}
-			need := req.width * req.height * 4
+			// WGC 截的是整窗（含标题栏/边框），只取客户区。
+			// 不裁剪会把整幅画面压扁移位，后续所有识别都会读错位置。
+			cropX, cropY, cropW, cropH, cerr := wgc.ClientArea(req.hwnd)
+			if cerr != nil || cropW <= 0 || cropH <= 0 {
+				cropX, cropY, cropW, cropH = 0, 0, req.width, req.height
+			}
+			need := cropW * cropH * 4
 			if len(scratch) < need {
 				scratch = make([]byte, need)
 			}
-			// 用实际帧尺寸缩放，不用建会话时的尺寸。
-			fw, fh, err := sess.Capture(scratch, wgcFrameTimeout)
+			fw, fh, err := sess.Capture(scratch, cropX, cropY, cropW, cropH, wgcFrameTimeout)
 			if err != nil {
 				// 会话可能已失效（窗口重建），下次重新建。
 				sess.Close()

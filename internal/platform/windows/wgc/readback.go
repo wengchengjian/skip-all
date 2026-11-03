@@ -62,12 +62,20 @@ func getDesc(tex comPtr) (texture2DDesc, error) {
 // copyTo 把 GPU 纹理读回并写进 dst（紧凑 BGRA，行跨度 = 宽*4）。
 //
 // 与 readBack 的区别是复用调用方的缓冲，不在每帧分配 8MB。
-func (d *d3dDevice) copyTo(dst []byte, tex comPtr) (int, int, error) {
+func (d *d3dDevice) copyTo(dst []byte, tex comPtr, cropX, cropY, cropW, cropH int) (int, int, error) {
 	desc, err := getDesc(tex)
 	if err != nil {
 		return 0, 0, err
 	}
-	need := int(desc.Width) * int(desc.Height) * 4
+	// 只取客户区：WGC 截的是整窗，标题栏和边框要去掉。
+	if cropW <= 0 || cropH <= 0 {
+		cropX, cropY, cropW, cropH = 0, 0, int(desc.Width), int(desc.Height)
+	}
+	if cropX < 0 || cropY < 0 || cropX+cropW > int(desc.Width) || cropY+cropH > int(desc.Height) {
+		return 0, 0, fmt.Errorf("裁剪区越界: %d,%d %dx%d 超出纹理 %dx%d",
+			cropX, cropY, cropW, cropH, desc.Width, desc.Height)
+	}
+	need := cropW * cropH * 4
 	if len(dst) < need {
 		return 0, 0, fmt.Errorf("目标缓冲太小: 需要 %d，实际 %d", need, len(dst))
 	}
@@ -110,12 +118,14 @@ func (d *d3dDevice) copyTo(dst []byte, tex comPtr) (int, int, error) {
 	}
 	defer d.context.call(idxContextUnmap, uintptr(unsafe.Pointer(stagingTex.p)), 0)
 
-	rowBytes := int(desc.Width) * 4
-	src := unsafe.Slice((*byte)(mapped.Data), int(mapped.RowPitch)*int(desc.Height))
-	for y := 0; y < int(desc.Height); y++ {
-		copy(dst[y*rowBytes:(y+1)*rowBytes], src[y*int(mapped.RowPitch):])
+	rowBytes := cropW * 4
+	pitch := int(mapped.RowPitch)
+	src := unsafe.Slice((*byte)(mapped.Data), pitch*int(desc.Height))
+	for y := 0; y < cropH; y++ {
+		start := (cropY+y)*pitch + cropX*4
+		copy(dst[y*rowBytes:(y+1)*rowBytes], src[start:start+rowBytes])
 	}
-	return int(desc.Width), int(desc.Height), nil
+	return cropW, cropH, nil
 }
 
 // readBack 把 GPU 纹理读回 CPU，返回 BGRA 字节与行跨度。
