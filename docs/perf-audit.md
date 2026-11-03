@@ -83,6 +83,30 @@ Windows.Graphics.Capture 拿到的是合成器输出的 GPU 纹理，不需要 C
 
 这条路没有实测过，是否采用需要单独评估（实现量、驱动兼容性、权限）。
 
+#### 候选替代方案：go2tv.app/screencast（评估结论：不直接引入）
+
+社区库 [go2tv.app/screencast](https://pkg.go.dev/go2tv.app/screencast)（MIT，
+[alexballas/screencast](https://github.com/alexballas/screencast)）用
+**Windows Graphics Capture + D3D11** 做捕获，技术路线正是我们要的。
+
+| 维度 | 结论 |
+| --- | --- |
+| 许可证 | **MIT**，与本项目 GPL-3.0 兼容 |
+| 技术路线 | **WGC + D3D11**，绕开 GDI 屏幕回读 |
+| 窗口级捕获 | **不支持**。C API 是 `InitWinCapture(id, streamIndex, includeAudio, ...)`，只枚举显示器 |
+| 单帧语义 | **不支持**。输出是 `io.ReadCloser` 的 BGRA 帧流 |
+| cgo | **必须**。`capture_windows.go` 是 `import "C"` + C++20，链接 `windowsapp/d3d11/ole32` |
+| 构建依赖 | 需要 cppwinrt 头 + MinGW-w64。本机试编失败：`winrt/Windows.Foundation.h: No such file`（Strawberry MinGW 不带 cppwinrt；VS 的 MSVC 不被 Go cgo 支持） |
+| 与本项目冲突 | `.github/workflows/release.yml` 明确 `CGO_ENABLED: "0"` |
+
+所以要采用它，得同时做四件事：改发布链路为 cgo、给 CI 装 MSYS2+cppwinrt、
+给 C++ 层加 `CreateForWindow`、把帧流改成"取最新帧"。这不是接一个库，是换一套构建与捕获架构。
+
+**建议：现在不引入。** 当前产品跑 5~10 FPS，截图 14ms 只占 100ms 预算的 14%，
+不是瓶颈。等到要冲 30 FPS 以上时再评估——那时 14ms 会占掉 42% 的预算。
+若真要上，优先考虑**纯 Go 重写 WGC/D3D11**（手工 COM vtable），这样能保住
+`CGO_ENABLED=0`，但工作量和风险都高。
+
 ### 真实截图回放
 
 1920x1080，38 张真实截图连续回放（每帧换图，缓存几乎不命中，比真实运行悲观）：
