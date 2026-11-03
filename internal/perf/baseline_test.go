@@ -90,6 +90,36 @@ func loadShot(t *testing.T, name string) *image.RGBA {
 	return dst
 }
 
+// loadShotIfExists 与 loadShot 相同，但缺文件时返回错误而不是跳过测试。
+func loadShotIfExists(name string) (*image.RGBA, error) {
+	f, err := os.Open(filepath.Join("..", "..", ".tmp", "ok-ww", "tests", "images", name))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Over, nil)
+	return dst, nil
+}
+
+// wuwaCombatSession 只建自动战斗会话，用于定点测量。
+func wuwaCombatSession(rt assist.Runtime) (assist.Session, error) {
+	game, ok := games.Get("wuwa")
+	if !ok {
+		return nil, fmt.Errorf("没有 wuwa 游戏")
+	}
+	for _, f := range game.Features() {
+		if f.ID() == "auto_combat" {
+			return f.NewSession(rt, f.DefaultSettings())
+		}
+	}
+	return nil, fmt.Errorf("没有自动战斗功能")
+}
+
 func openOCR(t *testing.T) vision.OCR {
 	t.Helper()
 	dir, err := filepath.Abs(filepath.Join("..", "..", "assets", "models", "ppocrv6"))
@@ -289,6 +319,20 @@ func TestPerfBaseline(t *testing.T) {
 			i++
 			_, _, _ = sess.Step(nil, frame)
 		}))
+	}
+
+	// 带 Boss 血条的战斗截图：稳态下 inCombat 只要查小矩形就能短路，
+	// 不必扫全屏。用来量"Boss 优先"这条重排的收益。
+	if bossShot, err := loadShotIfExists("con_full2.png"); err == nil {
+		if sess, err := wuwaCombatSession(rt); err == nil {
+			var i int
+			stats = append(stats, measure("feature.auto_combat.step_boss", 5, 60, func() {
+				frame := assist.Frame{Image: bossShot, At: base.Add(time.Duration(i) * 150 * time.Millisecond)}
+				i++
+				_, _, _ = sess.Step(nil, frame)
+			}))
+			_ = sess.Close()
+		}
 	}
 
 	// 同一帧驱动全部功能：这是 engine 每拍真正要做的事。

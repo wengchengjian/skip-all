@@ -7,7 +7,7 @@
 | CPU | 13th Gen Intel(R) Core(TM) i7-13700K (24 逻辑核) |
 | OS | Microsoft Windows 11 专业工作站版 |
 | Go | go1.26.1 windows/amd64 |
-| 生成时间 | 2026-11-03 13:07:12 |
+| 生成时间 | 2026-11-03 13:15:08 |
 
 ## 分阶段单次代价
 
@@ -15,17 +15,18 @@
 
 | 阶段 | n | mean | p50 | p95 | 每次分配字节 | 每次分配次数 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ocr.engine.skill_x3 | 20 | 45.50 ms | 44.94 ms | 50.08 ms | 5,418.2 KB | 2735 |
-| ocr.engine.story | 15 | 19.86 ms | 19.68 ms | 21.28 ms | 5,970.8 KB | 487 |
-| ocr.matcher.miss_x3 | 12 | 43.61 ms | 43.70 ms | 45.64 ms | 5,467.9 KB | 2752 |
-| ocr.matcher.hit | 200 | 161 µs | 0 µs | 586 µs | 0.1 KB | 1 |
-| vision.colorstats | 100 | 2.96 ms | 3.00 ms | 4.00 ms | 0.0 KB | 0 |
-| vision.colorrect_full | 100 | 2.12 ms | 2.00 ms | 3.00 ms | 40.7 KB | 0 |
-| vision.textbands | 300 | 353 µs | 0 µs | 1,012 µs | 0.1 KB | 2 |
-| vision.template_match | 100 | 7.93 ms | 8.00 ms | 8.72 ms | 237.5 KB | 5 |
-| feature.story_skip.step | 60 | 304 µs | 0 µs | 2,268 µs | 0.2 KB | 4 |
-| feature.auto_combat.step | 60 | 2.18 ms | 2.00 ms | 3.00 ms | 0.3 KB | 6 |
-| feature.all.step | 60 | 2.15 ms | 2.00 ms | 3.00 ms | 68.3 KB | 10 |
+| ocr.engine.skill_x3 | 20 | 45.82 ms | 46.28 ms | 50.10 ms | 5,417.9 KB | 2735 |
+| ocr.engine.story | 15 | 21.98 ms | 21.29 ms | 27.82 ms | 5,970.9 KB | 487 |
+| ocr.matcher.miss_x3 | 12 | 45.41 ms | 45.65 ms | 49.08 ms | 5,467.9 KB | 2752 |
+| ocr.matcher.hit | 200 | 161 µs | 0 µs | 627 µs | 0.1 KB | 1 |
+| vision.colorstats | 100 | 2.97 ms | 3.00 ms | 3.53 ms | 0.0 KB | 0 |
+| vision.colorrect_full | 100 | 1.97 ms | 2.00 ms | 2.51 ms | 40.7 KB | 0 |
+| vision.textbands | 300 | 349 µs | 0 µs | 1,010 µs | 0.1 KB | 2 |
+| vision.template_match | 100 | 7.93 ms | 8.01 ms | 8.53 ms | 237.5 KB | 5 |
+| feature.story_skip.step | 60 | 241 µs | 0 µs | 1,999 µs | 0.2 KB | 4 |
+| feature.auto_combat.step | 60 | 2.19 ms | 2.00 ms | 3.00 ms | 0.3 KB | 6 |
+| feature.auto_combat.step_boss | 60 | 100 µs | 0 µs | 1,003 µs | 2.7 KB | 16 |
+| feature.all.step | 60 | 2.06 ms | 2.01 ms | 3.00 ms | 69.9 KB | 10 |
 | async.ocr.submit | 200 | 0 µs | 0 µs | 0 µs | 0.1 KB | 1 |
 
 ## 真实截图回放
@@ -35,8 +36,8 @@
 
 | 功能 | 帧数 | mean | p50 | p95 | OCR 次数 | OCR 总耗时 | 模板次数 | 模板总耗时 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| story_skip | 38 | 12.8 ms | 8.5 ms | 30.6 ms | 4 | 142 ms | 324 | 93 ms |
-| auto_combat | 38 | 32.5 ms | 11.3 ms | 139.6 ms | 17 | 862 ms | 451 | 274 ms |
+| story_skip | 38 | 12.5 ms | 8.5 ms | 29.3 ms | 4 | 139 ms | 324 | 82 ms |
+| auto_combat | 38 | 31.4 ms | 9.5 ms | 133.5 ms | 17 | 845 ms | 451 | 270 ms |
 
 ## 说明
 
